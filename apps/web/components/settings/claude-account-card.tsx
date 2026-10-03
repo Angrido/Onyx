@@ -135,6 +135,15 @@ function LoginPanel({
           code.
         </p>
       ) : null}
+      {running && !failedAttempt && login.codeSubmittedAt ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          data-testid="claude-login-checking"
+        >
+          <Loader2 className="size-3.5 animate-spin" />
+          Checking the code with Claude…
+        </p>
+      ) : null}
       {running && !failedAttempt ? (
         <form
           className="flex gap-2"

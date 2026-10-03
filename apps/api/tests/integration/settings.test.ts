@@ -93,9 +93,10 @@ describe("Claude account settings", () => {
     expect(waiting.simulator).toBe(true);
 
     const submitted = await api.post<ClaudeAccountDto>("/api/settings/claude/login/code", {
-      code: "code-from-the-browser#state",
+      code: `${"A1b2C3d4".repeat(12)}_code-from-the-browser#${"s".repeat(43)}`,
     });
     expect(submitted.status).toBe(200);
+    expect(submitted.body.login?.codeSubmittedAt).not.toBeNull();
     const connected = await waitFor(account, (value) => value.configured);
     expect(connected).toMatchObject({
       source: "settings",

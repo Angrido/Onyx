@@ -959,6 +959,10 @@ function stubSignInUrl(): string {
   ].join("&");
 }
 
+const PASTE_START = "\u001b[200~";
+const PASTE_END = "\u001b[201~";
+const LONG_TYPED_CHUNK = 64;
+
 async function runSetupToken(): Promise<void> {
   const say = (text: string) => process.stdout.write(`${text}\r\n`);
   const grey = (text: string) => `\u001b[38;2;153;153;153m${text}\u001b[39m`;
@@ -970,6 +974,7 @@ async function runSetupToken(): Promise<void> {
     say("");
     process.stdout.write(`${inkText(2, "Paste code here if prompted >")} `);
   };
+  process.stdout.write("\u001b[?2004h");
   say(`Welcome to Claude Code ${grey("v0.0.0-stub")}`);
   say("");
   say(
@@ -980,22 +985,24 @@ async function runSetupToken(): Promise<void> {
   say("");
   offerLink();
   let failed = false;
-  const lines = createInterface({ input: process.stdin, terminal: false });
-  for await (const line of lines) {
-    const code = line.trim();
+  let buffer = "";
+  let pasting = false;
+  const submit = () => {
+    const code = buffer.trim();
+    buffer = "";
     if (failed) {
       failed = false;
       say("");
       offerLink();
-      continue;
+      return;
     }
-    if (code.length === 0) continue;
+    if (code.length === 0) return;
     if (code === "bad") {
       failed = true;
       say("");
       say("OAuth error: Request failed with status code 400");
       say("Press Enter to retry.");
-      continue;
+      return;
     }
     const token = `sk-ant-oat01-${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}-stubAA`;
     say("");
@@ -1006,8 +1013,44 @@ async function runSetupToken(): Promise<void> {
     say(token);
     say("");
     say("Store this token securely. You won't be able to see it again.");
-    process.exit(0);
-  }
+    setTimeout(() => process.exit(0), 500);
+  };
+  const typed = (text: string) => {
+    if (text.length > LONG_TYPED_CHUNK) {
+      buffer += text;
+      return;
+    }
+    for (const char of text) {
+      if (char === "\r" || char === "\n") submit();
+      else if (char === "\u007f") buffer = buffer.slice(0, -1);
+      else if (char === "\u0003") process.exit(130);
+      else buffer += char;
+    }
+  };
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk: string) => {
+    let text = chunk;
+    while (text.length > 0) {
+      if (pasting) {
+        const end = text.indexOf(PASTE_END);
+        buffer += end === -1 ? text : text.slice(0, end);
+        text = end === -1 ? "" : text.slice(end + PASTE_END.length);
+        pasting = end === -1;
+        continue;
+      }
+      const begin = text.indexOf(PASTE_START);
+      if (begin === -1) {
+        typed(text);
+        text = "";
+      } else {
+        typed(text.slice(0, begin));
+        text = text.slice(begin + PASTE_START.length);
+        pasting = true;
+      }
+    }
+  });
+  await new Promise<never>(() => undefined);
 }
 
 function missingCredentials(): boolean {

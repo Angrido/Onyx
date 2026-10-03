@@ -16,6 +16,7 @@ export const ClaudeLoginDtoSchema = z.object({
   startedAt: z.string(),
   signInUrl: z.string().nullable(),
   error: z.string().nullable(),
+  codeSubmittedAt: z.string().nullable(),
   screen: z.string(),
 });
 export type ClaudeLoginDto = z.infer<typeof ClaudeLoginDtoSchema>;

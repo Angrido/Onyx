@@ -54,6 +54,7 @@ interface LoginSession {
   screen: ScreenBuffer;
   signInUrl: string | null;
   error: string | null;
+  codeSubmittedAt: Date | null;
   screenText: string;
   processed: Promise<void>;
   state: ClaudeLoginState;
@@ -65,6 +66,10 @@ interface LoginSession {
 const CREDENTIAL_KEY = "claude.credential";
 const TEST_KEY = "claude.lastTest";
 const LOGIN_COLS = 1_000;
+const PASTE_START = "\u001b[200~";
+const PASTE_END = "\u001b[201~";
+const SUBMIT_DELAY_MS = 300;
+const EXIT_SETTLE_MS = 250;
 const LOGIN_ROWS = 40;
 const SCREEN_LINES = 40;
 const LOGIN_OUTPUT_CHARS = 64 * 1024;
@@ -229,9 +234,11 @@ export class CredentialService {
           onData: (data) => this.handleLoginOutput(session, data),
           onExit: (exit) => {
             session.exitCode = exit.exitCode;
-            void session.processed.then(() => {
-              if (session.state === "running") session.state = "failed";
-            });
+            setTimeout(() => {
+              void session.processed.then(() => {
+                if (session.state === "running") session.state = "failed";
+              });
+            }, EXIT_SETTLE_MS);
           },
         },
         {
@@ -243,6 +250,7 @@ export class CredentialService {
       screen: new ScreenBuffer(LOGIN_COLS, LOGIN_ROWS),
       signInUrl: null,
       error: null,
+      codeSubmittedAt: null,
       screenText: "",
       processed: Promise.resolve(),
       state: "running",
@@ -266,7 +274,12 @@ export class CredentialService {
     const login = this.login;
     if (!login) throw notFound("Sign-in");
     if (login.state !== "running") throw conflict("The sign-in has finished: start it again");
-    login.pty.write(`${code}\r`);
+    const paste = login.screen.bracketedPaste() ? `${PASTE_START}${code}${PASTE_END}` : code;
+    login.pty.write(paste);
+    login.error = null;
+    login.codeSubmittedAt = new Date();
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS));
+    if (login.state === "running") login.pty.write("\r");
     return this.account();
   }
 
@@ -275,6 +288,7 @@ export class CredentialService {
     if (!login) throw notFound("Sign-in");
     if (login.state !== "running") throw conflict("The sign-in has finished: start it again");
     login.error = null;
+    login.codeSubmittedAt = null;
     login.pty.write("\r");
     return this.account();
   }
@@ -324,6 +338,7 @@ export class CredentialService {
       findSignInUrl(session.screen.linkText()) ??
       session.signInUrl;
     session.error = findLoginError(lines);
+    if (session.error !== null) session.codeSubmittedAt = null;
     if (session.state !== "running") return;
     const token = findClaudeToken(text.replace(/\s+/g, " "));
     if (!token) return;
@@ -444,6 +459,7 @@ export class CredentialService {
       startedAt: login.startedAt.toISOString(),
       signInUrl: login.signInUrl,
       error: login.error,
+      codeSubmittedAt: login.codeSubmittedAt?.toISOString() ?? null,
       screen: login.screenText,
     };
   }

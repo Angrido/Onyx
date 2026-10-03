@@ -90,6 +90,10 @@ export class ScreenBuffer {
     return joined.join("\n");
   }
 
+  bracketedPaste(): boolean {
+    return this.terminal.modes.bracketedPasteMode;
+  }
+
   dispose(): void {
     this.terminal.dispose();
   }
