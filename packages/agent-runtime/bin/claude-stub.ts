@@ -797,9 +797,26 @@ function applyLikelyEdits(prompt: string): void {
 
 async function runSetupToken(): Promise<void> {
   const say = (text: string) => process.stdout.write(`${text}\r\n`);
+  const columns = process.stdout.columns > 0 ? process.stdout.columns : 80;
+  const hardWrap = (text: string) => {
+    const lines: string[] = [];
+    for (let index = 0; index < text.length; index += columns)
+      lines.push(text.slice(index, index + columns));
+    return lines.join("\r\n");
+  };
+  const signInUrl = [
+    "https://claude.ai/oauth/authorize?code=true",
+    "client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    "response_type=code",
+    "redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback",
+    "scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code",
+    `code_challenge=${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}`,
+    "code_challenge_method=S256",
+    `state=${randomUUID().replaceAll("-", "")}`,
+  ].join("&");
   say("Opening browser to sign in with your Claude account…");
   say("");
-  say("Browse to: https://claude.ai/oauth/authorize?code=true&client_id=onyx-stub&state=stub");
+  say(hardWrap(`Browse to: ${signInUrl}`));
   say("");
   process.stdout.write("Paste code here if prompted > ");
   const lines = createInterface({ input: process.stdin, terminal: false });

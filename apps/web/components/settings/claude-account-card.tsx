@@ -13,67 +13,116 @@ import {
   Stethoscope,
   XCircle,
 } from "lucide-react";
-import { useCallback, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { TerminalView } from "@/components/workspaces/terminal-view";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-
-const SIGN_IN_URL = /https:\/\/claude\.(?:ai|com)\/[^\s"'<>]+/;
 
 function credentialLabel(account: ClaudeAccountDto): string {
   if (!account.configured) return "Not connected";
   return account.kind === "oauth-token" ? "Claude subscription (Max or Pro)" : "Anthropic API key";
 }
 
-function LoginPanel({ login, onCancel }: { login: ClaudeLoginDto; onCancel: () => void }) {
-  const [signInUrl, setSignInUrl] = useState<string | null>(null);
-  const buffer = useRef("");
-  const onOutput = useCallback((data: string) => {
-    buffer.current = `${buffer.current}${data}`.slice(-8_000);
-    const match = SIGN_IN_URL.exec(buffer.current);
-    if (match) setSignInUrl(match[0]);
-  }, []);
+function LoginPanel({
+  login,
+  onCancel,
+  onSubmitted,
+}: {
+  login: ClaudeLoginDto;
+  onCancel: () => void;
+  onSubmitted: (account: ClaudeAccountDto) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [showOutput, setShowOutput] = useState(false);
   const running = login.state === "running";
+  const submit = useMutation({
+    mutationFn: () =>
+      api.post<ClaudeAccountDto>("/api/settings/claude/login/code", { code: code.trim() }),
+    onSuccess: (account) => {
+      setCode("");
+      onSubmitted(account);
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
 
   return (
-    <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+    <div
+      className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3"
+      data-testid="claude-login"
+    >
       <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
         <li>Open the sign-in page and log in with your Claude Max account.</li>
-        <li>Claude shows a code: copy it.</li>
-        <li>Click the terminal below, paste the code and press Enter.</li>
+        <li>Claude shows a code: copy all of it.</li>
+        <li>Paste it below and press Connect.</li>
       </ol>
       <div className="flex flex-wrap items-center gap-2">
-        {signInUrl ? (
+        {login.signInUrl ? (
           <Button asChild size="sm">
-            <a href={signInUrl} target="_blank" rel="noreferrer">
+            <a
+              href={login.signInUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="claude-sign-in-link"
+            >
               <ExternalLink />
               Open the Claude sign-in page
             </a>
           </Button>
-        ) : (
+        ) : running ? (
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
             Waiting for the sign-in link…
           </span>
-        )}
+        ) : null}
         {running ? (
           <Button size="sm" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
         ) : null}
       </div>
-      <TerminalView
-        terminalId={login.id}
-        interactive={running}
-        onOutput={onOutput}
-        className="h-56"
-      />
+      {running ? (
+        <form
+          className="flex gap-2"
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            submit.mutate();
+          }}
+        >
+          <Input
+            aria-label="Code from Claude"
+            className="font-mono text-xs"
+            placeholder="Paste the code from the Claude page"
+            autoComplete="off"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+          <Button type="submit" disabled={submit.isPending || code.trim().length === 0}>
+            {submit.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
+            Connect
+          </Button>
+        </form>
+      ) : null}
+      {login.screen ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowOutput((value) => !value)}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            {showOutput ? "Hide" : "Show"} the claude setup-token output
+          </button>
+          {showOutput ? (
+            <pre className="scrollbar-thin mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-md bg-surface-0 p-2 font-mono text-[11px] text-muted-foreground">
+              {login.screen}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -85,7 +134,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
     queryKey: queryKeys.claudeAccount,
     queryFn: () => api.get<ClaudeAccountDto>("/api/settings/claude"),
     initialData: initial,
-    refetchInterval: (query) => (query.state.data?.login?.state === "running" ? 1_500 : false),
+    refetchInterval: (query) => (query.state.data?.login?.state === "running" ? 1_000 : false),
   });
   const data = account.data;
   const store = (next: ClaudeAccountDto) => queryClient.setQueryData(queryKeys.claudeAccount, next);
@@ -203,7 +252,12 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
         </div>
 
         {data.login && (data.login.state === "running" || data.login.state === "failed") ? (
-          <LoginPanel key={data.login.id} login={data.login} onCancel={() => cancel.mutate()} />
+          <LoginPanel
+            key={data.login.id}
+            login={data.login}
+            onCancel={() => cancel.mutate()}
+            onSubmitted={store}
+          />
         ) : null}
         {data.login?.state === "failed" ? (
           <p className="text-xs text-destructive">

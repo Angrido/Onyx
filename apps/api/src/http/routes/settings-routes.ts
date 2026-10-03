@@ -1,5 +1,6 @@
 import {
   SaveClaudeTokenRequestSchema,
+  SubmitLoginCodeRequestSchema,
   type ClaudeAccountDto,
   type ClaudeLoginDto,
   type ClaudeTestResult,
@@ -33,6 +34,10 @@ export function registerSettingsRoutes(app: FastifyInstance, container: Containe
     reply.status(201);
     return login;
   });
+
+  app.post("/api/settings/claude/login/code", async (request): Promise<ClaudeAccountDto> =>
+    credentials.submitLoginCode(SubmitLoginCodeRequestSchema.parse(request.body).code),
+  );
 
   app.delete("/api/settings/claude/login", async (): Promise<ClaudeAccountDto> =>
     credentials.cancelLogin(),

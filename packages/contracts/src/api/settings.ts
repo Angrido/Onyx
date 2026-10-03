@@ -14,6 +14,8 @@ export const ClaudeLoginDtoSchema = z.object({
   state: ClaudeLoginStateSchema,
   exitCode: z.number().int().nullable(),
   startedAt: z.string(),
+  signInUrl: z.string().nullable(),
+  screen: z.string(),
 });
 export type ClaudeLoginDto = z.infer<typeof ClaudeLoginDtoSchema>;
 
@@ -52,6 +54,11 @@ export const SaveClaudeTokenRequestSchema = z.object({
     ),
 });
 export type SaveClaudeTokenRequest = z.input<typeof SaveClaudeTokenRequestSchema>;
+
+export const SubmitLoginCodeRequestSchema = z.object({
+  code: z.string().trim().max(2_000),
+});
+export type SubmitLoginCodeRequest = z.input<typeof SubmitLoginCodeRequestSchema>;
 
 export const GitIdentityDtoSchema = z.object({
   name: z.string().nullable(),

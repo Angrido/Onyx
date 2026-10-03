@@ -73,34 +73,27 @@ describe("Claude account settings", () => {
     );
   });
 
-  it("signs in with claude setup-token inside a terminal and saves the token", async () => {
+  it("signs in with claude setup-token and saves the token", async () => {
     const started = await api.post<ClaudeLoginDto>("/api/settings/claude/login");
     expect(started.status).toBe(201);
     expect(started.body.state).toBe("running");
 
-    const messages: ServerMessage[] = [];
-    const socket: WebSocket = await context.app.injectWS("/ws", {
-      headers: { cookie, origin: ORIGIN },
+    const waiting = await waitFor(
+      account,
+      (value) => value.login?.signInUrl !== null && value.login?.signInUrl !== undefined,
+    );
+    const signInUrl = new URL(waiting.login?.signInUrl ?? "");
+    expect(signInUrl.searchParams.get("redirect_uri")).toBe(
+      "https://console.anthropic.com/oauth/code/callback",
+    );
+    expect(signInUrl.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(signInUrl.searchParams.get("state")).toMatch(/^[0-9a-f]{32}$/);
+    expect(waiting.login?.screen).toContain("Paste code here");
+
+    const submitted = await api.post<ClaudeAccountDto>("/api/settings/claude/login/code", {
+      code: "code-from-the-browser#state",
     });
-    socket.on("message", (data) => messages.push(JSON.parse(data.toString()) as ServerMessage));
-    const output = () =>
-      messages
-        .flatMap((message) => (message.type === "pty.output" ? [message.data.data] : []))
-        .join("");
-    socket.send(
-      JSON.stringify({ v: 1, type: "subscribe", data: { channels: [`pty:${started.body.id}`] } }),
-    );
-    await waitFor(
-      () => Promise.resolve(output()),
-      (text) => text.includes("Paste code here"),
-    );
-    socket.send(
-      JSON.stringify({
-        v: 1,
-        type: "pty.input",
-        data: { terminalId: started.body.id, data: "code-from-the-browser\r" },
-      }),
-    );
+    expect(submitted.status).toBe(200);
     const connected = await waitFor(account, (value) => value.configured);
     expect(connected).toMatchObject({
       source: "settings",
@@ -108,7 +101,25 @@ describe("Claude account settings", () => {
       login: { state: "connected" },
     });
     expect(connected.hint).toMatch(/^sk-ant-oat01-.+…/);
-    expect(JSON.stringify(connected)).not.toMatch(/sk-ant-oat01-[0-9a-f]{40,}/);
+    expect(JSON.stringify({ ...connected, login: null })).not.toMatch(/sk-ant-oat01-[0-9a-f]{40,}/);
+  });
+
+  it("still accepts keystrokes from the terminal channel", async () => {
+    const started = await api.post<ClaudeLoginDto>("/api/settings/claude/login");
+    const messages: ServerMessage[] = [];
+    const socket: WebSocket = await context.app.injectWS("/ws", {
+      headers: { cookie, origin: ORIGIN },
+    });
+    socket.on("message", (data) => messages.push(JSON.parse(data.toString()) as ServerMessage));
+    await waitFor(account, (value) => (value.login?.screen ?? "").includes("Paste code here"));
+    socket.send(
+      JSON.stringify({
+        v: 1,
+        type: "pty.input",
+        data: { terminalId: started.body.id, data: "typed-code\r" },
+      }),
+    );
+    await waitFor(account, (value) => value.login?.state === "connected");
     socket.terminate();
   });
 

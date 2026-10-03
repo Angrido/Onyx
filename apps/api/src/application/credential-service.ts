@@ -26,6 +26,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import { credentialEnv, type AppConfig, type ClaudeCredentials } from "../config";
 import { conflict, notFound } from "../errors";
+import { ScreenBuffer, findSignInUrl } from "../infrastructure/screen-buffer";
 import { ptyOutputMessage, type WsHub } from "../infrastructure/ws-hub";
 
 export interface CredentialServiceDeps {
@@ -50,6 +51,10 @@ interface LoginSession {
   id: string;
   pty: PtySession;
   output: TextTail;
+  screen: ScreenBuffer;
+  signInUrl: string | null;
+  screenText: string;
+  processed: Promise<void>;
   state: ClaudeLoginState;
   exitCode: number | null;
   startedAt: Date;
@@ -58,8 +63,9 @@ interface LoginSession {
 
 const CREDENTIAL_KEY = "claude.credential";
 const TEST_KEY = "claude.lastTest";
-const LOGIN_COLS = 400;
-const LOGIN_ROWS = 30;
+const LOGIN_COLS = 1_000;
+const LOGIN_ROWS = 40;
+const SCREEN_LINES = 40;
 const LOGIN_OUTPUT_CHARS = 64 * 1024;
 const DEFAULT_TEST_TIMEOUT_MS = 90_000;
 const TEST_PROMPT = "Reply with the single word OK.";
@@ -221,7 +227,9 @@ export class CredentialService {
           onData: (data) => this.handleLoginOutput(session, data),
           onExit: (exit) => {
             session.exitCode = exit.exitCode;
-            if (session.state === "running") session.state = "failed";
+            void session.processed.then(() => {
+              if (session.state === "running") session.state = "failed";
+            });
           },
         },
         {
@@ -230,6 +238,10 @@ export class CredentialService {
         },
       ),
       output: new TextTail(LOGIN_OUTPUT_CHARS),
+      screen: new ScreenBuffer(LOGIN_COLS, LOGIN_ROWS),
+      signInUrl: null,
+      screenText: "",
+      processed: Promise.resolve(),
       state: "running",
       exitCode: null,
       startedAt: new Date(),
@@ -245,6 +257,14 @@ export class CredentialService {
 
   ownsPty(id: string): boolean {
     return this.login?.id === id;
+  }
+
+  async submitLoginCode(code: string): Promise<ClaudeAccountDto> {
+    const login = this.login;
+    if (!login) throw notFound("Sign-in");
+    if (login.state !== "running") throw conflict("The sign-in has finished: start it again");
+    login.pty.write(`${code}\r`);
+    return this.account();
   }
 
   loginInput(id: string, data: string): void {
@@ -270,8 +290,18 @@ export class CredentialService {
   private handleLoginOutput(session: LoginSession, data: string): void {
     session.output.append(data);
     this.deps.hub.publishPtyOutput(session.id, data);
+    session.processed = session.processed
+      .then(() => session.screen.write(data))
+      .then(() => this.inspectLogin(session));
+  }
+
+  private inspectLogin(session: LoginSession): void {
+    const lines = session.screen.lines();
+    const text = lines.join("\n");
+    session.screenText = lines.slice(-SCREEN_LINES).join("\n");
+    session.signInUrl = findSignInUrl(session.screen.linkText()) ?? session.signInUrl;
     if (session.state !== "running") return;
-    const token = findClaudeToken(session.output.toString());
+    const token = findClaudeToken(text.replace(/\s+/g, " "));
     if (!token) return;
     session.state = "connected";
     this.save(token, session.actor)
@@ -388,6 +418,8 @@ export class CredentialService {
       state: login.state,
       exitCode: login.exitCode,
       startedAt: login.startedAt.toISOString(),
+      signInUrl: login.signInUrl,
+      screen: login.screenText,
     };
   }
 
