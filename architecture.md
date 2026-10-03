@@ -4,9 +4,9 @@
 
 | Campo | Valore |
 |---|---|
-| Versione documento | 0.3.0 |
+| Versione documento | 0.4.0 |
 | Data | 2026-10-03 |
-| Stato | Fasi 1 e 2 completate (vedi [§16](#16-roadmap-prossimi-step-sequenziali)); Fase 3 da avviare |
+| Stato | Fasi 1, 2 e 3 completate (vedi [§16](#16-roadmap-prossimi-step-sequenziali)); Fase 4 da avviare |
 | Approccio | Architecture-First, Clean Architecture (ports & adapters) |
 | Ambito | Topologia, comunicazione, dati, directory, infrastruttura, rete, roadmap |
 
@@ -125,7 +125,7 @@ Queste note non cambiano i requisiti, ma vanno considerate prima della Fase 1.
 - **Node.js**: il 22 è in *Maintenance LTS* fino ad aprile 2027; il 24 è l'*Active LTS*. Il 22 va bene per il ciclo di vita del progetto; pianificare il passaggio al 24.
 - **Framer Motion**: il progetto è stato rinominato in **Motion**; il pacchetto attuale è `motion` con import da `motion/react`. Le API (`motion.div`, `AnimatePresence`, `layout`) restano le stesse.
 - **Prisma 7**: il datasource URL si sposta in `prisma.config.ts`, il generator consigliato è `prisma-client` con `output` esplicito, e SQLite richiede il driver adapter `@prisma/adapter-better-sqlite3`. `enum` e `Json` sono supportati su SQLite (da Prisma 6.2).
-- **Claude Code**: non esiste un supporto nativo a file `.claudeignore`/`.claudesignore`. Il meccanismo ufficiale per escludere file sono le regole `permissions.deny` nei settings. Il `.claudesignore` di Onyx è quindi una **sorgente di verità** che il Context Surgeon **compila** in regole di permesso e in hook di guardia (vedi [§6.1](#61-context-surgeon)).
+- **Claude Code**: non esiste un supporto nativo a file `.claudeignore`/`.claudesignore`. Il meccanismo ufficiale per escludere file sono le regole `permissions.deny` nei settings. Il Context Surgeon tiene quindi il profilo di contesto nel database (importabile da ed esportabile in `.claudesignore`) e lo **compila** in regole di permesso e in un hook di guardia (vedi [§6.1](#61-context-surgeon)).
 - **tree-sitter**: i binding nativi `tree-sitter` 0.25 caricano senza problemi `tree-sitter-typescript` 0.23 (che dichiara ancora `peerDependency` `^0.21`), `tree-sitter-javascript` 0.25 e `tree-sitter-python` 0.25 su Node 22; il conflitto di peer è dichiarato accettato in `pnpm-workspace.yaml`. I binding nativi sono preferiti al WASM per velocità di parse.
 - **Comandi slash in headless**: `/clear` e `/compact` funzionano solo nell'interfaccia terminale, non in `-p`. Il reset del contesto in headless è quindi **strutturale** (nuova sessione); l'iniezione letterale di `/clear` avviene solo nei terminali PTY interattivi (vedi [§6.5](#65-session-compartmentalization)).
 
@@ -274,14 +274,14 @@ Tutte sotto `/api`, validate con zod e documentate con OpenAPI generato.
 | Task | `GET/POST /tasks`, `GET /tasks/:id`, `POST /tasks/:id/run`, `POST /tasks/:id/cancel`, `POST /tasks/:id/plan` |
 | Run | `GET /runs/:id`, `GET /runs/:id/events?after=seq`, `POST /runs/:id/abort` |
 | Sessioni | `GET /workspaces/:id/sessions`, `POST /sessions/:id/rotate` |
-| Context Surgeon | `GET /projects/:id/tree`, `GET/PUT /ignore-profiles/:id`, `POST /ignore-profiles/:id/suggest`, `POST /ignore-profiles/:id/compile` |
+| Context Surgeon | `GET/PUT /projects/:id/surgeon`, `POST /projects/:id/surgeon/suggest`, `GET /projects/:id/surgeon/compiled`, `POST /projects/:id/surgeon/measure`, `POST /projects/:id/surgeon/calibrate`, `POST /projects/:id/surgeon/export` (tutte con `?workspaceId=` per l'overlay) |
 | Grafo e contesto | `GET /projects/:id/graph?focus=path&depth=n&limit=n`, `GET /projects/:id/context?path=…&level=0..3` |
 | Router | `GET/POST/PATCH /routing-rules`, `POST /router/preview`, `GET /routing-decisions` |
 | TDD | `POST /tdd-loops`, `GET /tdd-loops/:id`, `POST /tdd-loops/:id/abort` |
 | Telemetria | `GET /telemetry/summary`, `GET /telemetry/timeseries`, `GET /budgets`, `PUT /budgets/:id` |
 | Approvazioni | `GET /approvals`, `POST /approvals/:id` |
 | Sistema | `GET /health`, `GET /ready`, `GET /settings`, `PUT /settings` |
-| Interno (solo loopback, fuori da `/api`) | `POST /internal/mcp/:tool` con token di run; `/internal/hooks/*` dalla Fase 3 |
+| Interno (solo loopback, fuori da `/api`) | `POST /internal/mcp/:tool`, `POST /internal/hooks/pre-tool-use`, `POST /internal/hooks/post-tool-use`, tutte con il token della run |
 
 ### 4.3 Protocollo WebSocket
 
@@ -441,56 +441,50 @@ Directory `/var/lib/onyx/runtime/<runId>/`, permessi `700`, eliminata dopo la re
 | `context-pack.md` | Copia del pacchetto di contesto inviato in testa al primo messaggio (diagnostica) |
 | `stderr.log` | Ultimi 64 KiB di stderr (ring buffer) per diagnostica |
 
-Esempio di `settings.json` compilato per una run del workspace Frontend (il recinto di scrittura nega le modifiche a `apps/api/**`):
+Esempio di `settings.json` compilato per una run su `/srv/onyx/projects/shop` (profilo con `**/dist/**` e `!/dist/keep.js`, quindi in modalità materializzata; le regole `Edit` del recinto di scrittura per dominio arriveranno con la Fase 4):
 
 ```json
 {
   "permissions": {
     "deny": [
-      "Read(./node_modules/**)",
-      "Read(./dist/**)",
-      "Read(./.next/**)",
-      "Read(./coverage/**)",
-      "Read(**/*.min.js)",
-      "Read(**/*.map)",
-      "Read(./pnpm-lock.yaml)",
-      "Read(./.env*)",
-      "Edit(./apps/api/**)",
-      "Edit(**/*.test.ts)",
-      "Edit(**/*.spec.ts)",
-      "Bash(rm -rf *)",
-      "Bash(git push *)"
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(//srv/onyx/projects/shop/**/node_modules/**)",
+      "Read(//srv/onyx/projects/shop/dist/bundle.js)",
+      "Read(//srv/onyx/projects/shop/dist/assets/**)",
+      "Read(//srv/onyx/projects/shop/logs/**)",
+      "Read(//srv/onyx/projects/shop/fixtures/**)",
+      "Read(//srv/onyx/projects/shop/**/.env)",
+      "Edit(//srv/onyx/projects/shop/**/.env)",
+      "Edit(//srv/onyx/projects/shop/**/*.pem)"
     ],
-    "allow": [
-      "Bash(pnpm lint *)",
-      "Bash(pnpm typecheck *)",
-      "Bash(git diff *)",
-      "Bash(git status *)"
-    ]
+    "allow": []
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read|Grep|Glob|Bash",
+        "matcher": "Read|Grep|Glob|LS|LSP|NotebookRead|Bash",
         "hooks": [
           {
             "type": "http",
             "url": "http://127.0.0.1:4000/internal/hooks/pre-tool-use",
-            "headers": { "Authorization": "Bearer ${ONYX_RUN_TOKEN}" },
-            "allowedEnvVars": ["ONYX_RUN_TOKEN"]
+            "headers": { "Authorization": "Bearer $ONYX_RUN_TOKEN" },
+            "allowedEnvVars": ["ONYX_RUN_TOKEN"],
+            "timeout": 10
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "http",
-            "url": "http://127.0.0.1:4000/internal/hooks/post-edit",
-            "headers": { "Authorization": "Bearer ${ONYX_RUN_TOKEN}" },
-            "allowedEnvVars": ["ONYX_RUN_TOKEN"]
+            "url": "http://127.0.0.1:4000/internal/hooks/post-tool-use",
+            "headers": { "Authorization": "Bearer $ONYX_RUN_TOKEN" },
+            "allowedEnvVars": ["ONYX_RUN_TOKEN"],
+            "timeout": 10
           }
         ]
       }
@@ -499,7 +493,7 @@ Esempio di `settings.json` compilato per una run del workspace Frontend (il reci
 }
 ```
 
-La sintassi esatta degli hook HTTP (sostituzione delle variabili d'ambiente negli header) è validata con un test di contratto contro la versione della CLI installata in Fase 1.
+La CLI sostituisce nei `headers` solo le variabili elencate in `allowedEnvVars`; il valore arriva dall'ambiente del processo `claude`. Errori e timeout di un hook HTTP non bloccano la chiamata, per questo le regole `permissions.deny` restano sempre presenti.
 
 ### 5.3 Ciclo di vita di una run
 
@@ -568,69 +562,107 @@ Il runtime espone la porta `AgentRuntimePort`. L'adapter primario (`ClaudeCliRun
 
 ```mermaid
 flowchart LR
-  S["Scansione del filesystem<br/>(rispetta .gitignore)"] --> E["Arricchimento nodi<br/>byte, token stimati, binario, dominio, centralità"]
+  S["Indice del progetto<br/>(rispetta .gitignore e HARD_SKIP)"] --> E["Nodi arricchiti<br/>byte, token stimati, binario, segreto, dominio, centralità"]
   E --> H["Euristiche aggressive<br/>→ regole suggerite"]
   H --> UI["UI ad albero<br/>tri-state, heatmap token, diff del risparmio"]
-  UI --> P["IgnoreProfile versionato<br/>(DB)"]
-  P --> F[".claudesignore<br/>(sorgente di verità, sintassi gitignore)"]
-  F --> K["Compilatore"]
-  K --> R1["permissions.deny<br/>(settings.json di run)"]
-  K --> R2["Hook PreToolUse di guardia<br/>(Grep, Glob, Bash)"]
-  K --> R3["Pattern --ignore per repomix"]
-  K --> R4["Esclusioni Lean-ctx e indicizzatore"]
+  UI --> P["IgnoreProfile versionati<br/>base di progetto + overlay per workspace"]
+  P --> C["ContextPolicy<br/>base + overlay + regole di sicurezza bloccate"]
+  C --> R1["permissions.deny<br/>(settings.json di run)"]
+  C --> R2["Hook HTTP PreToolUse<br/>Read, Grep, Glob, LS, LSP, Bash"]
+  C --> R3["Pacchetto di contesto,<br/>mappa L0 e tool MCP"]
+  P --> F[".claudesignore<br/>(export per l'uso fuori da Onyx)"]
 ```
 
-**Euristiche del preset "Aggressive"**
+**Profili e composizione**
 
-| Categoria | Pattern di esempio | Bloccata (non rimovibile) |
+- Alla prima apertura il progetto riceve il profilo base `default` (attivo) con il preset aggressivo più le regole di un eventuale `.claudesignore` già presente nella radice del progetto.
+- Ogni workspace può avere un overlay (`IgnoreProfile` chiamato `workspace:<id>`, collegato da `Workspace.ignoreProfileId`) le cui regole si applicano dopo quelle del progetto.
+- La policy effettiva di una run è `base + overlay del workspace + regole di sicurezza`. Le regole bloccate sono sempre in coda, quindi nessuna negazione può riaprire un segreto.
+- Ogni salvataggio sostituisce le regole del livello modificato, incrementa `version`, registra `compiledHash` (SHA-256 del file gitignore normalizzato, 16 caratteri), `estimatedSavedTokens` e una voce `surgeon.save` in `AuditLog` con le regole aggiunte e rimosse.
+
+**Preset "Aggressive" ed euristiche**
+
+| Categoria | Pattern | Bloccata (non rimovibile) |
 |---|---|---|
-| Segreti | `.env*`, `*.pem`, `*.key`, `id_rsa*`, `*.p12` | Sì |
-| Dipendenze | `node_modules/`, `vendor/`, `.pnpm-store/` | No |
+| Segreti | `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc` | Sì |
+| Dipendenze | `node_modules/`, `vendor/`, `.pnpm-store/`, `.venv/`, `venv/`, `__pycache__/` | No |
 | Output di build | `dist/`, `build/`, `.next/`, `out/`, `.turbo/`, `coverage/` | No |
-| Lockfile | `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock` | No |
-| Generati | `**/generated/**`, `*.generated.*`, `**/__snapshots__/` | No |
+| Lockfile | `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`, `uv.lock`, `Cargo.lock` | No |
+| Generati | `**/generated/**`, `*.generated.*`, `**/__snapshots__/**`, `*.snap` | No |
 | Minificati e mappe | `*.min.js`, `*.min.css`, `*.map` | No |
-| Asset binari | immagini, font, video, archivi (rilevamento per magic bytes) | No |
-| Dati voluminosi | `*.csv`, `*.json`, `*.sql` oltre una soglia configurabile (default 200 KB) | No |
 | Log e cache | `*.log`, `.cache/`, `tmp/` | No |
+| Asset binari (euristica) | `<prime due directory>/**/*.<estensione>` per ogni estensione binaria trovata | No |
+| Dati voluminosi (euristica) | `/<file>` per `json`, `csv`, `tsv`, `sql`, `xml`, `yaml`, `ndjson`, `jsonl`, `txt` oltre 200 KB | No |
+| Codice generato (euristica) | `/<dir>/` sotto `generated/`, `__generated__/`, `gen/`; file `.generated.`, `.gen.`, `_pb2.py`, `.pb.go`, `_pb.ts` | No |
 
-Il Surgeon segnala con un avviso se si sta per escludere un file ad alta centralità nel grafo delle dipendenze (Graphify), perché nasconderlo all'agente costa più errori di quanti token risparmi.
+I suggerimenti si calcolano nel browser con la bozza corrente (stessa funzione di `POST /surgeon/suggest`): una regola già presente, anche in forma riscritta (`dist/` e `**/dist/**` sono la stessa regola), o che non esclude nulla di nuovo non viene proposta. Il Surgeon avvisa quando la bozza esclude un file nel 5% più centrale del grafo delle importazioni: nasconderlo all'agente costa più errori di quanti token risparmi.
 
-**Esempio di `.claudesignore` generato**
+**Esempio di `.claudesignore` esportato**
 
 ```gitignore
 node_modules/
-dist/
-.next/
-coverage/
-.turbo/
+**/dist/**
+!/dist/keep.js
 pnpm-lock.yaml
-**/generated/**
-**/__snapshots__/
 *.min.js
-*.map
 *.log
-public/assets/**/*.png
-public/assets/**/*.webp
-public/assets/**/*.mp4
-.env*
+/fixtures/catalog.json
+public/img/**/*.png
 ```
 
-**Compilatore `.claudesignore` → regole**
+L'export scrive solo il profilo di progetto: le regole di sicurezza sono implicite e gli overlay restano in Onyx.
 
-- Ogni pattern di esclusione diventa una regola `Read(...)` in `permissions.deny`, con traduzione delle ancore gitignore nella sintassi dei permessi di Claude Code (`dir/` → `Read(./dir/**)`; pattern senza slash → `Read(**/pattern)`).
-- Le regole `Read` coprono i tool di lettura integrati; le regole `Edit` coprono tutti i tool di modifica integrati (servono al recinto di scrittura per dominio e alla protezione dei test).
-- **Negazioni** (`!pattern`): le regole di permesso non supportano eccezioni. Se il profilo contiene negazioni, il compilatore passa in modalità *materializzata*: espande l'albero e genera regole esplicite per directory e file effettivamente esclusi.
-- **Difesa in profondità**: l'hook `PreToolUse` (HTTP verso `onyx-api`) blocca `Grep`, `Glob` e comandi `Bash` (`cat`, `less`, `head`, `tail`, `rg`) che puntano a percorsi esclusi. Risponde con `permissionDecision: "deny"` e una motivazione breve, così l'agente non insiste.
-- **Non invasività**: le regole vengono passate a ogni run via `--settings` e non modificano `.claude/settings.json` del progetto. Un comando "Esporta" può comunque scriverle nel progetto per chi usa Claude Code fuori da Onyx.
-- **Determinismo**: l'hash del profilo compilato (`compiledHash`) è registrato in ogni `AgentRun` per poter riprodurre la run.
+**Negazioni e semantica gitignore**
 
-**UI**
+La policy usa la libreria `ignore`, con la semantica di git: un file non si può re-includere se una sua directory antenata è esclusa. Per questo `dist/` + `!dist/keep.js` lascia escluso `keep.js`. Quando l'utente rimette in contesto un file dall'albero, la UI:
 
-- Albero virtualizzato (`@tanstack/react-virtual`) con checkbox tri-state (incluso, escluso, parziale).
-- Heatmap per token stimati (raw e lean), badge "lean disponibile", filtri per dominio ed estensione.
-- Pannello diff: regole aggiunte o rimosse e **risparmio stimato** in token e in dollari per il modello di default del workspace.
-- Overlay per workspace: un profilo base di progetto più regole aggiuntive per singolo workspace.
+1. toglie le regole del livello modificato che escludono esattamente quel percorso;
+2. riscrive la regola di directory che blocca l'antenato nella forma "contenuto" (`dist/` → `**/dist/**`, `/a/b/` → `/a/b/**`), che esclude gli stessi file ma non la directory stessa;
+3. aggiunge `!/percorso` e, se serve, `!/antenato/` per le directory intermedie (con `/antenato/**` dopo, se la negazione riaprisse altri file);
+4. elimina i passi superflui e verifica che, nella regione toccata, cambi soltanto lo stato dei file richiesti; se non ci riesce lo segnala.
+
+Per una directory vale lo stesso con `!/dir/**`. Escludere un file o una directory aggiunge `/percorso` o `/dir/` e toglie le negazioni ormai inutili al suo interno.
+
+**Compilatore → regole di permesso**
+
+- I percorsi sono assoluti: `Read(//<radice>/…)`. Nelle impostazioni di Claude Code `/percorso` è relativo al file di settings, che per Onyx sta nella directory di runtime della run, quindi i percorsi relativi sarebbero sbagliati.
+- Traduzione: `dir/` → `//<radice>/**/dir/**` (o `//<radice>/dir/**` se ancorato); pattern con `/` → ancorato alla radice; pattern senza `/` → `//<radice>/**/pattern`; un pattern non di directory genera anche la variante `/**`, perché in gitignore può indicare una directory.
+- Ogni regola di esclusione diventa `Read(...)` (copre anche Grep, Glob e LSP); solo le regole bloccate diventano anche `Edit(...)`.
+- **Pass-through**: senza negazioni le regole si traducono una a una.
+- **Materializzato**: con negazioni e indice disponibile il compilatore valuta ogni file indicizzato, comprime le directory interamente escluse in `dir/**` ed emette i file rimanenti uno per uno, più le regole bloccate e quelle che non corrispondono a nessun file indicizzato (contenuto ignorato da git, file creati dopo). Oltre 1.500 regole l'elenco è troncato e la protezione restante è affidata all'hook.
+- Il `compiledHash` della policy effettiva è scritto in `AgentRun.ignoreHash`.
+
+**Hook di guardia `PreToolUse`**
+
+- `settings.json` di ogni run contiene un hook `type: "http"` con matcher `Read|Grep|Glob|LS|LSP|NotebookRead|Bash` verso `POST /internal/hooks/pre-tool-use`, con `headers: { Authorization: "Bearer $ONYX_RUN_TOKEN" }` e `allowedEnvVars: ["ONYX_RUN_TOKEN"]`, timeout 10 s. Il token è quello della run (lo stesso del server MCP) ed è passato nell'ambiente del processo `claude`.
+- La rotta accetta solo connessioni da loopback e un token valido, poi valuta la chiamata con `PathGuard`:
+  - tool sui file: `file_path`, `path`, `notebook_path` e il pattern di Glob/Grep (bloccato solo se tutti i file indicizzati che corrispondono sono esclusi, così le ricerche ampie restano possibili);
+  - Bash: parsing con `shell-quote`, segmenti separati da `;`, `&&`, `|`, tracciamento di `cd`/`pushd`, comandi di lettura (`cat`, `head`, `tail`, `less`, `ls`, `find`, `wc`, `jq`, `diff`, `tar`, `base64` e simili, sorgenti di `cp`, `sed`/`awk` senza lo script, `grep`/`rg` senza il pattern, `git show|diff|log|blame` con `rev:percorso`), redirezioni `<`, glob espansi sui file noti; in presenza di `$(…)`, backtick, `eval`, `bash -c`, `xargs`, interpreti, ogni token che sembra un percorso viene controllato;
+  - una directory i cui file indicizzati sono tutti esclusi è bloccata anche se la directory in sé non corrisponde a una regola.
+- Un blocco risponde `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"<percorso> is outside the agent's context (Onyx context profile rule \"<regola>\"). Use the onyx MCP tools …"}}`; altrimenti `{}`. Errori e timeout dell'hook non bloccano (comportamento della CLI): le regole `permissions.deny` restano la prima difesa.
+- Ogni blocco produce un evento di run `{kind: "guard", source: "hook", tool, toolUseId, target, rule, reason}`, una voce `guard.denied` in `AuditLog` (attore `run:<id>`) e incrementa `AgentRun.guardDenials`. I `permission_denials` dell'evento `result` della CLI diventano eventi `guard` con `source: "permission"`; quelli con lo stesso `tool_use_id` di un blocco dell'hook non vengono contati due volte.
+- Un hook `PostToolUse` sui tool di modifica chiama `POST /internal/hooks/post-tool-use`, che pianifica il riparse incrementale dell'indice.
+
+**Contesto e tool MCP**
+
+Pacchetto di contesto, mappa L0 e ricerca dei simboli saltano i file esclusi (con una nota nel contesto della run); i tool MCP rifiutano i percorsi esclusi con lo stesso messaggio dell'hook.
+
+**Stima, misura e calibrazione dei token**
+
+- Le stime vengono dallo stimatore a caratteri per token di Lean-ctx, per tipo di file (`typescript`, `json`, `lockfile`, …). Su codice reale sovrastima del 10–20% rispetto a `o200k_base` e i lockfile (circa 2,1 caratteri per token) erano sottostimati del 30%: hanno ora un tipo dedicato.
+- `POST /surgeon/measure` conta con un tokenizer di riferimento i file esclusi dal profilo salvato (fino a 3 milioni di caratteri) e restituisce stima, misura ed errore.
+- `POST /surgeon/calibrate` misura un campione stabile dei file del progetto (fino a 60 file e 400.000 caratteri per tipo; un tipo riceve un rapporto proprio da 4.000 caratteri in su; i file senza tipo determinano il rapporto di riserva), salva i rapporti in `AppSetting` `tokens.calibration` e li applica allo stimatore. L'impronta della calibrazione entra nella versione dell'analizzatore, quindi l'indice viene ricalcolato con le nuove stime.
+- Tokenizer di riferimento: `count_tokens` di Anthropic se è configurata `ANTHROPIC_API_KEY`, altrimenti `o200k_base` in locale. Con un abbonamento OAuth la misura è quindi un'approssimazione del tokenizer di Claude.
+- Il risparmio mostrato riguarda i file indicizzati. Il contenuto ignorato da git (dipendenze, output di build non versionato) non entra nel conto, ma le regole valgono comunque per lui tramite permessi e hook.
+
+**UI** (`/projects/[id]/surgeon`)
+
+- Albero virtualizzato (`@tanstack/react-virtual`) con checkbox tri-state (incluso, escluso, parziale, bloccato), regola che decide ogni file escluso, marcatori delle modifiche rispetto al salvato, ordinamento per token o per nome, filtri per percorso, stato, dominio ed estensione.
+- Heatmap su scala logaritmica dei token stimati.
+- La valutazione della bozza avviene nel browser con lo stesso codice del server (`@onyx/ignore-compiler/browser`), quindi conteggi, diff e suggerimenti si aggiornano a ogni clic.
+- Pannello del risparmio: token esclusi e quota del progetto, costo evitato per lettura completa con il prezzo di input del modello del workspace (o di quello di default), diff rispetto al profilo salvato con elenco dei file, avvisi sui file centrali.
+- Editor delle regole del livello selezionato (progetto o overlay) con impatto per regola, regole ereditate e regole di sicurezza in sola lettura; selettore di ambito per gli overlay.
+- Misura e calibrazione, regole compilate (modalità, numero di regole, hash) ed export del `.claudesignore`.
 
 ### 6.2 Lean-ctx (motore AST con tree-sitter)
 
@@ -653,7 +685,7 @@ public/assets/**/*.mp4
 4. **Piano di scheletro**: per ogni livello si calcolano le sostituzioni (corpi, valori lunghi, commenti, prima riga dei docstring a L2) e si rendono solo le istruzioni di primo livello significative; side effect e `if __name__ == "__main__"` spariscono. Il prologo `"use client"` resta.
 5. **Handle**: `sha256(percorso + nome qualificato)` in base36 a 8 caratteri. Il placeholder è `{ …#k3j9x0a2 }` per i blocchi e `…#k3j9x0a2` per espressioni e corpi Python; `…` senza handle indica un valore eliso.
 6. **Indice e cache**: `FileNode` conserva hash, scheletri L1/L2, import, export, token stimati e `analyzerVersion` (revisione dell'estrattore più le versioni delle grammatiche); un file con lo stesso hash e la stessa versione non viene riparsato. I simboli vanno in `CodeSymbol`.
-7. **Incrementale**: dopo ogni run l'API ri-indicizza il progetto in background riusando i file invariati; i tool MCP riparsano al volo un file cambiato dopo l'ultima indicizzazione. Il riparse per singolo file tramite hook `PostToolUse` arriva con gli hook della Fase 3.
+7. **Incrementale**: dopo ogni run l'API ri-indicizza il progetto in background riusando i file invariati; i tool MCP riparsano al volo un file cambiato dopo l'ultima indicizzazione; l'hook `PostToolUse` sui tool di modifica pianifica un aggiornamento dell'indice durante la run.
 
 **Selezione dei livelli per task** (implementata in `packages/graphify/src/context-pack.ts`)
 
@@ -1362,6 +1394,7 @@ model AgentRun {
   ctxBaselineTokens  Int?
   ctxDeliveredTokens Int?
   ctxExpansions      Int       @default(0)
+  guardDenials       Int       @default(0)
   errorMessage       String?
   startedAt          DateTime  @default(now())
   endedAt            DateTime?
@@ -1838,6 +1871,14 @@ onyx/
 │   │       └── context-benchmark.ts
 │   ├── ignore-compiler/
 │   │   └── src/
+│   │       ├── rules.ts
+│   │       ├── policy.ts
+│   │       ├── presets.ts
+│   │       ├── heuristics.ts
+│   │       ├── compiler.ts
+│   │       ├── guard.ts
+│   │       ├── hash.ts
+│   │       └── browser.ts
 │   ├── mcp-server/
 │   │   ├── src/
 │   │   │   ├── main.ts
@@ -1882,11 +1923,11 @@ onyx/
 | `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool di processi, adapter SDK, `claude-stub` | `contracts` |
 | `packages/lean-ctx` | Parser pool tree-sitter, scheletri L0–L3, estratti per simbolo, indice dei simboli, stimatore token | — |
 | `packages/graphify` | Integrazione repomix, resolver, grafo, metriche, pacchetto di contesto, benchmark | `lean-ctx` |
-| `packages/ignore-compiler` | `.claudesignore` → regole di permesso, pattern repomix, esclusioni | `contracts` |
+| `packages/ignore-compiler` | Policy gitignore (`ignore`), preset e euristiche, compilatore verso regole di permesso, guardia dei percorsi per l'hook `PreToolUse` (`shell-quote` per Bash); `./browser` espone la parte senza Node alla UI | — |
 | `packages/mcp-server` | Server MCP stdio `onyx`, impacchettato in `dist/onyx-mcp.js` (client HTTP verso `/internal/mcp`) | `contracts` |
 | `packages/config` | Preset ESLint, TSConfig, Prettier | — |
 | `apps/api` | Composition root, route, use case, adapter infrastrutturali | tutti i pacchetti |
-| `apps/web` | UI | `contracts` |
+| `apps/web` | UI | `contracts`, `ignore-compiler/browser` |
 
 ### 8.3 Filesystem del container
 
@@ -1948,13 +1989,13 @@ Principi: `layout` e `AnimatePresence` per riordino e ingresso/uscita delle card
 | Workspace | Timeline della sessione, catena di handoff, terminale interattivo, recinto di scrittura |
 | Task / DAG | Kanban per stato più vista DAG con dipendenze e tier per nodo |
 | Run | Stream dei messaggi, tool call espandibili, token per turno, diff dei file |
-| Context Surgeon | Albero con heatmap, regole, diff del risparmio, anteprima del `.claudesignore` |
+| Context Surgeon | Albero virtualizzato tri-state con heatmap dei token, filtri, editor delle regole, suggerimenti, risparmio e diff in token e dollari, avvisi sui file centrali, overlay per workspace, misura e calibrazione, regole compilate ed export del `.claudesignore` |
 | Graph | Grafo force-directed, blast radius, cicli |
 | TDD Loop | Terminale headless, iterazioni, digest inviato, firma dei fallimenti |
 | Router | Regole ordinabili, simulatore ("che modello sceglieresti per…"), log delle decisioni |
 | Telemetria | Serie temporali, cache hit ratio, risparmio, budget |
 
-Navigazione keyboard-first con command palette (`cmdk` tramite il componente Command di shadcn/ui).
+Navigazione keyboard-first con command palette (`cmdk` tramite il componente Command di shadcn/ui). Sotto i 768 px la barra laterale diventa una barra superiore compatta, così la console resta usabile da telefono sulla LAN.
 
 ---
 
@@ -2084,7 +2125,9 @@ CLAUDE_CODE_OAUTH_TOKEN=
 | `ONYX_INTERNAL_API_URL` | Facoltativa: URL con cui il server MCP raggiunge l'API (default `http://127.0.0.1:<API_PORT>`) |
 | `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` | Impostarne **una sola** (ADR-008): con entrambe l'API non parte |
 
-Le sessioni della dashboard sono token opachi casuali salvati come hash SHA-256 in `UserSession`: non servono segreti di firma. I token di run del server MCP sono casuali e restano solo in memoria: un riavvio dell'API li invalida insieme alle run attive. Gli hook della Fase 3 useranno lo stesso registro.
+Le sessioni della dashboard sono token opachi casuali salvati come hash SHA-256 in `UserSession`: non servono segreti di firma. I token di run sono casuali e restano solo in memoria: servono al server MCP e agli hook HTTP (`ONYX_RUN_TOKEN` nell'ambiente del processo `claude`), e un riavvio dell'API li invalida insieme alle run attive.
+
+Con `ANTHROPIC_API_KEY` impostata, la calibrazione dello stimatore dei token usa l'endpoint `count_tokens` (modello `claude-haiku-4-5`); senza, usa il tokenizer locale `o200k_base` (`gpt-tokenizer`), che non consuma nulla ([§6.1](#61-context-surgeon)).
 
 ### 10.6 Unit systemd
 
@@ -2461,6 +2504,7 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | Contratto | Vitest + fixture registrate | Parser `stream-json` contro trascrizioni reali della CLI per versione |
 | Integrazione | Vitest + `fastify.inject` + SQLite temporaneo + `claude-stub` | API e Agent Runtime senza consumare token |
 | E2E | Playwright (Chromium) | Login, creazione task, stream live, Context Surgeon, TDD loop simulato |
+| Benchmark | `pnpm --filter @onyx/graphify bench`, `pnpm --filter @onyx/api bench:surgeon` | Risparmio del pacchetto di contesto; errore della stima dei token rispetto a un tokenizer di riferimento |
 | Smoke reale | Script manuale con budget minimo | Verifica end-to-end contro la CLI vera dopo ogni aggiornamento |
 
 `claude-stub` è un eseguibile che rigioca fixture NDJSON con ritardi, righe spezzate, errori, crash e uscite con codici diversi: rende deterministici i test del runtime.
@@ -2487,7 +2531,7 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-002 | WebSocket con canali e replay per `seq` | SSE; polling | Bidirezionale (input PTY, abort, approvazioni) e una sola connessione per tab |
 | ADR-003 | Caddy come unico listener LAN; API e Web su loopback | Esporre direttamente Next.js e Fastify; rewrite di Next.js | Stessa origine senza CORS, WebSocket affidabili, TLS interno opzionale |
 | ADR-004 | SQLite in WAL con un solo writer (`onyx-api`); MCP e hook passano dalle API | Accesso diretto al DB da MCP | Niente contesa sui lock; logica di business in un solo posto |
-| ADR-005 | `.claudesignore` come sorgente di verità compilata in `permissions.deny` + hook di guardia, passata per run con `--settings` | Affidarsi a un file ignore nativo (non esiste) | Uso dei soli meccanismi supportati; nessuna modifica invasiva ai progetti |
+| ADR-005 | Profilo di contesto versionato nel database (importato da ed esportabile in `.claudesignore`) compilato in `permissions.deny` + hook di guardia, passato per run con `--settings` | Affidarsi a un file ignore nativo (non esiste); `.claudesignore` come unica sorgente | Uso dei soli meccanismi supportati; nessuna modifica invasiva ai progetti; versioni, overlay per workspace e audit stanno dove sta il resto dello stato |
 | ADR-006 | Next.js senza Server Actions né logica di business | BFF in Next.js | Una sola autorità di dominio; superficie di sicurezza ridotta |
 | ADR-007 | Reset del contesto strutturale in headless (nuova sessione con UUID pre-assegnato); `/clear`/`/compact` solo nei PTY interattivi | Inviare `/clear` in `-p` | I comandi slash di gestione del contesto non sono disponibili in modalità print |
 | ADR-008 | Una sola credenziale attiva (API key oppure OAuth token) | Entrambe impostate | La CLI applica un ordine di precedenza: due credenziali rendono ambiguo il calcolo dei costi |
@@ -2500,6 +2544,10 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-015 | Binding nativi `tree-sitter`, query come moduli TypeScript, visitor tipizzato per le dichiarazioni | WASM (`web-tree-sitter`); file `.scm` caricati a runtime; solo query | Parse più veloce; niente asset da copiare nel bundle; annidamento e nomi qualificati sono più chiari in un visitor che in pattern di query |
 | ADR-016 | Server MCP `onyx` con tool senza prefisso (`expand_symbol`…) che chiama l'API su loopback con un token per run | Tool `onyx_expand_symbol`; accesso diretto al database dal server MCP | La CLI aggiunge già `mcp__onyx__`; un solo writer sul database (ADR-004); il token scade con la run e la rotta rifiuta connessioni non locali |
 | ADR-017 | Pacchetto di contesto per ruolo: estratti dei simboli importati per le dipendenze, righe d'uso per i dipendenti, barrel risolti | Scheletri completi dei vicini | Sugli stessi task il pacchetto con scheletri completi risparmiava il 27–78%; estratti e righe d'uso portano il risparmio al 46–81% e danno all'agente i punti di chiamata invece di firme che già conosce |
+| ADR-018 | Hook di guardia `type: "http"` verso l'API con il token della run in `Authorization` tramite `allowedEnvVars` | Hook `command` con uno script; regole `permissions.deny` da sole | Le regole `Read` non coprono `cat` e simili in Bash; un hook HTTP non richiede processi in più e passa dal solo writer del database (ADR-004); il token scade con la run |
+| ADR-019 | Regole di permesso con percorsi assoluti `//<radice>/…` | Percorsi `/…` o `./…` | Nelle impostazioni `/…` è relativo al file di settings, che per Onyx sta nella directory di runtime: i percorsi relativi avrebbero puntato al posto sbagliato |
+| ADR-020 | Policy con la semantica di git (libreria `ignore`) e riscrittura delle regole quando si re-include un file | Semantica "l'ultima regola vince" senza eccezioni per le directory | Il file esportato deve comportarsi come un `.gitignore` per chi lo legge o lo usa fuori da Onyx; la UI genera regole corrette invece di negazioni che non avrebbero effetto |
+| ADR-021 | Stimatore euristico calibrato per tipo di file contro un tokenizer di riferimento (`count_tokens` con API key, `o200k_base` altrimenti) | Contare sempre i token con un tokenizer; solo euristica fissa | Indicizzare migliaia di file con un tokenizer è lento e con `count_tokens` costa chiamate; la calibrazione porta l'errore entro il ±15% con una sola misura |
 
 ---
 
@@ -2582,6 +2630,36 @@ Parser pool tree-sitter, query per TS/TSX/JS/Python, scheletri L0–L3, indice d
 Scansione e arricchimento dei nodi, euristiche del preset aggressivo, UI ad albero con heatmap e diff del risparmio, compilatore verso regole di permesso (pass-through e materializzato), hook `PreToolUse` di guardia, overlay per workspace.
 
 **DoD**: un tentativo dell'agente di leggere un file escluso (con `Read`, `Grep` o `cat`) viene bloccato e registrato; il risparmio stimato in UI corrisponde entro il ±15% a quello misurato.
+
+**Esito (completata, con un punto aperto)**:
+
+- Nuovo pacchetto `ignore-compiler` (46 test) e pagina Context Surgeon. Totale del monorepo: 309 test verdi (`api` 87, `ignore-compiler` 46, `graphify` 46, `agent-runtime` 42, `lean-ctx` 30, `web` 26, `contracts` 15, `db` 11, `mcp-server` 6); lint, Prettier, typecheck strict e build di release passano, e la release avviata in modo autonomo risponde su `/api/ready` e serve la UI.
+- **Blocco e registrazione** (test di integrazione `apps/api/tests/integration/surgeon.test.ts`): una run con lo stub che legge `settings.json`, interpola `$ONYX_RUN_TOKEN` e chiama il vero hook HTTP tenta `Read dist/bundle.js`, `Read src/app.ts`, `Grep dist`, `Grep logs`, `cat logs/app.log`, `head -n 1 .env`, `Read dist/keep.js`: cinque chiamate bloccate, due eseguite (`keep.js` è re-incluso da `!/dist/keep.js`). Ogni blocco è un evento `guard` della run, una voce `guard.denied` in `AuditLog` e conta in `AgentRun.guardDenials`; i `permission_denials` del risultato non sono contati due volte.
+- **Accuratezza della stima** (`pnpm --filter @onyx/api bench:surgeon <dir…>`, riferimento `o200k_base`): errore sul risparmio del preset aggressivo e sull'esclusione di ogni directory di primo e secondo livello con almeno 2.000 token. "Calibrato" è ciò che fa il pulsante Calibrate (campione sull'intero progetto); "held-out" calibra senza i file della directory esclusa, per vedere quanto la calibrazione generalizza.
+
+| Repository | File | Token misurati | Esclusi dal preset | Errore del preset (euristica → calibrato) | Directory | Errore mediano euristica | Errore mediano calibrato | Errore mediano held-out | Directory entro ±15% (held-out) |
+|---|---|---|---|---|---|---|---|---|---|
+| hono | 574 | 980.582 | 11 file, 177.910 token | −1,9% → +0,1% | 31 | 16,3% | 4,7% | 6,0% | 87% |
+| httpx | 109 | 186.734 | 1 file, 16 token | +37,5% → +12,5% | 8 | 10,0% | 6,1% | 8,4% | 100% |
+| fastify | 394 | 766.284 | 6 file, 1.980 token | +19,6% → +3,4% | 17 | 13,3% | 2,2% | 4,8% | 94% |
+| Onyx (questo repository) | 301 | 416.505 | 7 file, 160.028 token | +0,3% → +0,0% | 12 | 17,1% | 1,5% | 3,2% | 92% |
+
+  Dopo la calibrazione l'errore sul risparmio del preset resta entro il ±15% in tutti e quattro i repository. Senza calibrazione l'euristica sbaglia di più sui file di codice (sovrastima del 10–20%), mentre sul preset, dove nei progetti JavaScript il risparmio è quasi tutto nei lockfile, l'euristica è già entro il 2% grazie al tipo `lockfile`.
+- Verifica end-to-end con Playwright dall'IP di rete (`http://192.0.2.2:3000`) su un progetto di prova: re-inclusione di `dist/keep.js` dall'albero (regole riscritte in `**/dist/**` + `!/dist/keep.js`), avviso su `src/lib/core.ts`, importato da tutti i moduli di `src/`, applicazione del suggerimento `/fixtures/catalog.json`, salvataggio; misura prima della calibrazione −27% (178,3K stimati, 245,4K misurati), dopo +0,0% (245,5K); overlay del workspace Frontend; task con lo stub che tenta sei letture, quattro bloccate e mostrate nel feed della run con il badge "4 blocked"; pagina usabile a 390 px senza scroll orizzontale; nessun errore in console.
+- **Punto aperto del DoD**: il blocco è verificato con lo stub, che segue il formato documentato degli hook HTTP. Una run con la CLI vera richiede le credenziali della Fase 0 e non è stata eseguita per non consumare token: nel container va controllato che la versione installata interpoli `$ONYX_RUN_TOKEN` negli header (`allowedEnvVars`) e che un `Read`, un `Grep` e un `cat` su un file escluso producano tre eventi `guard`.
+
+**Differenze rispetto al piano**:
+
+- Le rotte sono `/api/projects/:id/surgeon/*` con `?workspaceId=` per gli overlay, invece di `/ignore-profiles/:id`.
+- La sorgente di verità è il profilo nel database; `.claudesignore` viene importato alla prima apertura ed esportato su richiesta (ADR-005 aggiornato).
+- L'indicizzatore non usa più i pattern di default di repomix, che nascondevano al Surgeon `dist/`, i log e i lockfile: rispetta `.gitignore` più un elenco fisso (`HARD_SKIP_PATTERNS`: directory dei VCS, `node_modules`, ambienti virtuali, cache, segreti). I file saltati da repomix (binari, troppo grandi) entrano nell'indice come nodi con `binary`; i binari sono riconosciuti per estensione, non per magic bytes.
+- Non si generano pattern `--ignore` per repomix: l'indice resta completo, così l'albero mostra anche i file esclusi, e la policy filtra pacchetto, mappa e tool MCP.
+- Le regole `Edit` derivano solo dalle regole bloccate; il recinto di scrittura per dominio resta alla Fase 4.
+- Percorsi assoluti nelle regole (ADR-019), hook HTTP con token di run (ADR-018), semantica git delle negazioni con riscrittura in UI (ADR-020), calibrazione dello stimatore (ADR-021, rimandata dalla Fase 2) e tipo `lockfile` nello stimatore.
+- L'hook `PostToolUse` per il riparse incrementale, rimandato dalla Fase 2, è attivo.
+- Nuova migrazione `20261003150000_context_surgeon` con `AgentRun.guardDenials`; nuovo tipo di evento di run `guard` con `toolUseId`. `IgnoreRule.tokenImpact` non è usato: l'impatto delle regole è calcolato dal vivo nella UI.
+- Sotto i 768 px la barra laterale della console diventa una barra superiore.
+- La regola ESLint `react-hooks/incompatible-library` è disattivata: avvisa solo che il React Compiler, non usato da Onyx, salterebbe i componenti con `useVirtualizer`.
 
 ### Fase 4 — Model Router e Session Compartmentalization
 
