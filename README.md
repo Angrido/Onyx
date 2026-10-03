@@ -14,7 +14,8 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 3 | Context Surgeon: profili di contesto, regole di permesso compilate, hook di guardia, calibrazione dei token | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 4 | Model Router, compartimenti di sessione con handoff, recinti di scrittura, terminali interattivi con `/clear` e `/compact` | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 5 | TDD Auto-Loop: test Vitest/Jest in PTY, digest dei fallimenti, anti-cheat, gate, escalation su stallo | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
-| 6–7 | Orchestrazione multi-agente, hardening | Da fare |
+| 6 | Orchestrator multi-agente: planner, approvazione del piano, DAG, git worktree in parallelo, merge assistito, sub-agenti nativi, budget, centro approvazioni | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
+| 7 | Hardening e polish | Da fare |
 
 ## Requisiti
 
@@ -126,6 +127,17 @@ Dalla pagina di un task, **Start TDD loop** fa lavorare l'agente finché i test 
 4. Dopo 2 tentativi senza progressi il modello sale di tier (Sonnet → Opus); se gli stessi fallimenti tornano 3 volte di fila dopo l'escalation il loop si ferma come *Stalled*. Ci sono anche un limite di tentativi (default 6), un budget in dollari e un timeout per ogni esecuzione dei test.
 
 Il runner viene rilevato da `package.json` e dai file di configurazione; nella pagina del workspace si possono fissare il runner e il comando che lo lancia (es. `pnpm --filter web exec vitest`). Durante il loop il workspace è riservato: altre run, terminali e pubblicazioni aspettano.
+
+## Orchestrator multi-agente (Fase 6)
+
+Dalla pagina di un progetto, **Plan a feature** fa scomporre una funzionalità in task per workspace:
+
+1. Claude studia il progetto in sola lettura (modello del tier Architect) e restituisce un piano strutturato: task, workspace, dipendenze, file probabili, criteri di accettazione e tier suggerito. Il piano compare come grafo a passi e **non parte finché non lo approvi** nella pagina del piano o in **Approvals**.
+2. All'approvazione Onyx crea il branch di lavoro `onyx/plan-AAAAMMGG-<feature>` da quello corrente. Ogni task riceve un git worktree proprio (nella directory dati di Onyx, con le dipendenze collegate) e una sessione nuova; i task indipendenti girano in parallelo, fino al numero di agenti scelto.
+3. Se il progetto ha Vitest o Jest, ogni task passa il TDD loop nel suo worktree; poi Onyx fa il commit e lo unisce al branch di lavoro, un merge alla volta. Un conflitto non viene mai risolto da solo: in **Approvals** scegli se riprovare il merge (dopo averlo sistemato sul branch del task) o scartare il task.
+4. Alla fine la suite completa e `tsc` girano sul branch unito. `main` non cambia; dalla pagina del piano **Push the branch** spinge il branch di lavoro su GitHub e offre il link per la pull request.
+
+Un piano fermato da un errore o da un riavvio si riprende con **Resume**: i task già uniti restano, gli altri ripartono. In **Settings → Budgets** si impostano limiti di spesa globali o per progetto (al giorno, al mese o totali): oltre la soglia soft le nuove run aspettano un'approvazione, alla soglia hard vengono rifiutate e quelle in corso si fermano. Gli agenti `architect` e `builder` hanno anche sotto-agenti nativi di Claude Code (`explorer`, `test-writer`, `reviewer`).
 
 ## Accesso dalla rete
 
