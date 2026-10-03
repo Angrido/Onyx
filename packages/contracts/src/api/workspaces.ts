@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { DomainSchema, ResetStrategySchema } from "../domain";
+import {
+  DomainSchema,
+  ResetStrategySchema,
+  SessionEndReasonSchema,
+  SessionStatusSchema,
+} from "../domain";
 
 const GlobListSchema = z.array(z.string().trim().min(1).max(512)).max(64);
 
@@ -50,9 +55,12 @@ export const SessionDtoSchema = z.object({
   workspaceId: z.string(),
   claudeSessionId: z.string().nullable(),
   modelId: z.string(),
-  status: z.string(),
-  endReason: z.string().nullable(),
+  status: SessionStatusSchema,
+  endReason: SessionEndReasonSchema.nullable(),
   previousId: z.string().nullable(),
+  handoffNote: z.string().nullable(),
+  handoffTokens: z.number().int().nullable(),
+  runs: z.number().int(),
   turns: z.number().int(),
   contextTokens: z.number().int(),
   startedAt: z.string(),
@@ -60,3 +68,17 @@ export const SessionDtoSchema = z.object({
   endedAt: z.string().nullable(),
 });
 export type SessionDto = z.infer<typeof SessionDtoSchema>;
+
+export const ResetWorkspaceRequestSchema = z.object({
+  handoff: z.boolean().default(true),
+});
+export type ResetWorkspaceRequest = z.input<typeof ResetWorkspaceRequestSchema>;
+
+export const SessionListResponseSchema = z.object({ items: z.array(SessionDtoSchema) });
+export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
+
+export const ResetWorkspaceResponseSchema = z.object({
+  workspace: WorkspaceDtoSchema,
+  session: SessionDtoSchema.nullable(),
+});
+export type ResetWorkspaceResponse = z.infer<typeof ResetWorkspaceResponseSchema>;

@@ -1,10 +1,12 @@
 import {
   CreateProjectRequestSchema,
   CreateWorkspaceRequestSchema,
+  ResetWorkspaceRequestSchema,
   UpdateWorkspaceRequestSchema,
   type ProjectDetailDto,
   type ProjectListResponse,
-  type SessionDto,
+  type ResetWorkspaceResponse,
+  type SessionListResponse,
   type WorkspaceDto,
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
@@ -12,7 +14,7 @@ import type { Container } from "../../container";
 import { idParam } from "../params";
 
 export function registerProjectRoutes(app: FastifyInstance, container: Container): void {
-  const { projects, workspaces } = container;
+  const { projects, workspaces, compartments } = container;
 
   app.get("/api/projects", async (): Promise<ProjectListResponse> => ({
     items: await projects.list(),
@@ -50,11 +52,19 @@ export function registerProjectRoutes(app: FastifyInstance, container: Container
     workspaces.update(idParam(request.params), UpdateWorkspaceRequestSchema.parse(request.body)),
   );
 
-  app.post("/api/workspaces/:id/reset", async (request): Promise<WorkspaceDto> =>
-    workspaces.resetSession(idParam(request.params)),
+  app.get("/api/workspaces/:id", async (request): Promise<WorkspaceDto> =>
+    workspaces.get(idParam(request.params)),
   );
 
-  app.get("/api/workspaces/:id/sessions", async (request): Promise<{ items: SessionDto[] }> => ({
-    items: await workspaces.sessions(idParam(request.params)),
+  app.post("/api/workspaces/:id/reset", async (request): Promise<ResetWorkspaceResponse> => {
+    const id = idParam(request.params);
+    const input = ResetWorkspaceRequestSchema.parse(request.body ?? {});
+    const actor = request.user ? `user:${request.user.username}` : "user:unknown";
+    const session = await compartments.reset(id, input.handoff, actor);
+    return { workspace: await workspaces.get(id), session };
+  });
+
+  app.get("/api/workspaces/:id/sessions", async (request): Promise<SessionListResponse> => ({
+    items: await compartments.sessions(idParam(request.params)),
   }));
 }

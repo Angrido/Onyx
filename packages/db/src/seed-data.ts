@@ -166,6 +166,7 @@ export interface RoutingRuleSeed {
     workspaceDomains?: string[];
     pathGlobs?: string[];
     keywordsAny?: string[];
+    styleOnly?: boolean;
   };
 }
 
@@ -174,16 +175,25 @@ export const ROUTING_RULES: readonly RoutingRuleSeed[] = [
     name: "architecture-work",
     priority: 10,
     targetTier: "ARCHITECT",
+    matcher: { taskKinds: ["ARCHITECTURE"] },
+  },
+  {
+    name: "architecture-keywords",
+    priority: 15,
+    targetTier: "ARCHITECT",
     matcher: {
-      taskKinds: ["ARCHITECTURE"],
+      taskKinds: ["FEATURE", "REFACTOR", "BUGFIX"],
       keywordsAny: [
         "architettura",
         "architecture",
-        "schema",
         "migrazione",
         "migration",
         "security",
         "sicurezza",
+        "concorrenza",
+        "concurrency",
+        "api pubblica",
+        "public api",
       ],
     },
   },
@@ -198,6 +208,12 @@ export const ROUTING_RULES: readonly RoutingRuleSeed[] = [
     priority: 30,
     targetTier: "BUILDER",
     matcher: { taskKinds: ["UI_STYLE"] },
+  },
+  {
+    name: "style-only-files",
+    priority: 35,
+    targetTier: "BUILDER",
+    matcher: { styleOnly: true },
   },
   {
     name: "test-fixing",
@@ -222,7 +238,10 @@ export const APP_SETTINGS: Readonly<Record<string, unknown>> = {
     contextTokens: 0.1,
     priorFailures: 0.1,
   },
-  "router.thresholds": { architect: 0.55, builder: 0.2, opusplan: 0.4 },
+  "router.thresholds": { architect: 0.55, builder: 0.2 },
+  "router.classifierConfidence": 0.5,
+  "router.autoEscalate": true,
+  "router.tierModels": {},
   "runtime.maxConcurrentAgents": 2,
   "events.retentionDays": 30,
   "surgeon.defaultPreset": "aggressive",

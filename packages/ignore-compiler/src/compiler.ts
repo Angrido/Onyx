@@ -41,7 +41,7 @@ function unique(values: Iterable<string>): string[] {
   return [...new Set(values)];
 }
 
-function collapse(excluded: ReadonlySet<string>, files: readonly string[]): string[] {
+export function collapsePaths(excluded: ReadonlySet<string>, files: readonly string[]): string[] {
   const totals = new Map<string, number>();
   const hidden = new Map<string, number>();
   for (const file of files) {
@@ -119,7 +119,7 @@ export function compilePolicy(policy: ContextPolicy, options: CompileOptions): C
   const patterns = [
     ...locked.map((candidate) => candidate.pattern),
     ...exclusionsMatchingNothing(policy.rules, files).map((candidate) => candidate.pattern),
-    ...collapse(excluded, files),
+    ...collapsePaths(excluded, files),
   ];
   const readDeny = toRules("Read", patterns);
   return {

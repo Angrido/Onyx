@@ -58,7 +58,7 @@ export function guardHooks(internalApiUrl: string): RunHooks {
   return {
     PreToolUse: [
       {
-        matcher: GUARDED_TOOLS,
+        matcher: `${GUARDED_TOOLS}|${EDIT_TOOLS}`,
         hooks: [httpHook(`${internalApiUrl}/internal/hooks/pre-tool-use`)],
       },
     ],

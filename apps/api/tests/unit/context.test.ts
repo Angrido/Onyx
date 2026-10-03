@@ -44,7 +44,12 @@ describe("RunTokenRegistry", () => {
   it("issues one token per run, tracks usage and revokes it", () => {
     const registry = new RunTokenRegistry();
     const policy = new ContextPolicy([]);
-    const scope = { workspaceId: null, policy, guard: new PathGuard(policy, "/tmp/project") };
+    const scope = {
+      workspaceId: null,
+      policy,
+      guard: new PathGuard(policy, "/tmp/project"),
+      fence: null,
+    };
     const first = registry.issue("run-1", "project-1", scope);
     const second = registry.issue("run-1", "project-1", scope);
     expect(first).not.toBe(second);

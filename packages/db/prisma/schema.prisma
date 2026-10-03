@@ -371,6 +371,7 @@ model Session {
   endReason       SessionEndReason?
   previousId      String?           @unique
   handoffNote     String?
+  handoffTokens   Int?
   primerHash      String?
   turns           Int               @default(0)
   contextTokens   Int               @default(0)
@@ -414,6 +415,7 @@ model AgentRun {
   ctxDeliveredTokens Int?
   ctxExpansions      Int       @default(0)
   guardDenials       Int       @default(0)
+  changedFiles       Json?
   errorMessage       String?
   startedAt          DateTime  @default(now())
   endedAt            DateTime?

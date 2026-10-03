@@ -114,3 +114,13 @@ export function cacheHitRatio(usage: TokenUsage): number {
   const total = contextTokensOf(usage);
   return total === 0 ? 0 : usage.cacheReadTokens / total;
 }
+
+export const RoutingStrategySchema = z.enum([
+  "OVERRIDE",
+  "RULE",
+  "HEURISTIC",
+  "CLASSIFIER",
+  "ESCALATION",
+  "DEESCALATION",
+]);
+export type RoutingStrategy = z.infer<typeof RoutingStrategySchema>;

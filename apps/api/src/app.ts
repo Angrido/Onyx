@@ -9,6 +9,7 @@ import { registerAuthRoutes } from "./http/routes/auth-routes";
 import { registerContextRoutes } from "./http/routes/context-routes";
 import { registerHookRoutes } from "./http/routes/hook-routes";
 import { registerProjectRoutes } from "./http/routes/project-routes";
+import { registerRouterRoutes } from "./http/routes/router-routes";
 import { registerSurgeonRoutes } from "./http/routes/surgeon-routes";
 import { registerSystemRoutes } from "./http/routes/system-routes";
 import { registerTaskRoutes } from "./http/routes/task-routes";
@@ -44,6 +45,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerTaskRoutes(app, container);
   registerContextRoutes(app, container);
   registerSurgeonRoutes(app, container);
+  registerRouterRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { RunModeSchema, RunStatusSchema, TokenUsageSchema } from "../domain";
+import {
+  ModelTierSchema,
+  RoutingStrategySchema,
+  RunModeSchema,
+  RunStatusSchema,
+  TokenUsageSchema,
+} from "../domain";
 import { RunItemSchema } from "../stream-json/run-items";
 
 export const RunContextDtoSchema = z.object({
@@ -8,6 +14,13 @@ export const RunContextDtoSchema = z.object({
   expansions: z.number().int(),
 });
 export type RunContextDto = z.infer<typeof RunContextDtoSchema>;
+
+export const RunRoutingDtoSchema = z.object({
+  strategy: RoutingStrategySchema,
+  tier: ModelTierSchema,
+  rationale: z.string(),
+});
+export type RunRoutingDto = z.infer<typeof RunRoutingDtoSchema>;
 
 export const RunDtoSchema = z.object({
   id: z.string(),
@@ -30,6 +43,8 @@ export const RunDtoSchema = z.object({
   usage: TokenUsageSchema,
   context: RunContextDtoSchema,
   guardDenials: z.number().int(),
+  changedFiles: z.array(z.string()),
+  routing: RunRoutingDtoSchema.nullable(),
   startedAt: z.string(),
   endedAt: z.string().nullable(),
 });

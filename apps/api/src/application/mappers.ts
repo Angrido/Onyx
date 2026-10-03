@@ -15,6 +15,7 @@ import type {
   AgentRun,
   ModelProfile,
   Project,
+  RoutingDecision,
   Session,
   Task,
   TokenLog,
@@ -87,7 +88,9 @@ export function toWorkspaceDto(workspace: Workspace): WorkspaceDto {
   };
 }
 
-export function toSessionDto(session: Session): SessionDto {
+export type SessionWithRunCount = Session & { _count: { runs: number } };
+
+export function toSessionDto(session: SessionWithRunCount): SessionDto {
   return {
     id: session.id,
     workspaceId: session.workspaceId,
@@ -96,6 +99,9 @@ export function toSessionDto(session: Session): SessionDto {
     status: session.status,
     endReason: session.endReason,
     previousId: session.previousId,
+    handoffNote: session.handoffNote,
+    handoffTokens: session.handoffTokens,
+    runs: session._count.runs,
     turns: session.turns,
     contextTokens: session.contextTokens,
     startedAt: iso(session.startedAt),
@@ -107,11 +113,13 @@ export function toSessionDto(session: Session): SessionDto {
 export type RunWithRelations = AgentRun & {
   session: Pick<Session, "workspaceId">;
   tokenLogs: TokenLog[];
+  routingDecision: Pick<RoutingDecision, "strategy" | "tier" | "rationale"> | null;
 };
 
 export const RUN_INCLUDE = {
   session: { select: { workspaceId: true } },
   tokenLogs: { where: { scope: "RUN_TOTAL" as const }, take: 1 },
+  routingDecision: { select: { strategy: true, tier: true, rationale: true } },
 } as const;
 
 export function toRunDto(run: RunWithRelations): RunDto {
@@ -140,6 +148,14 @@ export function toRunDto(run: RunWithRelations): RunDto {
       expansions: run.ctxExpansions,
     },
     guardDenials: run.guardDenials,
+    changedFiles: toStringArray(run.changedFiles),
+    routing: run.routingDecision
+      ? {
+          strategy: run.routingDecision.strategy,
+          tier: run.routingDecision.tier,
+          rationale: run.routingDecision.rationale,
+        }
+      : null,
     startedAt: iso(run.startedAt),
     endedAt: isoOrNull(run.endedAt),
   };

@@ -282,6 +282,7 @@ describe("runs under a context profile", () => {
       workspaceId: workspaceId("Backend"),
       policy: scope.policy,
       guard: scope.guard,
+      fence: null,
     });
     const response = await context.app.inject({
       method: "POST",

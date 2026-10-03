@@ -9,6 +9,8 @@ export type {
   FileNode,
   ModelProfile,
   Project,
+  RoutingDecision,
+  RoutingRule,
   Session,
   Task,
   TokenLog,

@@ -24,6 +24,11 @@ export class TaskService {
     private readonly prisma: PrismaClient,
     private readonly scheduler: RunScheduler,
     private readonly hub: WsHub,
+    private readonly inferWorkspace: (
+      projectId: string,
+      targetPaths: readonly string[],
+      prompt: string,
+    ) => Promise<string | null>,
   ) {}
 
   async list(query: ListTasksInput): Promise<TaskDto[]> {
@@ -50,7 +55,15 @@ export class TaskService {
   }
 
   async create(input: CreateTaskInput): Promise<TaskDto> {
-    const workspace = await this.prisma.workspace.findUnique({ where: { id: input.workspaceId } });
+    const workspaceId =
+      input.workspaceId ??
+      (await this.inferWorkspace(input.projectId, input.targetPaths, input.prompt));
+    if (workspaceId === null) {
+      throw badRequest(
+        "No workspace owns the target paths: choose a workspace or add target paths it covers",
+      );
+    }
+    const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
     if (!workspace || workspace.projectId !== input.projectId) {
       throw badRequest("Workspace does not belong to the project");
     }
@@ -58,7 +71,7 @@ export class TaskService {
     const task = await this.prisma.task.create({
       data: {
         projectId: input.projectId,
-        workspaceId: input.workspaceId,
+        workspaceId,
         title: input.title,
         prompt: input.prompt,
         kind: input.kind,

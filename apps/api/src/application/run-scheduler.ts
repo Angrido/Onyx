@@ -138,7 +138,16 @@ export class RunScheduler {
         },
       })
       .then((result) => {
-        if (result) this.announceFinished(taskId, result.runId, result.status);
+        if (!result) return;
+        this.announceFinished(taskId, result.runId, result.status);
+        if (result.followUp && !this.stopped) {
+          this.enqueue({
+            request: result.followUp,
+            workspaceId: item.workspaceId,
+            priority: item.priority,
+            enqueuedAt: Date.now(),
+          });
+        }
       })
       .catch((error: unknown) => {
         this.deps.logger.error({ err: error, taskId }, "Run execution crashed");

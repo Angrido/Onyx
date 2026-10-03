@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
+import { isAbsolute, relative } from "node:path";
 import {
   buildClaudeArgs,
   notStartedExit,
@@ -11,18 +11,22 @@ import {
   PermissionModeSchema,
   type ContextItem,
   type GuardItem,
+  type ModelTier,
   type OnyxRunItem,
+  type RoutingItem,
+  type RoutingStrategy,
   type RunStatus,
+  type SessionItem,
   type TaskStatus,
 } from "@onyx/contracts";
 import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import { credentialEnv, type AppConfig } from "../config";
+import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
-import type { ContextPolicy } from "@onyx/ignore-compiler";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { resolveRunOutcome } from "../domain/run-outcome";
-import { decideSession, type SessionDecision } from "../domain/session-policy";
+import { shouldEscalate, TIER_ORDER } from "../domain/routing/decide";
 import { badRequest, notFound } from "../errors";
 import type { EventWriter } from "../infrastructure/event-writer";
 import {
@@ -35,8 +39,10 @@ import {
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
 import type { WsHub } from "../infrastructure/ws-hub";
+import type { CompartmentService } from "./compartment-service";
 import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
+import { priceUsage, type RouterService } from "./router-service";
 import type { SurgeonService } from "./surgeon-service";
 import { RunRecorder } from "./run-recorder";
 
@@ -55,6 +61,7 @@ export interface RunLifecycleHooks {
 export interface ExecutionResult {
   runId: string;
   status: RunStatus;
+  followUp: RunRequest | null;
 }
 
 export interface RunExecutorDeps {
@@ -69,6 +76,8 @@ export interface RunExecutorDeps {
   >;
   indexes: IndexService;
   surgeon: SurgeonService;
+  router: RouterService;
+  compartments: CompartmentService;
   runTokens: RunTokenRegistry;
   cliVersion: () => string | null;
   sourceEnv?: NodeJS.ProcessEnv;
@@ -77,17 +86,24 @@ export interface RunExecutorDeps {
 const INIT_TIMEOUT_MS = 120_000;
 const MAX_STDERR_ITEM_CHARS = 2_000;
 const MAX_RESULT_SUMMARY_CHARS = 4_000;
+const MAX_CHANGED_FILES = 200;
 
 interface PreparedRun {
   runId: string;
   taskId: string;
   projectId: string;
+  projectRoot: string;
   workspaceId: string;
   sessionId: string;
   sessionIsNew: boolean;
   modelId: string;
+  tier: ModelTier;
+  strategy: RoutingStrategy;
+  request: RunRequest;
   startedAt: number;
   displayPrompt: string;
+  routing: RoutingItem;
+  session: SessionItem;
   context: ContextItem;
   spec: RunSpec;
 }
@@ -160,6 +176,8 @@ export class RunExecutor {
     });
     this.activeRecorders.set(prepared.runId, recorder);
     recorder.recordOnyx({ kind: "prompt", text: prepared.displayPrompt });
+    recorder.recordOnyx(prepared.routing);
+    recorder.recordOnyx(prepared.session);
     recorder.recordOnyx(prepared.context);
     recorder.recordOnyx(statusItem("SPAWNING"));
 
@@ -209,14 +227,24 @@ export class RunExecutor {
     const ctxBaselineTokens =
       prepared.context.baselineTokens > 0 ? prepared.context.baselineTokens : null;
     const outcome = resolveRunOutcome(exit, result);
+    const followUp = await this.escalationFollowUp(
+      prepared,
+      outcome.runStatus,
+      result?.subtype ?? null,
+    );
+    const taskStatus: TaskStatus = followUp ? "QUEUED" : outcome.taskStatus;
     recorder.recordOnyx(
       statusItem(outcome.runStatus, {
         exitCode: exit.exitCode,
         signal: exit.signal,
-        message: outcome.errorMessage,
+        message: followUp
+          ? `${outcome.errorMessage ?? "Run failed"}. Re-queued on a higher tier.`
+          : outcome.errorMessage,
       }),
     );
     await writer.flush();
+    const changedFiles = this.normalizeChanged(prepared.projectRoot, recorder.changedFiles);
+    const reference = await this.deps.router.referenceProfile().catch(() => null);
 
     const endedAt = new Date();
     const usage = recorder.usage;
@@ -241,6 +269,7 @@ export class RunExecutor {
             ctxDeliveredTokens,
             ctxExpansions: expansions.calls,
             guardDenials: recorder.guardDenials,
+            changedFiles,
             errorMessage: outcome.errorMessage,
             endedAt,
           },
@@ -264,6 +293,7 @@ export class RunExecutor {
                 scope: "RUN_TOTAL" as const,
                 ...usage,
                 costUsd: result?.costUsd ?? null,
+                counterfactualUsd: reference ? priceUsage(usage, reference) : null,
                 ctxBaselineTokens,
                 ctxDeliveredTokens,
               },
@@ -294,8 +324,8 @@ export class RunExecutor {
         await tx.task.update({
           where: { id: prepared.taskId },
           data: {
-            status: outcome.taskStatus,
-            ...(outcome.taskStatus === "COMPLETED" ? { completedAt: endedAt } : {}),
+            status: taskStatus,
+            ...(taskStatus === "COMPLETED" ? { completedAt: endedAt } : {}),
             ...(result?.resultText
               ? { resultSummary: result.resultText.slice(0, MAX_RESULT_SUMMARY_CHARS) }
               : {}),
@@ -309,7 +339,7 @@ export class RunExecutor {
     hub.publishTaskStatus({
       taskId: prepared.taskId,
       projectId: prepared.projectId,
-      status: outcome.taskStatus,
+      status: taskStatus,
       runId: prepared.runId,
     });
     if (exit.sawInit) indexes.scheduleRefresh(prepared.projectId);
@@ -317,14 +347,39 @@ export class RunExecutor {
       { runId: prepared.runId, status: outcome.runStatus, reason: exit.reason },
       "Run finished",
     );
-    return { runId: prepared.runId, status: outcome.runStatus };
+    return { runId: prepared.runId, status: outcome.runStatus, followUp };
+  }
+
+  private async escalationFollowUp(
+    prepared: PreparedRun,
+    status: RunStatus,
+    resultSubtype: string | null,
+  ): Promise<RunRequest | null> {
+    if (prepared.strategy === "OVERRIDE") return null;
+    if (!shouldEscalate({ status, resultSubtype })) return null;
+    if (TIER_ORDER[prepared.tier] >= TIER_ORDER.ARCHITECT) return null;
+    if (!(await this.deps.router.autoEscalate().catch(() => false))) return null;
+    return { ...prepared.request, modelId: null, newSession: false };
+  }
+
+  private normalizeChanged(projectRoot: string, paths: readonly string[]): string[] {
+    const normalized = new Set<string>();
+    for (const path of paths) {
+      const inside = isAbsolute(path) ? relative(projectRoot, path) : path.replace(/^\.\//, "");
+      if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) continue;
+      normalized.add(inside.split("\\").join("/"));
+    }
+    return [...normalized].sort().slice(0, MAX_CHANGED_FILES);
   }
 
   private async prepare(request: RunRequest): Promise<PreparedRun> {
-    const { prisma, config, cliVersion } = this.deps;
+    const { prisma, config, cliVersion, router, compartments } = this.deps;
     const task = await prisma.task.findUnique({
       where: { id: request.taskId },
-      include: { project: true, workspace: { include: { activeSession: true } } },
+      include: {
+        project: { include: { workspaces: { orderBy: { position: "asc" } } } },
+        workspace: true,
+      },
     });
     if (!task) throw notFound("Task");
     const workspace = task.workspace;
@@ -337,54 +392,43 @@ export class RunExecutor {
     const agentConfig = await this.resolveAgentConfig(
       request.agentConfigId ?? workspace.agentConfigId,
     );
-    const modelId = request.modelId ?? task.modelOverride ?? agentConfig.modelId;
+    const prompt = request.prompt ?? task.prompt;
+    const evaluation = await router.evaluate({
+      projectId: task.projectId,
+      workspace: { id: workspace.id, name: workspace.name, domain: workspace.domain },
+      taskId: task.id,
+      kind: task.kind,
+      title: task.title,
+      prompt,
+      targetPaths: toStringArray(task.targetPaths),
+      override: request.modelId
+        ? { modelId: request.modelId, source: "run-request" }
+        : task.modelOverride
+          ? { modelId: task.modelOverride, source: "task-override" }
+          : null,
+      purpose: "router.classifier",
+    });
+    const modelId = evaluation.modelId;
     const profile = await prisma.modelProfile.findUnique({ where: { id: modelId } });
     if (!profile || !profile.enabled) throw badRequest(`Model ${modelId} is not enabled`);
 
-    const active = workspace.activeSession;
-    const decision = decideSession(
-      active
-        ? {
-            id: active.id,
-            modelId: active.modelId,
-            status: active.status,
-            contextTokens: active.contextTokens,
-            established: active.claudeSessionId !== null,
-          }
-        : null,
-      { modelId, forceNew: request.newSession, maxSessionTokens: workspace.maxSessionTokens },
-    );
-    const session = await this.applySessionDecision(decision, workspace.id, modelId);
-    const prompt = request.prompt ?? task.prompt;
+    const plan = await compartments.prepare({
+      projectId: task.projectId,
+      workspace,
+      modelId,
+      forceNew: request.newSession,
+    });
+    const session = plan.session;
     const permissionMode = PermissionModeSchema.parse(agentConfig.permissionMode);
 
     const { run, startedAt } = await prisma.$transaction(async (tx) => {
-      const routing = await tx.routingDecision.create({
-        data: {
-          taskId: task.id,
-          strategy: "OVERRIDE",
-          features: {
-            source: request.modelId
-              ? "run-request"
-              : task.modelOverride
-                ? "task-override"
-                : "agent-config",
-          },
-          tier: profile.tier,
-          modelId,
-          rationale: request.modelId
-            ? "Model selected manually for this run"
-            : task.modelOverride
-              ? "Model pinned on the task"
-              : `Default model of agent config ${agentConfig.name}`,
-        },
-      });
+      const routingDecisionId = await router.record(tx, task.id, evaluation);
       const created = await tx.agentRun.create({
         data: {
           taskId: task.id,
           sessionId: session.id,
           agentConfigId: agentConfig.id,
-          routingDecisionId: routing.id,
+          routingDecisionId,
           modelId,
           prompt,
           args: [],
@@ -399,10 +443,20 @@ export class RunExecutor {
     });
 
     const scope = await this.deps.surgeon.runScope(task.projectId, workspace.id);
+    const indexed = await this.deps.indexes.context(task.projectId);
+    const fence = new WriteFence(
+      task.project.rootPath,
+      { name: workspace.name, globs: toStringArray(workspace.writeFenceGlobs) },
+      task.project.workspaces
+        .filter((candidate) => candidate.id !== workspace.id)
+        .map((candidate) => ({ name: candidate.name, globs: toStringArray(candidate.pathGlobs) })),
+    );
+    const fenceRules = fence.compile(indexed ? [...indexed.index.files.keys()] : []);
     const runToken = this.deps.runTokens.issue(run.id, task.projectId, {
       workspaceId: workspace.id,
       policy: scope.policy,
       guard: scope.guard,
+      fence,
     });
     const context = await this.prepareContext(run.id, task, prompt, scope.policy, runToken);
     await prisma.agentRun.update({
@@ -417,7 +471,7 @@ export class RunExecutor {
       runtimeDir: config.runtimeDir,
       runId: run.id,
       settings: buildRunSettings({
-        deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
+        deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny, ...fenceRules.editDeny],
         hooks: guardHooks(config.internalApiUrl),
       }),
       primer: composePrimer({
@@ -431,17 +485,18 @@ export class RunExecutor {
       contextPack: context.packText,
     });
     const allowedTools = toStringArray(agentConfig.allowedTools);
+    const handoffText = plan.item.handoff?.text ?? null;
 
     const spec: RunSpec = {
       runId: run.id,
       cwd: task.project.rootPath,
-      prompt: composeUserMessage(context.packText, prompt),
+      prompt: composeUserMessage(context.packText, prompt, handoffText),
       model: modelId,
       fallbackModels: toStringArray(agentConfig.fallbackModelIds).filter((id) => id !== modelId),
       permissionMode,
       maxTurns: agentConfig.maxTurns,
       session:
-        decision.action === "resume"
+        plan.decision.action === "resume"
           ? { mode: "resume", sessionId: session.claudeSessionId ?? session.id }
           : { mode: "new", sessionId: session.id },
       allowedTools:
@@ -471,12 +526,27 @@ export class RunExecutor {
       runId: run.id,
       taskId: task.id,
       projectId: task.projectId,
+      projectRoot: task.project.rootPath,
       workspaceId: workspace.id,
       sessionId: session.id,
-      sessionIsNew: decision.action === "start",
+      sessionIsNew: plan.decision.action === "start",
       modelId,
+      tier: evaluation.tier,
+      strategy: evaluation.plan.strategy,
+      request,
       startedAt,
       displayPrompt: prompt,
+      routing: {
+        kind: "routing",
+        strategy: evaluation.plan.strategy,
+        tier: evaluation.tier,
+        modelId,
+        rationale: evaluation.rationale,
+        score: evaluation.plan.score?.value ?? null,
+        confidence: evaluation.plan.confidence,
+        ruleName: evaluation.plan.rule?.name ?? null,
+      },
+      session: plan.item,
       context: context.item,
       spec,
     };
@@ -577,42 +647,6 @@ export class RunExecutor {
       : await prisma.agentConfig.findUnique({ where: { name: DEFAULT_AGENT_CONFIG_NAME } });
     if (!config) throw badRequest("Agent configuration not found");
     return config;
-  }
-
-  private async applySessionDecision(
-    decision: SessionDecision,
-    workspaceId: string,
-    modelId: string,
-  ) {
-    const { prisma } = this.deps;
-    if (decision.action === "resume") {
-      return prisma.session.update({
-        where: { id: decision.sessionId },
-        data: { status: "ACTIVE", lastActivityAt: new Date() },
-      });
-    }
-    return prisma.$transaction(async (tx) => {
-      if (decision.rotate) {
-        await tx.session.update({
-          where: { id: decision.rotate.sessionId },
-          data: { status: "ROTATED", endReason: decision.rotate.reason, endedAt: new Date() },
-        });
-      }
-      const created = await tx.session.create({
-        data: {
-          id: randomUUID(),
-          workspaceId,
-          modelId,
-          status: "ACTIVE",
-          previousId: decision.rotate?.sessionId ?? null,
-        },
-      });
-      await tx.workspace.update({
-        where: { id: workspaceId },
-        data: { activeSessionId: created.id },
-      });
-      return created;
-    });
   }
 
   private passthroughEnv(): Record<string, string> {

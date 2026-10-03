@@ -1,22 +1,18 @@
 import type {
   CreateWorkspaceRequestSchema,
-  SessionDto,
   UpdateWorkspaceRequestSchema,
   WorkspaceDto,
 } from "@onyx/contracts";
 import { Prisma, type PrismaClient } from "@onyx/db";
 import type { z } from "zod";
 import { conflict, notFound } from "../errors";
-import { toSessionDto, toWorkspaceDto } from "./mappers";
+import { toWorkspaceDto } from "./mappers";
 
 type CreateWorkspaceInput = z.output<typeof CreateWorkspaceRequestSchema>;
 type UpdateWorkspaceInput = z.output<typeof UpdateWorkspaceRequestSchema>;
 
 export class WorkspaceService {
-  constructor(
-    private readonly prisma: PrismaClient,
-    private readonly isBusy: (workspaceId: string) => boolean,
-  ) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async list(projectId: string): Promise<WorkspaceDto[]> {
     const workspaces = await this.prisma.workspace.findMany({
@@ -71,28 +67,9 @@ export class WorkspaceService {
     return toWorkspaceDto(workspace);
   }
 
-  async resetSession(id: string): Promise<WorkspaceDto> {
+  async get(id: string): Promise<WorkspaceDto> {
     const workspace = await this.prisma.workspace.findUnique({ where: { id } });
     if (!workspace) throw notFound("Workspace");
-    if (this.isBusy(id)) throw conflict("Workspace has a running agent");
-    const updated = await this.prisma.$transaction(async (tx) => {
-      if (workspace.activeSessionId) {
-        await tx.session.update({
-          where: { id: workspace.activeSessionId },
-          data: { status: "ROTATED", endReason: "MANUAL_RESET", endedAt: new Date() },
-        });
-      }
-      return tx.workspace.update({ where: { id }, data: { activeSessionId: null } });
-    });
-    return toWorkspaceDto(updated);
-  }
-
-  async sessions(id: string): Promise<SessionDto[]> {
-    const sessions = await this.prisma.session.findMany({
-      where: { workspaceId: id },
-      orderBy: { startedAt: "desc" },
-      take: 50,
-    });
-    return sessions.map(toSessionDto);
+    return toWorkspaceDto(workspace);
   }
 }

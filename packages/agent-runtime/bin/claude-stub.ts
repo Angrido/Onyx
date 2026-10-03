@@ -383,9 +383,21 @@ function interpolate(value: string, allowed: readonly string[]): string {
   );
 }
 
+function taskSection(prompt: string): string {
+  const marker = "\n# Task\n\n";
+  const index = prompt.lastIndexOf(marker);
+  return index === -1 ? prompt : prompt.slice(index + marker.length);
+}
+
+function stubNotes(prompt: string): string[] {
+  return [...taskSection(prompt).matchAll(/\bnote:\{([^}]*)\}/g)].map((match) => match[1] ?? "");
+}
+
 function parseAttempts(prompt: string): ToolAttempt[] {
   const attempts: ToolAttempt[] = [];
-  for (const match of prompt.matchAll(/\b(read|grep|glob|bash):(\{[^}]*\}|\S+)/g)) {
+  for (const match of taskSection(prompt).matchAll(
+    /\b(read|grep|glob|bash|edit|write):(\{[^}]*\}|\S+)/g,
+  )) {
     const kind = match[1];
     const raw = match[2] ?? "";
     const value = raw.startsWith("{") ? raw.slice(1, -1) : raw;
@@ -398,6 +410,16 @@ function parseAttempts(prompt: string): ToolAttempt[] {
       });
     if (kind === "glob") attempts.push({ tool: "Glob", input: { pattern: value } });
     if (kind === "bash") attempts.push({ tool: "Bash", input: { command: value } });
+    if (kind === "edit")
+      attempts.push({
+        tool: "Edit",
+        input: { file_path: resolve(process.cwd(), value), old_string: "a", new_string: "b" },
+      });
+    if (kind === "write")
+      attempts.push({
+        tool: "Write",
+        input: { file_path: resolve(process.cwd(), value), content: "stub" },
+      });
   }
   return attempts;
 }
@@ -443,6 +465,9 @@ function simulateTool(attempt: ToolAttempt): string {
     } catch (error) {
       return `read failed: ${error instanceof Error ? error.message : String(error)}`;
     }
+  }
+  if (attempt.tool === "Edit" || attempt.tool === "Write") {
+    return `(stub) ${attempt.tool === "Edit" ? "edited" : "wrote"} ${String(attempt.input.file_path)}`;
   }
   return "(stub) tool not executed";
 }
@@ -497,7 +522,10 @@ async function runGuardScenario(prompt: string): Promise<void> {
       }),
     );
   }
-  const summary = `Blocked ${denials.length} of ${attempts.length} tool calls.`;
+  const summary = [
+    `Blocked ${denials.length} of ${attempts.length} tool calls.`,
+    ...stubNotes(prompt),
+  ].join("\n");
   await writeLine(assistantLine("msg_stub_guard_done", [{ type: "text", text: summary }]));
   await writeLine(resultLine(summary, denials));
 }

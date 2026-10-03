@@ -4,7 +4,7 @@ import { RunDtoSchema } from "./runs";
 
 export const CreateTaskRequestSchema = z.object({
   projectId: z.string().min(1),
-  workspaceId: z.string().min(1),
+  workspaceId: z.string().min(1).nullable().default(null),
   title: z.string().trim().min(1).max(200),
   prompt: z.string().trim().min(1).max(100_000),
   kind: TaskKindSchema.default("FEATURE"),

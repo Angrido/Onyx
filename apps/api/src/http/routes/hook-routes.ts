@@ -22,16 +22,21 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
       const parsed = HookInputSchema.safeParse(request.body);
       if (!parsed.success) return {};
       const input = parsed.data;
-      const decision = grant.guard.evaluate({
+      const call = {
         toolName: input.tool_name,
         toolInput: input.tool_input,
         cwd: input.cwd ?? null,
-      });
+      };
+      const readDecision = grant.guard.evaluate(call);
+      const fenceDecision = readDecision.allowed && grant.fence ? grant.fence.evaluate(call) : null;
+      const decision = fenceDecision ?? readDecision;
       if (decision.allowed) return {};
 
-      const rule = decision.rule
-        ? `${decision.rule.action === "INCLUDE" ? "!" : ""}${decision.rule.pattern}`
-        : null;
+      const rule = fenceDecision
+        ? `write fence (${grant.fence?.name ?? "workspace"})`
+        : decision.rule
+          ? `${decision.rule.action === "INCLUDE" ? "!" : ""}${decision.rule.pattern}`
+          : null;
       const item: GuardItem = {
         kind: "guard",
         source: "hook",
@@ -46,7 +51,7 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
         .create({
           data: {
             actor: `run:${grant.runId}`,
-            action: "guard.denied",
+            action: fenceDecision ? "fence.denied" : "guard.denied",
             target: decision.target,
             meta: { tool: input.tool_name, rule, projectId: grant.projectId },
           },

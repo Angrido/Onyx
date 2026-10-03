@@ -22,6 +22,20 @@ export interface TurnUsageRecord {
   usage: TokenUsage;
 }
 
+const EDIT_TOOL_KEYS: Readonly<Record<string, string>> = {
+  Edit: "file_path",
+  MultiEdit: "file_path",
+  Write: "file_path",
+  NotebookEdit: "notebook_path",
+};
+
+function editedPath(toolName: string, input: unknown): string | null {
+  const key = EDIT_TOOL_KEYS[toolName];
+  if (key === undefined || input === null || typeof input !== "object") return null;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 export class RunRecorder {
   private seq = 0;
   private readonly ledger = new TurnUsageLedger();
@@ -30,6 +44,8 @@ export class RunRecorder {
   private resultItem: RunItemOf<"result"> | null = null;
   private initItem: RunItemOf<"init"> | null = null;
   private guards = 0;
+  private readonly pendingEdits = new Map<string, string>();
+  private readonly edited = new Set<string>();
   private readonly deniedToolUses = new Set<string>();
 
   constructor(
@@ -61,6 +77,10 @@ export class RunRecorder {
 
   get guardDenials(): number {
     return this.guards;
+  }
+
+  get changedFiles(): string[] {
+    return [...this.edited];
   }
 
   turnUsages(): TurnUsageRecord[] {
@@ -103,6 +123,15 @@ export class RunRecorder {
       } else if (item.kind === "init") {
         this.initItem = item;
         this.onInit(item);
+      } else if (item.kind === "tool_use") {
+        const path = editedPath(item.name, item.input);
+        if (path !== null) this.pendingEdits.set(item.toolUseId, path);
+      } else if (item.kind === "tool_result") {
+        const path = this.pendingEdits.get(item.toolUseId);
+        if (path !== undefined) {
+          this.pendingEdits.delete(item.toolUseId);
+          if (!item.isError) this.edited.add(path);
+        }
       } else if (item.kind === "guard") {
         if (item.toolUseId !== null && this.deniedToolUses.has(item.toolUseId)) continue;
         if (item.toolUseId !== null) this.deniedToolUses.add(item.toolUseId);

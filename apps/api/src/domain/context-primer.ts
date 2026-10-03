@@ -38,7 +38,12 @@ export function composePrimer(input: PrimerInput): string {
   return sections.join("\n\n");
 }
 
-export function composeUserMessage(contextPack: string | null, prompt: string): string {
-  if (!present(contextPack)) return prompt;
-  return `${contextPack.trim()}\n\n---\n\n# Task\n\n${prompt}`;
+export function composeUserMessage(
+  contextPack: string | null,
+  prompt: string,
+  handoff: string | null = null,
+): string {
+  const preamble = [handoff, contextPack].filter(present).map((part) => part.trim());
+  if (preamble.length === 0) return prompt;
+  return `${preamble.join("\n\n---\n\n")}\n\n---\n\n# Task\n\n${prompt}`;
 }

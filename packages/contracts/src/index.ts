@@ -6,6 +6,7 @@ export * from "./api/common";
 export * from "./api/auth";
 export * from "./api/workspaces";
 export * from "./api/projects";
+export * from "./api/router";
 export * from "./api/runs";
 export * from "./api/tasks";
 export * from "./api/catalog";

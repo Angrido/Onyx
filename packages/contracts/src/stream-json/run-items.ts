@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { RunStatusSchema, TokenUsageSchema } from "../domain";
+import {
+  ModelTierSchema,
+  RoutingStrategySchema,
+  RunStatusSchema,
+  SessionEndReasonSchema,
+  TokenUsageSchema,
+} from "../domain";
 
 export const ModelUsageSchema = z.object({
   usage: TokenUsageSchema,
@@ -145,6 +151,34 @@ export const GuardItemSchema = z.object({
 });
 export type GuardItem = z.infer<typeof GuardItemSchema>;
 
+export const RoutingItemSchema = z.object({
+  kind: z.literal("routing"),
+  strategy: RoutingStrategySchema,
+  tier: ModelTierSchema,
+  modelId: z.string(),
+  rationale: z.string(),
+  score: z.number().nullable(),
+  confidence: z.number().nullable(),
+  ruleName: z.string().nullable(),
+});
+export type RoutingItem = z.infer<typeof RoutingItemSchema>;
+
+export const SessionActionSchema = z.enum(["resumed", "started"]);
+export type SessionAction = z.infer<typeof SessionActionSchema>;
+
+export const SessionItemSchema = z.object({
+  kind: z.literal("session"),
+  action: SessionActionSchema,
+  sessionId: z.string(),
+  workspaceName: z.string(),
+  reason: SessionEndReasonSchema.nullable(),
+  previousSessionId: z.string().nullable(),
+  handoff: z.object({ text: z.string(), tokens: z.number().int() }).nullable(),
+  contextTokens: z.number().int(),
+  maxSessionTokens: z.number().int(),
+});
+export type SessionItem = z.infer<typeof SessionItemSchema>;
+
 export const UnknownItemSchema = z.object({
   kind: z.literal("unknown"),
   type: z.string(),
@@ -165,6 +199,8 @@ export const RunItemSchema = z.discriminatedUnion("kind", [
   StderrItemSchema,
   ContextItemSchema,
   GuardItemSchema,
+  RoutingItemSchema,
+  SessionItemSchema,
   UnknownItemSchema,
 ]);
 export type RunItem = z.infer<typeof RunItemSchema>;
@@ -177,6 +213,8 @@ export const OnyxRunItemSchema = z.discriminatedUnion("kind", [
   StderrItemSchema,
   ContextItemSchema,
   GuardItemSchema,
+  RoutingItemSchema,
+  SessionItemSchema,
 ]);
 export type OnyxRunItem = z.infer<typeof OnyxRunItemSchema>;
 

@@ -8,6 +8,7 @@ import { pino } from "pino";
 import { buildApp } from "../src/app";
 import { loadConfig } from "../src/config";
 import { createContainer, type Container } from "../src/container";
+import type { HandoffSummarizer, TaskClassifier } from "../src/infrastructure/aux-model";
 
 export const ORIGIN = "http://localhost:3000";
 export const PASSWORD = "correct-horse-battery";
@@ -29,6 +30,8 @@ export interface TestContextOptions {
   dataDir?: string;
   env?: Record<string, string>;
   projectFiles?: Record<string, string>;
+  classifier?: TaskClassifier | null;
+  summarizer?: HandoffSummarizer | null;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -63,6 +66,8 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     sourceEnv: { CLAUDE_STUB_DELAY_MS: String(options.stubDelayMs ?? 5) },
     closeGraceMs: 300,
     indexRefreshDelayMs: 50,
+    classifier: options.classifier ?? null,
+    summarizer: options.summarizer ?? null,
   });
   await container.start();
   const app = await buildApp(container);
@@ -110,11 +115,12 @@ export interface ApiClient {
   post<T>(url: string, payload?: unknown): Promise<{ status: number; body: T }>;
   patch<T>(url: string, payload: unknown): Promise<{ status: number; body: T }>;
   put<T>(url: string, payload: unknown): Promise<{ status: number; body: T }>;
+  delete(url: string): Promise<{ status: number; body: unknown }>;
 }
 
 export function apiClient(app: FastifyInstance, cookie: string): ApiClient {
   const request = async <T>(
-    method: "GET" | "POST" | "PATCH" | "PUT",
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     url: string,
     payload?: unknown,
   ) => {
@@ -134,6 +140,7 @@ export function apiClient(app: FastifyInstance, cookie: string): ApiClient {
     post: (url, payload) => request("POST", url, payload ?? {}),
     patch: (url, payload) => request("PATCH", url, payload),
     put: (url, payload) => request("PUT", url, payload),
+    delete: (url) => request("DELETE", url),
   };
 }
 

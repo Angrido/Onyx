@@ -53,7 +53,7 @@ describe("database", () => {
     const second = await seedDatabase(prisma);
     expect(first.modelProfiles).toBe(4);
     expect(first.agentConfigs).toBe(5);
-    expect(first.routingRules).toBe(5);
+    expect(first.routingRules).toBe(7);
     expect(second).toEqual({ modelProfiles: 0, agentConfigs: 0, routingRules: 0, appSettings: 0 });
     const fable = await prisma.modelProfile.findUniqueOrThrow({
       where: { id: "claude-fable-5-1" },

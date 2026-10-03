@@ -8,17 +8,24 @@ import type { Logger } from "pino";
 import { AuthService } from "./application/auth-service";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
+import { CompartmentService } from "./application/compartment-service";
 import { IndexService } from "./application/index-service";
 import { ProjectService } from "./application/project-service";
 import { recoverInterruptedWork } from "./application/recovery";
 import { RunExecutor } from "./application/run-executor";
 import { RunScheduler } from "./application/run-scheduler";
+import { RouterService } from "./application/router-service";
 import { RunService } from "./application/run-service";
 import { SurgeonService } from "./application/surgeon-service";
 import { TaskService } from "./application/task-service";
 import { TelemetryService } from "./application/telemetry-service";
 import { WorkspaceService } from "./application/workspace-service";
 import type { AppConfig } from "./config";
+import {
+  AnthropicAuxModel,
+  type HandoffSummarizer,
+  type TaskClassifier,
+} from "./infrastructure/aux-model";
 import { EventWriter } from "./infrastructure/event-writer";
 import { IndexStore } from "./infrastructure/index-store";
 import { RunTokenRegistry } from "./infrastructure/run-tokens";
@@ -30,6 +37,8 @@ export interface ContainerOverrides {
   sourceEnv?: NodeJS.ProcessEnv;
   closeGraceMs?: number;
   indexRefreshDelayMs?: number;
+  classifier?: TaskClassifier | null;
+  summarizer?: HandoffSummarizer | null;
 }
 
 export interface Container {
@@ -42,6 +51,8 @@ export interface Container {
   indexes: IndexService;
   surgeon: SurgeonService;
   calibration: CalibrationService;
+  router: RouterService;
+  compartments: CompartmentService;
   runTokens: RunTokenRegistry;
   executor: RunExecutor;
   scheduler: RunScheduler;
@@ -59,7 +70,6 @@ export interface Container {
 }
 
 const MIN_FREE_DISK_RATIO = 0.1;
-const TOKEN_COUNT_MODEL = "claude-haiku-4-5";
 
 export async function createContainer(
   config: AppConfig,
@@ -94,14 +104,15 @@ export async function createContainer(
 
   const estimator = new AdjustableTokenEstimator();
   const offlineTokenizer = new O200kTokenizer();
+  const auxModel =
+    config.credentials.kind === "api-key"
+      ? new AnthropicAuxModel({ apiKey: config.credentials.value })
+      : null;
   const calibration = new CalibrationService({
     prisma,
     estimator,
     logger,
-    tokenizer: () =>
-      config.credentials.kind === "api-key"
-        ? new AnthropicTokenizer({ apiKey: config.credentials.value, model: TOKEN_COUNT_MODEL })
-        : offlineTokenizer,
+    tokenizer: () => (auxModel ? new AnthropicTokenizer(auxModel) : offlineTokenizer),
   });
   const indexes = new IndexService({
     prisma,
@@ -116,6 +127,20 @@ export async function createContainer(
   });
   const runTokens = new RunTokenRegistry();
   const surgeon = new SurgeonService({ prisma, indexes, calibration, logger });
+  const scheduling: { scheduler: RunScheduler | null } = { scheduler: null };
+  const router = new RouterService({
+    prisma,
+    indexes,
+    classifier: overrides.classifier === undefined ? auxModel : overrides.classifier,
+    logger,
+  });
+  const compartments = new CompartmentService({
+    prisma,
+    estimator,
+    summarizer: overrides.summarizer === undefined ? auxModel : overrides.summarizer,
+    logger,
+    isBusy: (workspaceId) => scheduling.scheduler?.isWorkspaceBusy(workspaceId) ?? false,
+  });
 
   const executor = new RunExecutor({
     prisma,
@@ -126,6 +151,8 @@ export async function createContainer(
     config,
     indexes,
     surgeon,
+    router,
+    compartments,
     runTokens,
     cliVersion: () => cliVersion,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
@@ -137,6 +164,7 @@ export async function createContainer(
     logger,
     maxConcurrent: config.maxConcurrentAgents,
   });
+  scheduling.scheduler = scheduler;
   const runService = new RunService(prisma, scheduler);
   runs.service = runService;
 
@@ -150,6 +178,8 @@ export async function createContainer(
     indexes,
     surgeon,
     calibration,
+    router,
+    compartments,
     runTokens,
     executor,
     scheduler,
@@ -161,10 +191,10 @@ export async function createContainer(
           logger.warn({ err: error, projectId }, "Initial indexing could not start"),
         );
     }),
-    workspaces: new WorkspaceService(prisma, (workspaceId) =>
-      scheduler.isWorkspaceBusy(workspaceId),
+    workspaces: new WorkspaceService(prisma),
+    tasks: new TaskService(prisma, scheduler, hub, (projectId, targetPaths, prompt) =>
+      router.inferWorkspace(projectId, targetPaths, prompt),
     ),
-    tasks: new TaskService(prisma, scheduler, hub),
     runs: runService,
     telemetry: new TelemetryService(prisma, () => ({
       activeRuns: scheduler.activeCount,

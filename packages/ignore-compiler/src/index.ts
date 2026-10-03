@@ -5,3 +5,4 @@ export * from "./heuristics";
 export * from "./policy";
 export * from "./presets";
 export * from "./rules";
+export * from "./fence";

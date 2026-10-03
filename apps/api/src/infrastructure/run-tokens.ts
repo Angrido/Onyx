@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import type { ContextPolicy, PathGuard } from "@onyx/ignore-compiler";
+import type { ContextPolicy, PathGuard, WriteFence } from "@onyx/ignore-compiler";
 
 export interface RunScopeGrant {
   workspaceId: string | null;
   policy: ContextPolicy;
   guard: PathGuard;
+  fence: WriteFence | null;
 }
 
 export interface RunGrant extends RunScopeGrant {

@@ -210,6 +210,30 @@ export class ProjectContext {
     return this.packFileCache;
   }
 
+  resolveTargets(
+    targetPaths: readonly string[],
+    prompt: string,
+    policy: ContextPolicy = EMPTY_POLICY,
+  ): { explicit: string[]; inferred: string[] } {
+    const files = [...this.index.files.keys()].filter((path) => !policy.isExcluded(path));
+    const explicit = expandTargetPaths(
+      targetPaths
+        .map((path) => this.normalizePath(path))
+        .filter((path): path is string => path !== null),
+      files,
+      this.rank,
+    );
+    const inferred = inferTargets({ prompt, files, symbolFiles: this.exportOwners }).filter(
+      (path) => !explicit.includes(path),
+    );
+    return { explicit, inferred };
+  }
+
+  fileFacts(relPath: string): { blastRadius: number | null; rawTokens: number } | null {
+    const file = this.index.files.get(relPath);
+    return file ? { blastRadius: file.blastRadius, rawTokens: file.rawTokens } : null;
+  }
+
   buildPack(request: PackRequest): PackResult {
     const policy = request.policy ?? EMPTY_POLICY;
     const files = [...this.index.files.keys()].filter((path) => !policy.isExcluded(path));
