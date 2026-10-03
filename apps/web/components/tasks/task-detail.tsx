@@ -246,6 +246,22 @@ export function TaskDetail({
               <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">
                 {task.prompt}
               </p>
+              {task.targetPaths.length > 0 ? (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Targets
+                  </span>
+                  {task.targetPaths.map((path) => (
+                    <Link
+                      key={path}
+                      href={`/projects/${task.projectId}/graph?focus=${encodeURIComponent(path)}`}
+                      className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[11px] hover:text-foreground"
+                    >
+                      {path}
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
           {selectedRun ? (

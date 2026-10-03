@@ -3,6 +3,7 @@ import {
   TERMINAL_RUN_STATUSES,
   addUsage,
   contextTokensOf,
+  type ContextItem,
   type RunItem,
   type RunItemOf,
   type RunStatus,
@@ -41,7 +42,8 @@ export type FeedEntry =
   | { kind: "status"; key: string; status: RunStatus; message: string | null }
   | { kind: "stderr"; key: string; text: string }
   | { kind: "result"; key: string; item: RunItemOf<"result"> }
-  | { kind: "system"; key: string; subtype: string };
+  | { kind: "system"; key: string; subtype: string }
+  | { kind: "context"; key: string; item: ContextItem };
 
 export interface FeedState {
   entries: FeedEntry[];
@@ -52,6 +54,7 @@ export interface FeedState {
   turnUsage: Record<string, TokenUsage>;
   lastTurn: TokenUsage | null;
   result: RunItemOf<"result"> | null;
+  context: ContextItem | null;
   partialText: string;
 }
 
@@ -64,6 +67,7 @@ export const INITIAL_FEED: FeedState = {
   turnUsage: {},
   lastTurn: null,
   result: null,
+  context: null,
   partialText: "",
 };
 
@@ -145,6 +149,9 @@ function appendItem(state: FeedState, entries: FeedEntry[], item: RunItem, key: 
     case "system":
       entries.push({ kind: "system", key, subtype: item.subtype });
       return state;
+    case "context":
+      entries.push({ kind: "context", key, item });
+      return { ...state, context: item };
     case "unknown":
       return state;
   }
@@ -175,4 +182,9 @@ export function feedContextTokens(state: FeedState): number {
 
 export function isTerminal(status: RunStatus | null): boolean {
   return status !== null && TERMINAL_RUN_STATUSES.includes(status);
+}
+
+export function contextSavings(item: ContextItem): number | null {
+  if (item.baselineTokens <= 0) return null;
+  return 1 - item.packTokens / item.baselineTokens;
 }

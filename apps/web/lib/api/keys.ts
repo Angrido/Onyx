@@ -9,4 +9,10 @@ export const queryKeys = {
   task: (id: string) => ["task", id] as const,
   run: (id: string) => ["run", id] as const,
   sessions: (workspaceId: string) => ["sessions", workspaceId] as const,
+  index: (projectId: string) => ["index", projectId] as const,
+  graph: (projectId: string, focus: string | null, depth: number) =>
+    ["graph", projectId, focus, depth] as const,
+  allGraphs: (projectId: string) => ["graph", projectId] as const,
+  fileContext: (projectId: string, path: string, level: number) =>
+    ["file-context", projectId, path, level] as const,
 };

@@ -3,12 +3,13 @@
 import {
   TaskKindSchema,
   type CatalogResponse,
+  type GraphResponse,
   type TaskDto,
   type TaskKind,
   type WorkspaceDto,
 } from "@onyx/contracts";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Sparkles } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileCode2, Loader2, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
@@ -56,6 +57,23 @@ export function CreateTaskDialog({
   const [workspaceId, setWorkspaceId] = useState(workspaces[0]?.id ?? "");
   const [model, setModel] = useState("");
   const [runNow, setRunNow] = useState(true);
+  const [targetPaths, setTargetPaths] = useState<string[]>([]);
+  const [targetDraft, setTargetDraft] = useState("");
+
+  const files = useQuery({
+    queryKey: queryKeys.graph(projectId, null, 0),
+    queryFn: () => api.get<GraphResponse>(`/api/projects/${projectId}/graph?limit=5000`),
+    enabled: open,
+    retry: false,
+    staleTime: 60_000,
+    select: (graph) => graph.nodes.map((node) => node.id).sort(),
+  });
+
+  function addTarget() {
+    const value = targetDraft.trim().replace(/^\.\//, "");
+    if (value.length > 0 && !targetPaths.includes(value)) setTargetPaths([...targetPaths, value]);
+    setTargetDraft("");
+  }
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -65,6 +83,7 @@ export function CreateTaskDialog({
         title,
         prompt,
         kind,
+        targetPaths,
         ...(model ? { modelOverride: model } : {}),
       });
       if (runNow) await api.post(`/api/tasks/${task.id}/run`);
@@ -75,6 +94,7 @@ export function CreateTaskDialog({
       setOpen(false);
       setTitle("");
       setPrompt("");
+      setTargetPaths([]);
       router.push(`/tasks/${task.id}`);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -118,6 +138,60 @@ export function CreateTaskDialog({
               onChange={(event) => setPrompt(event.target.value)}
               required
             />
+          </Field>
+          <Field
+            label="Target files"
+            htmlFor="task-targets"
+            hint="Sent in full; their imports and importers go in as skeletons. Leave empty to let Onyx infer targets from the prompt."
+          >
+            <div className="flex gap-2">
+              <Input
+                id="task-targets"
+                list="task-target-files"
+                className="font-mono text-xs"
+                placeholder={
+                  files.data
+                    ? "src/feature/file.ts or a folder"
+                    : "Index the project for suggestions"
+                }
+                value={targetDraft}
+                onChange={(event) => setTargetDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  addTarget();
+                }}
+              />
+              <Button type="button" variant="secondary" onClick={addTarget}>
+                Add
+              </Button>
+            </div>
+            <datalist id="task-target-files">
+              {(files.data ?? []).map((file) => (
+                <option key={file} value={file} />
+              ))}
+            </datalist>
+            {targetPaths.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {targetPaths.map((path) => (
+                  <span
+                    key={path}
+                    className="flex items-center gap-1 rounded-md bg-surface-2 py-0.5 pl-2 pr-1 font-mono text-[11px]"
+                  >
+                    <FileCode2 className="size-3 text-muted-foreground" />
+                    {path}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${path}`}
+                      onClick={() => setTargetPaths(targetPaths.filter((entry) => entry !== path))}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </Field>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Workspace" htmlFor="task-workspace">

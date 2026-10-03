@@ -243,3 +243,24 @@ describe("oversized targets", () => {
     expect(pack?.entries[0]).toMatchObject({ relPath: "src/service.ts", level: 2 });
   });
 });
+
+describe("projects nested in another repository", () => {
+  it("ignore the parent's .gitignore but honour their own", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "onyx-parent-"));
+    try {
+      await mkdir(join(parent, ".git"));
+      await writeFile(join(parent, ".gitignore"), "data/\n");
+      const nested = join(parent, "data", "project");
+      await writeProject(nested, {
+        ".gitignore": "generated/\n*.log\n",
+        "src/app.ts": "export const app = 1;\n",
+        "src/generated/types.ts": "export type T = 1;\n",
+        "debug.log": "noise\n",
+      });
+      const result = await indexProject({ rootDir: nested, analyzer, securityCheck: false });
+      expect([...result.files.keys()].sort()).toEqual([".gitignore", "src/app.ts"]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+});

@@ -28,6 +28,7 @@
   --destructive-foreground: oklch(0.98 0 0);
   --success: oklch(0.76 0.16 155);
   --warning: oklch(0.8 0.15 80);
+  --info: oklch(0.8 0.12 210);
   --border: oklch(1 0 0 / 0.08);
   --border-strong: oklch(1 0 0 / 0.14);
   --input: oklch(1 0 0 / 0.1);
@@ -37,6 +38,13 @@
   --tier-builder: oklch(0.8 0.15 75);
   --tier-scout: oklch(0.8 0.12 210);
   --tier-apex: oklch(0.84 0.14 95);
+
+  --domain-frontend: oklch(0.8 0.12 210);
+  --domain-backend: oklch(0.72 0.17 293);
+  --domain-database: oklch(0.8 0.15 75);
+  --domain-infra: oklch(0.76 0.16 155);
+  --domain-custom: oklch(0.75 0.13 340);
+  --domain-shared: oklch(0.62 0.015 286);
 
   --font-sans-stack:
     "Inter", "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -64,6 +72,7 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-info: var(--info);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
@@ -76,6 +85,12 @@
   --color-builder: var(--tier-builder);
   --color-scout: var(--tier-scout);
   --color-apex: var(--tier-apex);
+  --color-domain-frontend: var(--domain-frontend);
+  --color-domain-backend: var(--domain-backend);
+  --color-domain-database: var(--domain-database);
+  --color-domain-infra: var(--domain-infra);
+  --color-domain-custom: var(--domain-custom);
+  --color-domain-shared: var(--domain-shared);
   --font-sans: var(--font-sans-stack);
   --font-mono: var(--font-mono-stack);
   --radius-sm: calc(var(--radius) - 4px);

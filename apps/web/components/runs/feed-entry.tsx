@@ -1,7 +1,9 @@
 "use client";
 
+import type { ContextEntry, ContextItem, ContextRole } from "@onyx/contracts";
 import {
   AlertTriangle,
+  Boxes,
   Brain,
   CheckCircle2,
   ChevronRight,
@@ -9,6 +11,7 @@ import {
   FileSearch,
   FileText,
   FolderSearch,
+  Layers3,
   Loader2,
   Sparkles,
   SquareTerminal,
@@ -20,8 +23,8 @@ import {
 import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { RunStatusBadge } from "@/components/tasks/status-badge";
-import type { FeedEntry, ToolResultView } from "@/lib/run-feed";
-import { formatDuration, formatUsd } from "@/lib/format";
+import { contextSavings, type FeedEntry, type ToolResultView } from "@/lib/run-feed";
+import { formatDuration, formatPercent, formatTokens, formatUsd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const TOOL_ICONS: Record<string, typeof Wrench> = {
@@ -35,6 +38,12 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   Task: Workflow,
 };
 
+const ONYX_TOOL_PREFIX = "mcp__onyx__";
+
+function toolLabel(name: string): string {
+  return name.startsWith(ONYX_TOOL_PREFIX) ? `onyx · ${name.slice(ONYX_TOOL_PREFIX.length)}` : name;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -47,7 +56,9 @@ function relativeTo(value: string, cwd: string | null): string {
 
 export function toolSummary(input: unknown, cwd: string | null = null): string {
   if (!isRecord(input)) return "";
-  for (const key of ["file_path", "command", "pattern", "path", "description", "prompt"]) {
+  const handle = input.handle;
+  if (typeof handle === "string" && handle.length > 0) return `#${handle.replace(/^#/, "")}`;
+  for (const key of ["file_path", "command", "pattern", "path", "query", "description", "prompt"]) {
     const value = input[key];
     if (typeof value === "string" && value.length > 0) return relativeTo(value, cwd);
   }
@@ -107,7 +118,7 @@ function ToolEntry({
   entry: Extract<FeedEntry, { kind: "tool" }>;
   cwd: string | null;
 }) {
-  const Icon = TOOL_ICONS[entry.name] ?? Wrench;
+  const Icon = entry.name.startsWith(ONYX_TOOL_PREFIX) ? Boxes : (TOOL_ICONS[entry.name] ?? Wrench);
   const summary = toolSummary(entry.input, cwd);
   const state = entry.result === null ? "running" : entry.result.isError ? "error" : "ok";
   return (
@@ -116,7 +127,7 @@ function ToolEntry({
       header={
         <>
           <Icon className="size-3.5 text-primary" />
-          <span className="font-medium">{entry.name}</span>
+          <span className="font-medium">{toolLabel(entry.name)}</span>
           <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{summary}</span>
           {state === "running" ? (
             <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
@@ -131,6 +142,109 @@ function ToolEntry({
           {JSON.stringify(entry.input, null, 2)}
         </pre>
         {entry.result ? <ToolResult result={entry.result} /> : null}
+      </div>
+    </Collapsible>
+  );
+}
+
+const LEVEL_LABELS = ["map", "signatures", "contracts", "full"] as const;
+
+const ROLE_TITLES: Record<ContextRole, string> = {
+  target: "Targets",
+  dependency: "Dependencies",
+  dependent: "Dependents",
+  nearby: "Nearby",
+};
+
+function LevelBadge({ level }: { level: ContextEntry["level"] }) {
+  return (
+    <span
+      className={cn(
+        "rounded px-1.5 py-0.5 font-mono text-[10px]",
+        level === 3 && "bg-primary/15 text-primary",
+        level === 2 && "bg-info/15 text-info",
+        level === 1 && "bg-surface-3 text-foreground",
+        level === 0 && "bg-surface-2 text-muted-foreground",
+      )}
+      title={LEVEL_LABELS[level]}
+    >
+      L{level}
+    </span>
+  );
+}
+
+function ContextView({ item }: { item: ContextItem }) {
+  const savings = contextSavings(item);
+  const roles = (Object.keys(ROLE_TITLES) as ContextRole[]).filter((role) =>
+    item.entries.some((entry) => entry.role === role),
+  );
+  return (
+    <Collapsible
+      header={
+        <>
+          <Layers3 className="size-3.5 text-primary" />
+          <span className="font-medium">Onyx context</span>
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {item.entries.length > 0
+              ? `${item.entries.length} files · ${formatTokens(item.packTokens)} pack + ${formatTokens(item.mapTokens)} map`
+              : (item.note ?? `${formatTokens(item.mapTokens)} map`)}
+          </span>
+          {savings !== null ? (
+            <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+              −{formatPercent(savings)} vs naive
+            </span>
+          ) : null}
+          {item.mcpEnabled ? (
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-muted-foreground">
+              MCP
+            </span>
+          ) : null}
+        </>
+      }
+    >
+      <div className="space-y-3 text-xs">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            ["Delivered", formatTokens(item.deliveredTokens)],
+            ["Naive baseline", item.baselineTokens > 0 ? formatTokens(item.baselineTokens) : "—"],
+            ["Context pack", formatTokens(item.packTokens)],
+            ["Project map", formatTokens(item.mapTokens)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-md bg-surface-0/70 px-2 py-1.5">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+              <p className="font-mono text-sm">{value}</p>
+            </div>
+          ))}
+        </div>
+        {item.note ? <p className="text-muted-foreground">{item.note}</p> : null}
+        {roles.map((role) => (
+          <div key={role} className="space-y-1">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {ROLE_TITLES[role]}
+            </p>
+            <ul className="space-y-0.5">
+              {item.entries
+                .filter((entry) => entry.role === role)
+                .map((entry) => (
+                  <li key={entry.relPath} className="flex items-center gap-2">
+                    <LevelBadge level={entry.level} />
+                    <span className="min-w-0 flex-1 truncate font-mono">
+                      {entry.relPath}
+                      {entry.symbols ? (
+                        <span className="text-muted-foreground"> · {entry.symbols.join(", ")}</span>
+                      ) : null}
+                      {item.inferredTargets.includes(entry.relPath) ? (
+                        <span className="text-muted-foreground"> · from prompt</span>
+                      ) : null}
+                    </span>
+                    <span className="font-mono text-muted-foreground">
+                      {formatTokens(entry.tokens)}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </Collapsible>
   );
@@ -289,5 +403,7 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
       return (
         <p className="text-center text-[11px] text-muted-foreground">system · {entry.subtype}</p>
       );
+    case "context":
+      return <ContextView item={entry.item} />;
   }
 }

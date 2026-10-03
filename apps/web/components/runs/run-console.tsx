@@ -14,11 +14,12 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-import { formatDuration, formatTokens, formatUsd } from "@/lib/format";
+import { formatDuration, formatPercent, formatTokens, formatUsd } from "@/lib/format";
 import {
   INITIAL_FEED,
   applyDelta,
   applyRunEvent,
+  contextSavings,
   feedContextTokens,
   feedUsage,
   isTerminal,
@@ -52,7 +53,15 @@ function useElapsed(startedAt: string, endedAt: string | null, running: boolean)
   return Math.max(0, end - new Date(startedAt).getTime());
 }
 
-function Metric({ label, value, className }: { label: string; value: string; className?: string }) {
+function Metric({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string | undefined;
+}) {
   return (
     <div className={cn("min-w-0", className)}>
       <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -156,11 +165,21 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-3 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-6">
+        <div className="grid grid-cols-3 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-7">
           <Metric label="Input" value={formatTokens(usage.inputTokens)} />
           <Metric label="Output" value={formatTokens(usage.outputTokens)} />
           <Metric label="Cache read" value={formatTokens(usage.cacheReadTokens)} />
-          <Metric label="Context" value={formatTokens(feedContextTokens(feed))} />
+          <Metric label="Window" value={formatTokens(feedContextTokens(feed))} />
+          <Metric
+            label="Onyx saving"
+            value={(() => {
+              const savings = feed.context ? contextSavings(feed.context) : null;
+              return savings === null ? "—" : `−${formatPercent(savings)}`;
+            })()}
+            className={
+              feed.context && contextSavings(feed.context) !== null ? "text-success" : undefined
+            }
+          />
           <Metric label="Cost" value={formatUsd(costUsd)} />
           <Metric label="Elapsed" value={formatDuration(elapsed)} />
         </div>

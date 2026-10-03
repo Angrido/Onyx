@@ -1,6 +1,13 @@
 import type { RunItem } from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
-import { INITIAL_FEED, applyDelta, applyRunEvent, feedUsage, isTerminal } from "@/lib/run-feed";
+import {
+  INITIAL_FEED,
+  applyDelta,
+  applyRunEvent,
+  contextSavings,
+  feedUsage,
+  isTerminal,
+} from "@/lib/run-feed";
 
 const usage = (input: number, output: number) => ({
   inputTokens: input,
@@ -93,5 +100,36 @@ describe("run feed", () => {
       { kind: "text", messageId: "m1", text: "Hello", parentToolUseId: null },
     ]);
     expect(state.partialText).toBe("");
+  });
+});
+
+describe("context items", () => {
+  it("adds a context entry and exposes the pack saving", () => {
+    const context = {
+      kind: "context" as const,
+      targets: ["src/a.ts"],
+      inferredTargets: [],
+      entries: [
+        {
+          relPath: "src/a.ts",
+          role: "target" as const,
+          level: 3 as const,
+          tokens: 400,
+          symbols: null,
+        },
+      ],
+      mapTokens: 120,
+      packTokens: 500,
+      baselineTokens: 2_000,
+      deliveredTokens: 620,
+      indexedAt: null,
+      mcpEnabled: true,
+      note: null,
+    };
+    const state = applyRunEvent(INITIAL_FEED, 1, [context]);
+    expect(state.entries.at(-1)).toEqual({ kind: "context", key: "1:0", item: context });
+    expect(state.context).toBe(context);
+    expect(contextSavings(context)).toBeCloseTo(0.75);
+    expect(contextSavings({ ...context, baselineTokens: 0 })).toBeNull();
   });
 });
