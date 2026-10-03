@@ -196,10 +196,7 @@ export class TerminalService {
       const record = this.records.get(channel.slice("pty:".length));
       if (!record) return [];
       const output = record.output.toString();
-      return [
-        ptyStateMessage(this.toDto(record)),
-        ptyOutputMessage(record.id, output, true),
-      ];
+      return [ptyStateMessage(this.toDto(record)), ptyOutputMessage(record.id, output, true)];
     });
   }
 
