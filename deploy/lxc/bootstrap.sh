@@ -25,16 +25,16 @@ fi
 install -d -o onyx -g onyx -m 750 /srv/onyx /srv/onyx/projects
 install -d -o onyx -g onyx -m 700 /var/lib/onyx /var/lib/onyx/runtime /var/lib/onyx/cache
 install -d -o root -g onyx -m 750 /etc/onyx /opt/onyx /opt/onyx/releases
-install -d -o root -g root -m 700 /var/backups/onyx
+install -d -o onyx -g onyx -m 700 /var/backups/onyx
 
 if [ ! -f /etc/onyx/onyx.env ]; then
   install -o root -g onyx -m 640 "$REPO_DIR/deploy/env/onyx.env.example" /etc/onyx/onyx.env
 fi
 
-install -m 644 "$REPO_DIR"/deploy/systemd/*.service "$REPO_DIR"/deploy/systemd/*.timer /etc/systemd/system/
+install -m 644 "$REPO_DIR"/deploy/systemd/*.service /etc/systemd/system/
 install -m 644 "$REPO_DIR/deploy/caddy/Caddyfile" /etc/caddy/Caddyfile
 systemctl daemon-reload
-systemctl enable onyx-api.service onyx-web.service onyx-backup.timer
+systemctl enable onyx-api.service onyx-web.service
 systemctl reload-or-restart caddy
 
 if [ -f /etc/avahi/avahi-daemon.conf ]; then

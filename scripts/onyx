@@ -10,7 +10,7 @@ LOG_FILE="$LOG_DIR/onyx-dev.log"
 API_URL="${ONYX_API_URL:-http://127.0.0.1:4000}"
 WEB_URL="${ONYX_WEB_URL:-http://127.0.0.1:3000}"
 SERVICES=(onyx-api.service onyx-web.service)
-COMMANDS=(onyx-start onyx-stop onyx-restart onyx-update onyx-status onyx-logs onyx-use-claude)
+COMMANDS=(onyx-start onyx-stop onyx-restart onyx-update onyx-status onyx-logs onyx-use-claude onyx-backup onyx-restore)
 STUB_BIN="$ROOT/packages/agent-runtime/bin/claude-stub.ts"
 SERVICE_ENV=/etc/onyx/onyx.env
 
@@ -53,8 +53,14 @@ Usage: onyx <command>    (or onyx-start, onyx-stop, onyx-update, …)
   use-claude use the real Claude Code (installed if missing), so Onyx can
              sign in with your Claude account; restarts Onyx
   use-stub   go back to the bundled simulator (development and tests)
+  backup     write a backup of the database now
+  backups    list the backups
+  restore [name|latest]
+             stop Onyx, save the current database, restore the backup,
+             apply the migrations and start Onyx again
   install    put onyx-start, onyx-stop, onyx-update, onyx-restart,
-             onyx-status, onyx-logs and onyx-use-claude on the PATH
+             onyx-status, onyx-logs, onyx-use-claude, onyx-backup and
+             onyx-restore on the PATH
 
 Onyx runs as systemd services when onyx-api.service is installed
 (deploy/lxc/bootstrap.sh); otherwise it runs pnpm dev from this checkout.
@@ -227,6 +233,69 @@ use_stub() {
   restart_if_running
 }
 
+onyx_cli() {
+  if [ "$(mode)" = service ]; then
+    as_root runuser -u onyx -- bash -c 'set -a; . /etc/onyx/onyx.env; set +a; cd /opt/onyx/current/api && exec node dist/cli.js "$@"' onyx-cli "$@"
+  else
+    [ -f "$ROOT/apps/api/.env" ] || fail "apps/api/.env is missing: run scripts/dev-setup.sh first"
+    (
+      set -a
+      . "$ROOT/apps/api/.env"
+      set +a
+      cd "$ROOT/apps/api" && exec ./node_modules/.bin/tsx src/cli.ts "$@"
+    )
+  fi
+}
+
+is_running() {
+  if [ "$(mode)" = service ]; then
+    systemctl is-active --quiet onyx-api.service
+  else
+    dev_pid >/dev/null
+  fi
+}
+
+migrate() {
+  if [ "$(mode)" = service ]; then
+    as_root bash -c 'set -a; . /etc/onyx/onyx.env; set +a; cd /opt/onyx/current/db && runuser -u onyx -- env DATABASE_URL="$DATABASE_URL" ./node_modules/.bin/prisma migrate deploy'
+  else
+    load_dev_env
+    [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is not set in apps/api/.env"
+    (cd "$ROOT" && DATABASE_URL="$DATABASE_URL" pnpm --filter @onyx/db migrate:deploy)
+  fi
+}
+
+backup_now() {
+  step "Backing up the database"
+  onyx_cli backup --reason "${1:-manual}"
+}
+
+restore_backup() {
+  local reference="${1:-}"
+  if [ -z "$reference" ]; then
+    onyx_cli list
+    printf '
+Choose one: onyx restore <name>   (or onyx restore latest)
+'
+    return 0
+  fi
+  onyx_cli verify "$reference" || fail "the backup is damaged: nothing was changed"
+  local was_running=false
+  if is_running; then
+    was_running=true
+    run stop
+  fi
+  step "Restoring $reference"
+  onyx_cli restore "$reference"
+  step "Applying the migrations"
+  migrate
+  if $was_running; then
+    run start
+  else
+    ok "Restored. Start Onyx with: onyx-start"
+  fi
+}
+
 load_dev_env() {
   if [ -f "$ROOT/apps/api/.env" ]; then
     set -a
@@ -303,8 +372,11 @@ dev_update() {
   fi
   step "Installing dependencies"
   (cd "$ROOT" && pnpm install --frozen-lockfile)
-  step "Migrating the database"
   load_dev_env
+  if [ -n "${DATABASE_URL:-}" ] && [ -f "${DATABASE_URL#file:}" ]; then
+    backup_now pre-update || warn "the backup before the update failed: continuing"
+  fi
+  step "Migrating the database"
   [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is not set in apps/api/.env"
   (cd "$ROOT" && DATABASE_URL="$DATABASE_URL" pnpm --filter @onyx/db migrate:deploy)
   step "Building the MCP server"
@@ -416,6 +488,9 @@ run() {
     logs) logs ;;
     use-claude) use_claude ;;
     use-stub) use_stub ;;
+    backup) backup_now manual ;;
+    backups) onyx_cli list ;;
+    restore) restore_backup "${2:-}" ;;
     install) install_commands ;;
     -h | --help | help) usage ;;
     *)
@@ -427,12 +502,12 @@ run() {
 
 invoked="$(basename "$0")"
 case "$invoked" in
-  onyx-*) run "${invoked#onyx-}" ;;
+  onyx-*) run "${invoked#onyx-}" "${1:-}" ;;
   *)
     if [ $# -eq 0 ]; then
       usage
       exit 0
     fi
-    run "$1"
+    run "$1" "${2:-}"
     ;;
 esac

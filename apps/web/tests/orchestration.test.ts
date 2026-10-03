@@ -1,5 +1,6 @@
 import type { ApprovalDto, OrchestrationDto, OrchestrationNode } from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
+import { formatBytes } from "@/lib/format";
 import {
   budgetUsage,
   canResume,
@@ -141,5 +142,13 @@ describe("approvals and budgets", () => {
       ratio: 1,
       softRatio: null,
     });
+  });
+});
+
+describe("sizes", () => {
+  it("formats backup sizes", () => {
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(3_276_800)).toBe("3.1 MB");
+    expect(formatBytes(5 * 1024 ** 3)).toBe("5.00 GB");
   });
 });

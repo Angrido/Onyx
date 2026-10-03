@@ -20,10 +20,20 @@ set -a
 . /etc/onyx/onyx.env
 set +a
 
+install -d -o onyx -g onyx -m 700 "${ONYX_BACKUP_DIR:-/var/backups/onyx}"
+if [ -f "${DATABASE_URL#file:}" ]; then
+  runuser -u onyx -- bash -c 'set -a; . /etc/onyx/onyx.env; set +a; exec node "$1/api/dist/cli.js" backup --reason pre-update' onyx-cli "$TARGET" \
+    || printf 'warning: the backup before the update failed\n' >&2
+fi
+
 (cd "$TARGET/db" && runuser -u onyx -- env DATABASE_URL="$DATABASE_URL" ./node_modules/.bin/prisma migrate deploy)
 
 ln -sfn "$TARGET" "$BASE/current"
-install -m 644 "$TARGET"/deploy/systemd/*.service "$TARGET"/deploy/systemd/*.timer /etc/systemd/system/
+install -m 644 "$TARGET"/deploy/systemd/*.service /etc/systemd/system/
+if [ -f /etc/systemd/system/onyx-backup.timer ]; then
+  systemctl disable --now onyx-backup.timer 2>/dev/null || true
+  rm -f /etc/systemd/system/onyx-backup.timer /etc/systemd/system/onyx-backup.service
+fi
 systemctl daemon-reload
 systemctl restart onyx-api.service onyx-web.service
 

@@ -7,6 +7,7 @@ import { AdjustableTokenEstimator, LeanAnalyzer } from "@onyx/lean-ctx";
 import type { Logger } from "pino";
 import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
+import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
@@ -78,6 +79,8 @@ export interface Container {
   approvals: ApprovalService;
   budgets: BudgetService;
   orchestrator: OrchestratorService;
+  backups: BackupService;
+  vault: SecretVault;
   auth: AuthService;
   projects: ProjectService;
   workspaces: WorkspaceService;
@@ -341,6 +344,13 @@ export async function createContainer(
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
 
+  const backups = new BackupService({
+    prisma,
+    logger,
+    config,
+    keyFingerprint: vault.fingerprint(),
+  });
+
   const container: Container = {
     config,
     logger,
@@ -369,6 +379,8 @@ export async function createContainer(
     approvals,
     budgets,
     orchestrator,
+    backups,
+    vault,
     runs: runService,
     telemetry: new TelemetryService(prisma, () => ({
       activeRuns: scheduler.activeCount,
@@ -435,9 +447,11 @@ export async function createContainer(
         autoResumeQueued: config.autoResumeQueued,
       });
       for (const item of recovery.requeued) scheduler.enqueue(item);
+      backups.start();
     },
 
     async stop(): Promise<void> {
+      await backups.stop();
       await indexes.shutdown();
       await roadmap.shutdown();
       await orchestrator.shutdown();

@@ -87,3 +87,37 @@ export const UpdateGitIdentityRequestSchema = z.object({
     .transform((value) => (value === null || value.length === 0 ? null : value)),
 });
 export type UpdateGitIdentityRequest = z.input<typeof UpdateGitIdentityRequestSchema>;
+
+export const BackupReasonSchema = z.enum(["manual", "scheduled", "pre-update", "pre-restore"]);
+export type BackupReason = z.infer<typeof BackupReasonSchema>;
+
+export const BackupDtoSchema = z.object({
+  name: z.string(),
+  createdAt: z.string(),
+  reason: BackupReasonSchema.nullable(),
+  sizeBytes: z.number().int(),
+  sha256: z.string().nullable(),
+  migrations: z.number().int(),
+  counts: z.record(z.string(), z.number().int()),
+  keyMatches: z.boolean().nullable(),
+});
+export type BackupDto = z.infer<typeof BackupDtoSchema>;
+
+export const BackupListResponseSchema = z.object({
+  items: z.array(BackupDtoSchema),
+  dir: z.string(),
+  keep: z.number().int(),
+  intervalHours: z.number().int(),
+  lastBackupAt: z.string().nullable(),
+  nextBackupAt: z.string().nullable(),
+  running: z.boolean(),
+});
+export type BackupListResponse = z.infer<typeof BackupListResponseSchema>;
+
+export const BackupVerifyResultSchema = z.object({
+  name: z.string(),
+  ok: z.boolean(),
+  problems: z.array(z.string()),
+  counts: z.record(z.string(), z.number().int()),
+});
+export type BackupVerifyResult = z.infer<typeof BackupVerifyResultSchema>;

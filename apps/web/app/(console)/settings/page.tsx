@@ -1,4 +1,5 @@
 import type {
+  BackupListResponse,
   BudgetListResponse,
   ClaudeAccountDto,
   GitHubAccountDto,
@@ -6,6 +7,7 @@ import type {
   ProjectListResponse,
 } from "@onyx/contracts";
 import { PageHeader } from "@/components/layout/page-header";
+import { BackupsCard } from "@/components/settings/backups-card";
 import { BudgetsCard } from "@/components/settings/budgets-card";
 import { ClaudeAccountCard } from "@/components/settings/claude-account-card";
 import { GitHubAccountCard } from "@/components/settings/github-account-card";
@@ -15,12 +17,13 @@ import { serverFetch } from "@/lib/api/server";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [claude, github, identity, budgets, projects] = await Promise.all([
+  const [claude, github, identity, budgets, projects, backups] = await Promise.all([
     serverFetch<ClaudeAccountDto>("/api/settings/claude"),
     serverFetch<GitHubAccountDto>("/api/github/account"),
     serverFetch<GitIdentityDto>("/api/settings/git"),
     serverFetch<BudgetListResponse>("/api/budgets"),
     serverFetch<ProjectListResponse>("/api/projects"),
+    serverFetch<BackupListResponse>("/api/backups"),
   ]);
   return (
     <>
@@ -36,7 +39,10 @@ export default async function SettingsPage() {
           <GitIdentityCard initial={identity} />
         </div>
       </div>
-      <BudgetsCard initial={budgets.items} projects={projects.items} />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <BudgetsCard initial={budgets.items} projects={projects.items} />
+        <BackupsCard initial={backups} />
+      </div>
     </>
   );
 }

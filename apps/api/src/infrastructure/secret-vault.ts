@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -50,6 +50,10 @@ export class SecretVault {
     const key = randomBytes(KEY_BYTES);
     await writeFile(keyFile, `${key.toString("base64")}\n`, { mode: 0o600, flag: "wx" });
     return new SecretVault(key, keyFile, true);
+  }
+
+  fingerprint(): string {
+    return createHash("sha256").update(this.key).digest("hex").slice(0, 16);
   }
 
   seal(plaintext: string, purpose: string): string {

@@ -40,4 +40,5 @@ export const queryKeys = {
   approvals: ["approvals"] as const,
   approvalsPending: ["approvals", "pending"] as const,
   budgets: ["budgets"] as const,
+  backups: ["backups"] as const,
 };
