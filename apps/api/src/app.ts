@@ -6,6 +6,7 @@ import type { Container } from "./container";
 import "./http/fastify-types";
 import { registerErrorHandling } from "./http/error-handler";
 import { registerAuthRoutes } from "./http/routes/auth-routes";
+import { registerContextRoutes } from "./http/routes/context-routes";
 import { registerProjectRoutes } from "./http/routes/project-routes";
 import { registerSystemRoutes } from "./http/routes/system-routes";
 import { registerTaskRoutes } from "./http/routes/task-routes";
@@ -39,6 +40,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerAuthRoutes(app, container);
   registerProjectRoutes(app, container);
   registerTaskRoutes(app, container);
+  registerContextRoutes(app, container);
   registerWsRoutes(app, container);
 
   return app;

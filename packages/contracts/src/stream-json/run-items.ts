@@ -101,6 +101,36 @@ export const StderrItemSchema = z.object({
   text: z.string(),
 });
 
+export const ContextRoleSchema = z.enum(["target", "dependency", "dependent", "nearby"]);
+export type ContextRole = z.infer<typeof ContextRoleSchema>;
+
+export const ContextLevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
+export type ContextLevel = z.infer<typeof ContextLevelSchema>;
+
+export const ContextEntrySchema = z.object({
+  relPath: z.string(),
+  role: ContextRoleSchema,
+  level: ContextLevelSchema,
+  tokens: z.number().int(),
+  symbols: z.array(z.string()).nullable(),
+});
+export type ContextEntry = z.infer<typeof ContextEntrySchema>;
+
+export const ContextItemSchema = z.object({
+  kind: z.literal("context"),
+  targets: z.array(z.string()),
+  inferredTargets: z.array(z.string()),
+  entries: z.array(ContextEntrySchema),
+  mapTokens: z.number().int(),
+  packTokens: z.number().int(),
+  baselineTokens: z.number().int(),
+  deliveredTokens: z.number().int(),
+  indexedAt: z.string().nullable(),
+  mcpEnabled: z.boolean(),
+  note: z.string().nullable(),
+});
+export type ContextItem = z.infer<typeof ContextItemSchema>;
+
 export const UnknownItemSchema = z.object({
   kind: z.literal("unknown"),
   type: z.string(),
@@ -119,6 +149,7 @@ export const RunItemSchema = z.discriminatedUnion("kind", [
   ResultItemSchema,
   StatusItemSchema,
   StderrItemSchema,
+  ContextItemSchema,
   UnknownItemSchema,
 ]);
 export type RunItem = z.infer<typeof RunItemSchema>;
@@ -129,6 +160,7 @@ export const OnyxRunItemSchema = z.discriminatedUnion("kind", [
   PromptItemSchema,
   StatusItemSchema,
   StderrItemSchema,
+  ContextItemSchema,
 ]);
 export type OnyxRunItem = z.infer<typeof OnyxRunItemSchema>;
 

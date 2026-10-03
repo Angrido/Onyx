@@ -45,6 +45,12 @@ export function usageFromTokenLog(log: TokenLog | undefined): TokenUsage {
   };
 }
 
+function indexedFileCount(stats: unknown): number | null {
+  if (stats === null || typeof stats !== "object") return null;
+  const files = (stats as { files?: unknown }).files;
+  return typeof files === "number" ? files : null;
+}
+
 export type ProjectWithCounts = Project & { _count: { workspaces: number; tasks: number } };
 
 export function toProjectDto(project: ProjectWithCounts): ProjectDto {
@@ -58,6 +64,8 @@ export function toProjectDto(project: ProjectWithCounts): ProjectDto {
     updatedAt: iso(project.updatedAt),
     workspaceCount: project._count.workspaces,
     taskCount: project._count.tasks,
+    indexedAt: isoOrNull(project.indexedAt),
+    indexedFiles: indexedFileCount(project.indexStats),
   };
 }
 
@@ -126,6 +134,11 @@ export function toRunDto(run: RunWithRelations): RunDto {
     errorMessage: run.errorMessage,
     cliVersion: run.cliVersion,
     usage: usageFromTokenLog(run.tokenLogs[0]),
+    context: {
+      baselineTokens: run.ctxBaselineTokens,
+      deliveredTokens: run.ctxDeliveredTokens,
+      expansions: run.ctxExpansions,
+    },
     startedAt: iso(run.startedAt),
     endedAt: isoOrNull(run.endedAt),
   };
@@ -150,6 +163,7 @@ export function toTaskDto(task: TaskWithLastRun): TaskDto {
     status: task.status,
     priority: task.priority,
     modelOverride: task.modelOverride,
+    targetPaths: toStringArray(task.targetPaths),
     createdAt: iso(task.createdAt),
     updatedAt: iso(task.updatedAt),
     startedAt: isoOrNull(task.startedAt),

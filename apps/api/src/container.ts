@@ -3,9 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { AgentPool, detectCliVersion, type ClaudeBinary } from "@onyx/agent-runtime";
 import type { ReadyResponse } from "@onyx/contracts";
 import { connectDatabase, seedDatabase, type PrismaClient } from "@onyx/db";
+import { LeanAnalyzer } from "@onyx/lean-ctx";
 import type { Logger } from "pino";
 import { AuthService } from "./application/auth-service";
 import { CatalogService } from "./application/catalog-service";
+import { IndexService } from "./application/index-service";
 import { ProjectService } from "./application/project-service";
 import { recoverInterruptedWork } from "./application/recovery";
 import { RunExecutor } from "./application/run-executor";
@@ -16,12 +18,15 @@ import { TelemetryService } from "./application/telemetry-service";
 import { WorkspaceService } from "./application/workspace-service";
 import type { AppConfig } from "./config";
 import { EventWriter } from "./infrastructure/event-writer";
+import { IndexStore } from "./infrastructure/index-store";
+import { RunTokenRegistry } from "./infrastructure/run-tokens";
 import { WsHub } from "./infrastructure/ws-hub";
 
 export interface ContainerOverrides {
   binary?: ClaudeBinary;
   sourceEnv?: NodeJS.ProcessEnv;
   closeGraceMs?: number;
+  indexRefreshDelayMs?: number;
 }
 
 export interface Container {
@@ -31,6 +36,8 @@ export interface Container {
   pool: AgentPool;
   writer: EventWriter;
   hub: WsHub;
+  indexes: IndexService;
+  runTokens: RunTokenRegistry;
   executor: RunExecutor;
   scheduler: RunScheduler;
   auth: AuthService;
@@ -79,6 +86,18 @@ export async function createContainer(
     runs.service ? runs.service.storedEvents(runId, after, before) : Promise.resolve([]),
   );
 
+  const indexes = new IndexService({
+    prisma,
+    store: new IndexStore(prisma),
+    hub,
+    logger,
+    analyzer: new LeanAnalyzer(),
+    ...(overrides.indexRefreshDelayMs === undefined
+      ? {}
+      : { refreshDelayMs: overrides.indexRefreshDelayMs }),
+  });
+  const runTokens = new RunTokenRegistry();
+
   const executor = new RunExecutor({
     prisma,
     pool,
@@ -86,6 +105,8 @@ export async function createContainer(
     hub,
     logger,
     config,
+    indexes,
+    runTokens,
     cliVersion: () => cliVersion,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
@@ -106,10 +127,18 @@ export async function createContainer(
     pool,
     writer,
     hub,
+    indexes,
+    runTokens,
     executor,
     scheduler,
     auth: new AuthService(prisma, config.sessionTtlMs),
-    projects: new ProjectService(prisma, config.allowedProjectRoots),
+    projects: new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
+      indexes
+        .start(projectId)
+        .catch((error: unknown) =>
+          logger.warn({ err: error, projectId }, "Initial indexing could not start"),
+        );
+    }),
     workspaces: new WorkspaceService(prisma, (workspaceId) =>
       scheduler.isWorkspaceBusy(workspaceId),
     ),
@@ -172,6 +201,7 @@ export async function createContainer(
     },
 
     async stop(): Promise<void> {
+      await indexes.shutdown();
       await scheduler.shutdown();
       await writer.close();
       await prisma.$disconnect();

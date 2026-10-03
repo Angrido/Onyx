@@ -10,6 +10,7 @@ export const CreateTaskRequestSchema = z.object({
   kind: TaskKindSchema.default("FEATURE"),
   priority: z.number().int().min(-100).max(100).default(0),
   modelOverride: z.string().min(1).max(128).optional(),
+  targetPaths: z.array(z.string().trim().min(1).max(1024)).max(32).default([]),
 });
 export type CreateTaskRequest = z.input<typeof CreateTaskRequestSchema>;
 
@@ -32,6 +33,7 @@ export const TaskDtoSchema = z.object({
   status: TaskStatusSchema,
   priority: z.number().int(),
   modelOverride: z.string().nullable(),
+  targetPaths: z.array(z.string()),
   createdAt: z.string(),
   updatedAt: z.string(),
   startedAt: z.string().nullable(),

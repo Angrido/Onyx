@@ -9,6 +9,7 @@ import {
 } from "@onyx/agent-runtime";
 import {
   PermissionModeSchema,
+  type ContextItem,
   type OnyxRunItem,
   type RunStatus,
   type TaskStatus,
@@ -16,13 +17,23 @@ import {
 import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import { credentialEnv, type AppConfig } from "../config";
+import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings } from "../domain/permission-rules";
 import { resolveRunOutcome } from "../domain/run-outcome";
 import { decideSession, type SessionDecision } from "../domain/session-policy";
 import { badRequest, notFound } from "../errors";
 import type { EventWriter } from "../infrastructure/event-writer";
+import {
+  buildMcpConfig,
+  emptyMcpConfig,
+  isReadableFile,
+  ONYX_MCP_ALLOW_RULE,
+  type McpConfigFile,
+} from "../infrastructure/mcp-config";
+import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
 import type { WsHub } from "../infrastructure/ws-hub";
+import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 import { RunRecorder } from "./run-recorder";
 
@@ -49,7 +60,12 @@ export interface RunExecutorDeps {
   writer: EventWriter;
   hub: WsHub;
   logger: Logger;
-  config: Pick<AppConfig, "runtimeDir" | "credentials" | "childEnvPassthrough">;
+  config: Pick<
+    AppConfig,
+    "runtimeDir" | "credentials" | "childEnvPassthrough" | "context" | "internalApiUrl"
+  >;
+  indexes: IndexService;
+  runTokens: RunTokenRegistry;
   cliVersion: () => string | null;
   sourceEnv?: NodeJS.ProcessEnv;
 }
@@ -67,7 +83,17 @@ interface PreparedRun {
   sessionIsNew: boolean;
   modelId: string;
   startedAt: number;
+  displayPrompt: string;
+  context: ContextItem;
   spec: RunSpec;
+}
+
+interface PreparedContext {
+  item: ContextItem;
+  primerMap: { text: string; includedFiles: number; omittedFiles: number } | null;
+  packText: string | null;
+  mcpConfig: McpConfigFile;
+  mcpEnabled: boolean;
 }
 
 function statusItem(
@@ -120,7 +146,8 @@ export class RunExecutor {
           .then(() => undefined),
       );
     });
-    recorder.recordOnyx({ kind: "prompt", text: prepared.spec.prompt });
+    recorder.recordOnyx({ kind: "prompt", text: prepared.displayPrompt });
+    recorder.recordOnyx(prepared.context);
     recorder.recordOnyx(statusItem("SPAWNING"));
 
     let exit: ProcessExit;
@@ -160,8 +187,13 @@ export class RunExecutor {
     exit: ProcessExit,
     established: boolean,
   ): Promise<ExecutionResult> {
-    const { prisma, writer, hub, logger } = this.deps;
+    const { prisma, writer, hub, logger, runTokens, indexes } = this.deps;
     const result = recorder.result;
+    const expansions = runTokens.usage(prepared.runId);
+    runTokens.revoke(prepared.runId);
+    const ctxDeliveredTokens = prepared.context.deliveredTokens + expansions.tokens;
+    const ctxBaselineTokens =
+      prepared.context.baselineTokens > 0 ? prepared.context.baselineTokens : null;
     const outcome = resolveRunOutcome(exit, result);
     recorder.recordOnyx(
       statusItem(outcome.runStatus, {
@@ -192,6 +224,8 @@ export class RunExecutor {
             durationMs: result?.durationMs ?? endedAt.getTime() - prepared.startedAt,
             durationApiMs: result?.durationApiMs ?? null,
             costUsd: result?.costUsd ?? null,
+            ctxDeliveredTokens,
+            ctxExpansions: expansions.calls,
             errorMessage: outcome.errorMessage,
             endedAt,
           },
@@ -215,6 +249,8 @@ export class RunExecutor {
                 scope: "RUN_TOTAL" as const,
                 ...usage,
                 costUsd: result?.costUsd ?? null,
+                ctxBaselineTokens,
+                ctxDeliveredTokens,
               },
             ],
           });
@@ -261,6 +297,7 @@ export class RunExecutor {
       status: outcome.taskStatus,
       runId: prepared.runId,
     });
+    if (exit.sawInit) indexes.scheduleRefresh(prepared.projectId);
     logger.info(
       { runId: prepared.runId, status: outcome.runStatus, reason: exit.reason },
       "Run finished",
@@ -346,19 +383,34 @@ export class RunExecutor {
       return { run: created, startedAt: created.startedAt.getTime() };
     });
 
+    const context = await this.prepareContext(run.id, task, prompt);
+    await prisma.agentRun.update({
+      where: { id: run.id },
+      data: {
+        ctxBaselineTokens: context.item.baselineTokens > 0 ? context.item.baselineTokens : null,
+        ctxDeliveredTokens: context.item.deliveredTokens,
+      },
+    });
     const files = await writeRuntimeFiles({
       runtimeDir: config.runtimeDir,
       runId: run.id,
       settings: buildRunSettings(),
-      primer: [workspace.primer, agentConfig.appendSystemPrompt]
-        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-        .join("\n\n"),
+      primer: composePrimer({
+        workspacePrimer: workspace.primer,
+        agentPrompt: agentConfig.appendSystemPrompt,
+        projectName: task.project.name,
+        map: context.primerMap,
+        mcpEnabled: context.mcpEnabled,
+      }),
+      mcpConfig: context.mcpConfig,
+      contextPack: context.packText,
     });
+    const allowedTools = toStringArray(agentConfig.allowedTools);
 
     const spec: RunSpec = {
       runId: run.id,
       cwd: task.project.rootPath,
-      prompt,
+      prompt: composeUserMessage(context.packText, prompt),
       model: modelId,
       fallbackModels: toStringArray(agentConfig.fallbackModelIds).filter((id) => id !== modelId),
       permissionMode,
@@ -367,7 +419,10 @@ export class RunExecutor {
         decision.action === "resume"
           ? { mode: "resume", sessionId: session.claudeSessionId ?? session.id }
           : { mode: "new", sessionId: session.id },
-      allowedTools: toStringArray(agentConfig.allowedTools),
+      allowedTools:
+        context.mcpEnabled && !allowedTools.includes(ONYX_MCP_ALLOW_RULE)
+          ? [...allowedTools, ONYX_MCP_ALLOW_RULE]
+          : allowedTools,
       disallowedTools: toStringArray(agentConfig.disallowedTools),
       settingsFile: files.settingsFile,
       mcpConfigFile: files.mcpConfigFile,
@@ -392,7 +447,92 @@ export class RunExecutor {
       sessionIsNew: decision.action === "start",
       modelId,
       startedAt,
+      displayPrompt: prompt,
+      context: context.item,
       spec,
+    };
+  }
+
+  private async prepareContext(
+    runId: string,
+    task: { projectId: string; targetPaths: unknown },
+    prompt: string,
+  ): Promise<PreparedContext> {
+    const { indexes, runTokens, config, logger } = this.deps;
+    const targetPaths = toStringArray(task.targetPaths);
+    const empty = (note: string): PreparedContext => ({
+      item: {
+        kind: "context",
+        targets: targetPaths,
+        inferredTargets: [],
+        entries: [],
+        mapTokens: 0,
+        packTokens: 0,
+        baselineTokens: 0,
+        deliveredTokens: 0,
+        indexedAt: null,
+        mcpEnabled: false,
+        note,
+      },
+      primerMap: null,
+      packText: null,
+      mcpConfig: emptyMcpConfig(),
+      mcpEnabled: false,
+    });
+    if (!config.context.enabled) return empty("Onyx context is disabled");
+
+    const project = await indexes
+      .waitForIndex(task.projectId, config.context.indexWaitMs)
+      .catch((error: unknown) => {
+        logger.warn({ err: error, runId }, "Project index unavailable");
+        return null;
+      });
+    if (!project) return empty("The project is not indexed yet: this run has no Onyx context");
+
+    const map = project.projectMap(config.context.mapBudgetTokens);
+    const { pack, targets, inferredTargets } = project.buildPack({
+      targetPaths,
+      prompt,
+      budgetTokens: config.context.packBudgetTokens,
+    });
+    const mcpEnabled =
+      config.context.mcpServerPath !== null && isReadableFile(config.context.mcpServerPath);
+    const mcpConfig =
+      mcpEnabled && config.context.mcpServerPath !== null
+        ? buildMcpConfig({
+            serverPath: config.context.mcpServerPath,
+            apiUrl: config.internalApiUrl,
+            token: runTokens.issue(runId, task.projectId),
+          })
+        : emptyMcpConfig();
+    const packTokens = pack?.deliveredTokens ?? 0;
+    return {
+      item: {
+        kind: "context",
+        targets,
+        inferredTargets,
+        entries: (pack?.entries ?? []).map((entry) => ({
+          relPath: entry.relPath,
+          role: entry.role,
+          level: entry.level,
+          tokens: entry.tokens,
+          symbols: entry.symbols,
+        })),
+        mapTokens: map.tokens,
+        packTokens,
+        baselineTokens: pack?.baselineTokens ?? 0,
+        deliveredTokens: map.tokens + packTokens,
+        indexedAt: project.indexedAt?.toISOString() ?? null,
+        mcpEnabled,
+        note:
+          targets.length === 0
+            ? "No target files: set target paths on the task or name files in the prompt"
+            : null,
+      },
+      primerMap: map,
+      packText: pack?.text ?? null,
+      mcpConfig,
+      mcpEnabled,
     };
   }
 

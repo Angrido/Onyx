@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RunStatusSchema, TaskStatusSchema } from "./domain";
+import { IndexProgressEventSchema } from "./api/context";
 import { RunItemSchema } from "./stream-json/run-items";
 
 export const WS_PROTOCOL_VERSION = 1;
@@ -111,6 +112,13 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     seq: z.number().int(),
     ts: z.string(),
     data: SystemRunsDataSchema,
+  }),
+  z.object({
+    v: z.literal(WS_PROTOCOL_VERSION),
+    type: z.literal("index.progress"),
+    ch: ChannelSchema,
+    ts: z.string(),
+    data: IndexProgressEventSchema,
   }),
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),

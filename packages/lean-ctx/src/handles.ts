@@ -21,4 +21,4 @@ export function inlinePlaceholder(handle: string): string {
 export const ELIDED_VALUE = "…";
 
 export const PLACEHOLDER_LEGEND =
-  "`{ …#h }` or `…#h` marks a body elided by Onyx; h is the symbol handle to pass to onyx expand_symbol. A bare `…` marks an elided value.";
+  "`{ …#h }` or `…#h` marks a body elided by Onyx: pass h as the handle to the expand_symbol tool of the onyx MCP server to read it. A bare `…` marks an elided value.";

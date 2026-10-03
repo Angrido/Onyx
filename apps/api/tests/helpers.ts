@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { stubBinary } from "@onyx/agent-runtime/testing";
 import { createTestDatabase, type TestDatabase } from "@onyx/db/testing";
 import type { FastifyInstance } from "fastify";
@@ -27,6 +27,8 @@ export interface TestContextOptions {
   stubDelayMs?: number;
   database?: TestDatabase;
   dataDir?: string;
+  env?: Record<string, string>;
+  projectFiles?: Record<string, string>;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -39,6 +41,10 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     join(projectRoot, "src", "math.ts"),
     "export function add(a: number, b: number): number {\n  return a - b;\n}\n",
   );
+  for (const [relPath, content] of Object.entries(options.projectFiles ?? {})) {
+    mkdirSync(dirname(join(projectRoot, relPath)), { recursive: true });
+    writeFileSync(join(projectRoot, relPath), content);
+  }
 
   const config = loadConfig({
     NODE_ENV: "test",
@@ -50,11 +56,13 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     MAX_CONCURRENT_AGENTS: String(options.maxConcurrent ?? 2),
     RUN_ESCALATION_GRACE_MS: "300",
     ONYX_CHILD_ENV_PASSTHROUGH: "CLAUDE_STUB_DELAY_MS",
+    ...options.env,
   });
   const container = await createContainer(config, pino({ level: "silent" }), {
     binary: stubBinary(),
     sourceEnv: { CLAUDE_STUB_DELAY_MS: String(options.stubDelayMs ?? 5) },
     closeGraceMs: 300,
+    indexRefreshDelayMs: 50,
   });
   await container.start();
   const app = await buildApp(container);

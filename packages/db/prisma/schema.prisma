@@ -184,14 +184,16 @@ model UserSession {
 }
 
 model Project {
-  id            String   @id @default(cuid())
-  name          String   @unique
-  rootPath      String   @unique
+  id            String    @id @default(cuid())
+  name          String    @unique
+  rootPath      String    @unique
   gitRemote     String?
-  defaultBranch String   @default("main")
+  defaultBranch String    @default("main")
   indexedAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  indexStats    Json?
+  indexError    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   workspaces     Workspace[]
   tasks          Task[]
@@ -291,18 +293,18 @@ model RoutingRule {
 }
 
 model RoutingDecision {
-  id              String          @id @default(cuid())
-  taskId          String
-  ruleId          String?
-  strategy        RoutingStrategy
-  features        Json
-  score           Float?
-  confidence      Float?
-  tier            ModelTier
-  modelId         String
-  rationale       String
-  previousId      String?         @unique
-  createdAt       DateTime        @default(now())
+  id         String          @id @default(cuid())
+  taskId     String
+  ruleId     String?
+  strategy   RoutingStrategy
+  features   Json
+  score      Float?
+  confidence Float?
+  tier       ModelTier
+  modelId    String
+  rationale  String
+  previousId String?         @unique
+  createdAt  DateTime        @default(now())
 
   task     Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   rule     RoutingRule?     @relation(fields: [ruleId], references: [id], onDelete: SetNull)
@@ -387,30 +389,33 @@ model Session {
 }
 
 model AgentRun {
-  id                String    @id @default(cuid())
-  taskId            String
-  sessionId         String
-  agentConfigId     String?
-  routingDecisionId String?
-  mode              RunMode   @default(HEADLESS)
-  modelId           String
-  prompt            String
-  cliVersion        String?
-  pid               Int?
-  args              Json
-  ignoreHash        String?
-  status            RunStatus @default(SPAWNING)
-  exitCode          Int?
-  signal            String?
-  resultSubtype     String?
-  isError           Boolean   @default(false)
-  numTurns          Int?
-  durationMs        Int?
-  durationApiMs     Int?
-  costUsd           Float?
-  errorMessage      String?
-  startedAt         DateTime  @default(now())
-  endedAt           DateTime?
+  id                 String    @id @default(cuid())
+  taskId             String
+  sessionId          String
+  agentConfigId      String?
+  routingDecisionId  String?
+  mode               RunMode   @default(HEADLESS)
+  modelId            String
+  prompt             String
+  cliVersion         String?
+  pid                Int?
+  args               Json
+  ignoreHash         String?
+  status             RunStatus @default(SPAWNING)
+  exitCode           Int?
+  signal             String?
+  resultSubtype      String?
+  isError            Boolean   @default(false)
+  numTurns           Int?
+  durationMs         Int?
+  durationApiMs      Int?
+  costUsd            Float?
+  ctxBaselineTokens  Int?
+  ctxDeliveredTokens Int?
+  ctxExpansions      Int       @default(0)
+  errorMessage       String?
+  startedAt          DateTime  @default(now())
+  endedAt            DateTime?
 
   task            Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   session         Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -503,23 +508,31 @@ model IgnoreRule {
 }
 
 model FileNode {
-  id          String    @id @default(cuid())
-  projectId   String
-  relPath     String
-  language    String?
-  sizeBytes   Int
-  contentHash String
-  isBinary    Boolean   @default(false)
-  rawTokens   Int
-  leanTokens  Int?
-  skeletonL1  String?
-  skeletonL2  String?
-  domain      Domain?
-  inDegree    Int       @default(0)
-  outDegree   Int       @default(0)
-  centrality  Float?
-  parsedAt    DateTime?
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  projectId       String
+  relPath         String
+  language        String?
+  sizeBytes       Int
+  contentHash     String
+  isBinary        Boolean   @default(false)
+  isSensitive     Boolean   @default(false)
+  hasSyntaxErrors Boolean   @default(false)
+  analyzerVersion String?
+  rawTokens       Int
+  l1Tokens        Int?
+  l2Tokens        Int?
+  skeletonL1      String?
+  skeletonL2      String?
+  imports         Json?
+  exports         Json?
+  domain          Domain?
+  inDegree        Int       @default(0)
+  outDegree       Int       @default(0)
+  centrality      Float?
+  blastRadius     Int?
+  inCycle         Boolean   @default(false)
+  parsedAt        DateTime?
+  updatedAt       DateTime  @updatedAt
 
   project  Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   symbols  CodeSymbol[]
@@ -538,8 +551,8 @@ model CodeSymbol {
   qualifiedName String
   kind          String
   signature     String
-  startByte     Int
-  endByte       Int
+  startOffset   Int
+  endOffset     Int
   startLine     Int
   endLine       Int
   bodyTokens    Int
@@ -636,17 +649,17 @@ model Budget {
 }
 
 model Approval {
-  id         String         @id @default(cuid())
-  taskId     String?
-  kind       ApprovalKind
-  status     ApprovalStatus @default(PENDING)
-  title      String
-  payload    Json
-  decidedBy  String?
-  note       String?
-  createdAt  DateTime       @default(now())
-  decidedAt  DateTime?
-  expiresAt  DateTime?
+  id        String         @id @default(cuid())
+  taskId    String?
+  kind      ApprovalKind
+  status    ApprovalStatus @default(PENDING)
+  title     String
+  payload   Json
+  decidedBy String?
+  note      String?
+  createdAt DateTime       @default(now())
+  decidedAt DateTime?
+  expiresAt DateTime?
 
   task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
 

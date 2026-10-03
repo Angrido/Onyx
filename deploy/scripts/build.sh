@@ -6,7 +6,7 @@ OUT="${1:-$ROOT/.release}"
 
 cd "$ROOT"
 pnpm install --frozen-lockfile
-pnpm turbo run build --filter=@onyx/api --filter=@onyx/web
+pnpm turbo run build --filter=@onyx/api --filter=@onyx/web --filter=@onyx/mcp-server
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -24,6 +24,9 @@ cp -r apps/web/.next/static "$OUT/web/apps/web/.next/static"
 if [ -d apps/web/public ]; then
   cp -r apps/web/public "$OUT/web/apps/web/public"
 fi
+
+mkdir -p "$OUT/mcp"
+cp packages/mcp-server/dist/onyx-mcp.js "$OUT/mcp/onyx-mcp.js"
 
 mkdir -p "$OUT/deploy"
 cp -r deploy/scripts deploy/systemd deploy/caddy deploy/env deploy/avahi deploy/nftables "$OUT/deploy/"

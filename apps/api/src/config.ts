@@ -40,12 +40,26 @@ const EnvSchema = z.object({
   RUN_ESCALATION_GRACE_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
   AUTO_RESUME_QUEUED: booleanFlag(true),
   CLAUDE_BIN: z.string().min(1).default("claude"),
+  ONYX_CONTEXT_ENABLED: booleanFlag(true),
+  ONYX_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().min(1_000).max(200_000).default(24_000),
+  ONYX_MAP_BUDGET_TOKENS: z.coerce.number().int().min(200).max(50_000).default(4_000),
+  ONYX_INDEX_WAIT_MS: z.coerce.number().int().min(0).max(600_000).default(30_000),
+  ONYX_MCP_SERVER: z.string().optional(),
+  ONYX_INTERNAL_API_URL: z.string().url().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
 });
 
 export type ClaudeCredentials =
   { kind: "api-key"; value: string } | { kind: "oauth-token"; value: string } | { kind: "none" };
+
+export interface ContextConfig {
+  enabled: boolean;
+  packBudgetTokens: number;
+  mapBudgetTokens: number;
+  indexWaitMs: number;
+  mcpServerPath: string | null;
+}
 
 export interface AppConfig {
   env: "development" | "production" | "test";
@@ -66,6 +80,8 @@ export interface AppConfig {
   autoResumeQueued: boolean;
   claudeBin: string;
   credentials: ClaudeCredentials;
+  context: ContextConfig;
+  internalApiUrl: string;
 }
 
 export class ConfigError extends Error {
@@ -86,6 +102,13 @@ function resolveCredentials(apiKey?: string, oauthToken?: string): ClaudeCredent
   if (key.length > 0) return { kind: "api-key", value: key };
   if (token.length > 0) return { kind: "oauth-token", value: token };
   return { kind: "none" };
+}
+
+function loopbackHost(apiHost: string): string {
+  if (apiHost === "0.0.0.0" || apiHost === "127.0.0.1" || apiHost === "localhost")
+    return "127.0.0.1";
+  if (apiHost === "::" || apiHost === "::1") return "[::1]";
+  return apiHost.includes(":") ? `[${apiHost}]` : apiHost;
 }
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -126,6 +149,19 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     autoResumeQueued: env.AUTO_RESUME_QUEUED,
     claudeBin: env.CLAUDE_BIN,
     credentials: resolveCredentials(env.ANTHROPIC_API_KEY, env.CLAUDE_CODE_OAUTH_TOKEN),
+    context: {
+      enabled: env.ONYX_CONTEXT_ENABLED,
+      packBudgetTokens: env.ONYX_CONTEXT_BUDGET_TOKENS,
+      mapBudgetTokens: env.ONYX_MAP_BUDGET_TOKENS,
+      indexWaitMs: env.ONYX_INDEX_WAIT_MS,
+      mcpServerPath:
+        env.ONYX_MCP_SERVER && env.ONYX_MCP_SERVER.trim().length > 0
+          ? resolve(env.ONYX_MCP_SERVER)
+          : null,
+    },
+    internalApiUrl: (
+      env.ONYX_INTERNAL_API_URL ?? `http://${loopbackHost(env.API_HOST)}:${env.API_PORT}`
+    ).replace(/\/+$/, ""),
   };
 }
 

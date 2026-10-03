@@ -2,6 +2,13 @@ import { z } from "zod";
 import { RunModeSchema, RunStatusSchema, TokenUsageSchema } from "../domain";
 import { RunItemSchema } from "../stream-json/run-items";
 
+export const RunContextDtoSchema = z.object({
+  baselineTokens: z.number().int().nullable(),
+  deliveredTokens: z.number().int().nullable(),
+  expansions: z.number().int(),
+});
+export type RunContextDto = z.infer<typeof RunContextDtoSchema>;
+
 export const RunDtoSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -21,6 +28,7 @@ export const RunDtoSchema = z.object({
   errorMessage: z.string().nullable(),
   cliVersion: z.string().nullable(),
   usage: TokenUsageSchema,
+  context: RunContextDtoSchema,
   startedAt: z.string(),
   endedAt: z.string().nullable(),
 });

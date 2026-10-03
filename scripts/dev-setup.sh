@@ -14,10 +14,36 @@ case "$MODE" in
     ;;
 esac
 
-mkdir -p "$DATA/projects/demo/src"
-if [ ! -f "$DATA/projects/demo/src/math.ts" ]; then
-  printf 'export function add(a: number, b: number): number {\n  return a - b;\n}\n' > "$DATA/projects/demo/src/math.ts"
-fi
+DEMO="$DATA/projects/demo"
+mkdir -p "$DEMO/src"
+write_demo_file() {
+  if [ ! -f "$DEMO/$1" ]; then printf '%s\n' "$2" > "$DEMO/$1"; fi
+}
+write_demo_file package.json '{ "name": "demo", "type": "module" }'
+write_demo_file src/math.ts 'export function add(a: number, b: number): number {
+  return a - b;
+}'
+write_demo_file src/types.ts 'export interface Item {
+  price: number;
+  quantity: number;
+}'
+write_demo_file src/cart.ts 'import type { Item } from "./types";
+import { add } from "./math";
+
+export function total(items: Item[]): number {
+  let sum = 0;
+  for (const item of items) sum = add(sum, item.price * item.quantity);
+  return sum;
+}'
+write_demo_file src/index.ts 'export * from "./types";
+export { total } from "./cart";'
+write_demo_file src/checkout.ts 'import { total, type Item } from "./index";
+
+export function checkout(items: Item[]): string {
+  return `Total: ${total(items)}`;
+}'
+
+pnpm --filter @onyx/mcp-server build
 
 cat > "$ROOT/apps/api/.env" <<ENV
 NODE_ENV=development
@@ -29,12 +55,13 @@ ONYX_PROJECTS_DIR=$DATA/projects
 CLAUDE_BIN=$CLAUDE_BIN
 ONYX_CHILD_ENV_PASSTHROUGH=CLAUDE_STUB_DELAY_MS
 CLAUDE_STUB_DELAY_MS=400
+ONYX_MCP_SERVER=$ROOT/packages/mcp-server/dist/onyx-mcp.js
 ENV
 
 DATABASE_URL="file:$DATA/onyx.db" pnpm --filter @onyx/db migrate:deploy
 
 printf '\nDev environment ready in %s mode.\n' "$MODE"
-printf 'Demo project: %s\n' "$DATA/projects/demo"
+printf 'Demo project: %s\n' "$DEMO"
 printf 'Start everything with: pnpm dev\n'
 printf 'Open the UI from any device on the network:\n'
 printf '  http://localhost:3000\n'

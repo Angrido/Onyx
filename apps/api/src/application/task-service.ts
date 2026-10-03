@@ -64,6 +64,7 @@ export class TaskService {
         kind: input.kind,
         priority: input.priority,
         modelOverride: input.modelOverride ?? null,
+        targetPaths: [...new Set(input.targetPaths)],
       },
       include: taskIncludeLastRun(),
     });

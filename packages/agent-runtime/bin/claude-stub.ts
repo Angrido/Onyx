@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -133,6 +133,206 @@ async function writeInChunks(payload: string, chunkSize: number): Promise<void> 
   }
 }
 
+interface McpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+type RpcMessage = Record<string, unknown>;
+
+function readMcpServers(): Record<string, McpServerConfig> {
+  const file = flagValue("--mcp-config");
+  if (!file) return {};
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return isRecord(parsed) && isRecord(parsed.mcpServers)
+      ? (parsed.mcpServers as Record<string, McpServerConfig>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+class StdioRpc {
+  private readonly child: ChildProcessWithoutNullStreams;
+  private readonly pending = new Map<number, (message: RpcMessage) => void>();
+  private nextId = 1;
+  private buffer = "";
+
+  constructor(config: McpServerConfig) {
+    this.child = spawn(config.command, config.args ?? [], {
+      env: { ...process.env, ...config.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    this.child.stdout.setEncoding("utf8");
+    this.child.stdout.on("data", (chunk: string) => {
+      this.buffer += chunk;
+      let newline = this.buffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = this.buffer.slice(0, newline);
+        this.buffer = this.buffer.slice(newline + 1);
+        this.dispatch(line);
+        newline = this.buffer.indexOf("\n");
+      }
+    });
+  }
+
+  request(method: string, params: RpcMessage): Promise<RpcMessage> {
+    const id = this.nextId;
+    this.nextId += 1;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`MCP ${method} timed out`)), 15_000);
+      this.pending.set(id, (message) => {
+        clearTimeout(timer);
+        if (isRecord(message.error)) reject(new Error(String(message.error.message)));
+        else resolve(isRecord(message.result) ? message.result : {});
+      });
+      this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
+  }
+
+  notify(method: string, params: RpcMessage): void {
+    this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+  }
+
+  close(): void {
+    this.child.stdin.end();
+    this.child.kill();
+  }
+
+  private dispatch(line: string): void {
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!isRecord(message) || typeof message.id !== "number") return;
+    this.pending.get(message.id)?.(message);
+    this.pending.delete(message.id);
+  }
+}
+
+const STUB_USAGE = {
+  input_tokens: 6,
+  cache_creation_input_tokens: 1800,
+  cache_read_input_tokens: 2400,
+  output_tokens: 40,
+  service_tier: "standard",
+};
+
+function assistantLine(messageId: string, content: unknown[]): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: {
+      id: messageId,
+      type: "message",
+      role: "assistant",
+      model,
+      content,
+      stop_reason: null,
+      stop_sequence: null,
+      usage: STUB_USAGE,
+    },
+    parent_tool_use_id: null,
+    session_id: sessionId,
+  });
+}
+
+function resultLine(text: string): string {
+  return JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    duration_ms: 900,
+    duration_api_ms: 700,
+    num_turns: 2,
+    session_id: sessionId,
+    total_cost_usd: 0.004,
+    usage: STUB_USAGE,
+    modelUsage: {},
+    permission_denials: [],
+    result: text,
+  });
+}
+
+async function runMcpScenario(prompt: string): Promise<void> {
+  const onyx = readMcpServers()["onyx"];
+  const handle = /…#([0-9a-z]{8})/.exec(prompt)?.[1] ?? null;
+  const rpc = onyx ? new StdioRpc(onyx) : null;
+  let tools: string[] = [];
+  if (rpc) {
+    await rpc.request("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "claude-stub", version: "0.0.0" },
+    });
+    rpc.notify("notifications/initialized", {});
+    const listed = await rpc.request("tools/list", {});
+    tools = (Array.isArray(listed.tools) ? listed.tools : [])
+      .filter(isRecord)
+      .map((tool) => `mcp__onyx__${String(tool.name)}`);
+  }
+  await writeLine(
+    JSON.stringify({
+      type: "system",
+      subtype: "init",
+      cwd: process.cwd(),
+      session_id: sessionId,
+      tools: ["Read", "Edit", "Bash", ...tools],
+      mcp_servers: rpc ? [{ name: "onyx", status: "connected" }] : [],
+      model,
+      permissionMode: flagValue("--permission-mode") ?? "default",
+      apiKeySource: "none",
+      claude_code_version: "0.0.0-stub",
+    }),
+  );
+  if (!rpc || handle === null) {
+    const reason = rpc ? "no symbol handle in the prompt" : "no onyx MCP server configured";
+    await writeLine(
+      assistantLine("msg_stub_mcp_0", [{ type: "text", text: `Skipped: ${reason}.` }]),
+    );
+    await writeLine(resultLine(`Skipped: ${reason}.`));
+    rpc?.close();
+    return;
+  }
+
+  const toolUseId = "toolu_stub_mcp_1";
+  await writeLine(
+    assistantLine("msg_stub_mcp_1", [
+      { type: "tool_use", id: toolUseId, name: "mcp__onyx__expand_symbol", input: { handle } },
+    ]),
+  );
+  const called = await rpc.request("tools/call", { name: "expand_symbol", arguments: { handle } });
+  const text = (Array.isArray(called.content) ? called.content : [])
+    .filter(isRecord)
+    .map((part) => String(part.text ?? ""))
+    .join("\n");
+  await writeLine(
+    JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            tool_use_id: toolUseId,
+            type: "tool_result",
+            content: text,
+            is_error: called.isError === true,
+          },
+        ],
+      },
+      parent_tool_use_id: null,
+      session_id: sessionId,
+    }),
+  );
+  const summary = `Expanded #${handle} through the onyx MCP server (${text.split("\n").length} lines).`;
+  await writeLine(assistantLine("msg_stub_mcp_2", [{ type: "text", text: summary }]));
+  await writeLine(resultLine(summary));
+  rpc.close();
+}
+
 async function main(): Promise<void> {
   const prompt = await readPrompt();
   const scenario = scenarioFor(prompt);
@@ -175,6 +375,9 @@ async function main(): Promise<void> {
       return;
     case "silent":
       return hangForever();
+    case "mcp":
+      await runMcpScenario(prompt);
+      return;
     default:
       process.stderr.write(`unknown stub scenario: ${scenario}\n`);
       process.exit(2);

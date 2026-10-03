@@ -158,6 +158,21 @@ export class WsHub implements RunEventPublisher {
     }
   }
 
+  publishIndexProgress(data: ServerMessageOf<"index.progress">["data"]): void {
+    const channel = channelNames.project(data.projectId);
+    const message: ServerMessage = {
+      v: WS_PROTOCOL_VERSION,
+      type: "index.progress",
+      ch: channel,
+      ts: now(),
+      data,
+    };
+    for (const subscriber of this.listeners.get(channel) ?? []) {
+      if (subscriber.subscriptions.get(channel)?.replaying === false)
+        this.send(subscriber, message);
+    }
+  }
+
   publishTaskStatus(data: ServerMessageOf<"task.status">["data"]): void {
     for (const channel of [channelNames.task(data.taskId), channelNames.project(data.projectId)]) {
       this.publishSequenced({

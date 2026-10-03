@@ -26,6 +26,8 @@ export const ProjectDtoSchema = z.object({
   updatedAt: IsoDateSchema,
   workspaceCount: z.number().int(),
   taskCount: z.number().int(),
+  indexedAt: IsoDateSchema.nullable(),
+  indexedFiles: z.number().int().nullable(),
 });
 export type ProjectDto = z.infer<typeof ProjectDtoSchema>;
 

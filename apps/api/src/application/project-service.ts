@@ -19,6 +19,7 @@ export class ProjectService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly allowedRoots: readonly string[],
+    private readonly onCreated: (projectId: string) => void = () => undefined,
   ) {}
 
   async list(): Promise<ProjectDto[]> {
@@ -70,6 +71,7 @@ export class ProjectService {
             : {}),
         },
       });
+      this.onCreated(project.id);
       return this.get(project.id);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
