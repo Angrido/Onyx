@@ -5,6 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="$ROOT/.onyx-data"
 MODE="${1:-stub}"
 
+if ! command -v pnpm >/dev/null 2>&1 || [ ! -d "$ROOT/node_modules" ]; then
+  printf 'Node.js, pnpm or the project dependencies are missing: run scripts/install.sh %s instead.\n' "$MODE" >&2
+  exit 1
+fi
+
 case "$MODE" in
   stub) CLAUDE_BIN="$ROOT/packages/agent-runtime/bin/claude-stub.ts" ;;
   real) CLAUDE_BIN="$(command -v claude || printf 'claude')" ;;

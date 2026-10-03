@@ -1910,6 +1910,9 @@ onyx/
 │       ├── build.sh
 │       ├── release.sh
 │       └── backup.sh
+├── scripts/
+│   ├── install.sh
+│   └── dev-setup.sh
 └── docs/
     └── adr/
 ```
@@ -2045,11 +2048,10 @@ Il nome esatto del file del template va preso dall'output di `pveam available`. 
 apt update
 apt full-upgrade -y
 apt install -y ca-certificates curl gnupg git build-essential python3 sqlite3 caddy nftables locales
-curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh
-bash /tmp/nodesource_setup.sh
-apt install -y nodejs
+git clone https://github.com/Angrido/Onyx.git /root/onyx
+/root/onyx/scripts/install.sh --tools-only
 node --version
-corepack enable
+pnpm --version
 useradd --system --create-home --home-dir /home/onyx --shell /bin/bash onyx
 install -d -o onyx -g onyx -m 750 /srv/onyx /srv/onyx/projects
 install -d -o onyx -g onyx -m 700 /var/lib/onyx /var/lib/onyx/runtime /var/lib/onyx/cache
@@ -2058,6 +2060,8 @@ install -d -o root -g root -m 700 /var/backups/onyx
 ```
 
 `build-essential` e `python3` servono a compilare i binding nativi (`tree-sitter`, `better-sqlite3`, `node-pty`) quando non c'è un binario precompilato per la piattaforma.
+
+`scripts/install.sh` è lo stesso script usato in sviluppo e da `deploy/lxc/bootstrap.sh`: installa i pacchetti che mancano, Node.js 22 (NodeSource; se non è raggiungibile, la build ufficiale di nodejs.org verificata con SHA-256 in `/usr/local/lib/nodejs`, collegata in `/usr/local/bin`) e attiva con corepack la versione di pnpm fissata in `package.json`. Senza `--tools-only` installa anche le dipendenze e prepara l'ambiente di sviluppo. Le unit systemd avviano `node` con `/usr/bin/env`, quindi funzionano con entrambe le installazioni.
 
 ### 10.4 Installazione e autenticazione di Claude Code (come utente `onyx`)
 
@@ -2145,7 +2149,7 @@ User=onyx
 Group=onyx
 WorkingDirectory=/opt/onyx/current/api
 EnvironmentFile=/etc/onyx/onyx.env
-ExecStart=/usr/bin/node dist/server.js
+ExecStart=/usr/bin/env node dist/server.js
 Restart=on-failure
 RestartSec=3
 KillMode=mixed
@@ -2176,7 +2180,7 @@ WorkingDirectory=/opt/onyx/current/web
 EnvironmentFile=/etc/onyx/onyx.env
 Environment=HOSTNAME=127.0.0.1
 Environment=PORT=3000
-ExecStart=/usr/bin/node apps/web/server.js
+ExecStart=/usr/bin/env node apps/web/server.js
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
@@ -2589,7 +2593,7 @@ Ogni fase si chiude con una **Definition of Done** verificabile e con l'aggiorna
 - `AgentRun` ha in più `prompt` e `durationApiMs`; i seed `AgentConfig` sono cinque (aggiunto `planner`).
 - La modalità di permesso di default della CLI si chiama `manual` (la CLI 2.1.288 non accetta più `default`).
 - Il WebSocket della UI si apre solo nelle pagine autenticate; in sviluppo punta direttamente a `:4000` (`NEXT_PUBLIC_ONYX_WS_URL`), in produzione passa da Caddy su `/ws`.
-- `scripts/dev-setup.sh [stub|real]` prepara database, progetto demo e `.env` per lo sviluppo locale.
+- `scripts/dev-setup.sh [stub|real]` prepara database, progetto demo e `.env` per lo sviluppo locale; `scripts/install.sh` (aggiunto prima della Fase 4) installa anche i prerequisiti mancanti e poi lo richiama.
 - Turborepo scrive di sua iniziativa un `AGENTS.md` quando rileva un agente AI: è disattivato con `"agentGuidance": false` in `turbo.json`.
 
 ### Fase 2 — Lean-ctx e Graphify

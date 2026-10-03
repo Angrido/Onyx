@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NODE_MAJOR="${NODE_MAJOR:-22}"
 TIMEZONE="${TIMEZONE:-Europe/Rome}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -15,12 +14,7 @@ apt-get update
 apt-get full-upgrade -y
 apt-get install -y ca-certificates curl gnupg git build-essential python3 sqlite3 caddy nftables locales avahi-daemon libnss-mdns
 
-if ! command -v node >/dev/null 2>&1 || ! node --version | grep -q "^v${NODE_MAJOR}\."; then
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
-  bash /tmp/nodesource_setup.sh
-  apt-get install -y nodejs
-fi
-corepack enable
+"$REPO_DIR/scripts/install.sh" --tools-only
 
 timedatectl set-timezone "$TIMEZONE" 2>/dev/null || ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 

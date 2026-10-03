@@ -16,24 +16,40 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 
 ## Requisiti
 
+- Linux (Debian, Ubuntu, Fedora, Arch, openSUSE) o macOS, x64 o arm64
 - Node.js 22 LTS (≥ 22.18, serve il type stripping nativo per lo stub di Claude)
-- pnpm 10 (`corepack enable`)
+- pnpm 10.28 (la versione fissata in `package.json`)
+- git, curl, un compilatore C/C++ con make e Python 3 per i binding nativi quando manca un binario precompilato
 - Claude Code CLI solo per le run reali; per sviluppo e test basta lo stub incluso
+
+Non serve installarli a mano: lo fa `scripts/install.sh`.
 
 ## Avvio rapido in sviluppo
 
 ```bash
-corepack enable
-pnpm install
-./scripts/dev-setup.sh stub
+git clone https://github.com/Angrido/Onyx.git
+cd Onyx
+./scripts/install.sh
 pnpm dev
 ```
+
+`scripts/install.sh` installa solo ciò che manca e si può rilanciare quando si vuole:
+
+| Passo | Cosa fa |
+|---|---|
+| Pacchetti di sistema | git, curl, certificati, toolchain C/C++, Python 3, SQLite con `apt`, `dnf`, `pacman` o `zypper`; su macOS controlla gli Xcode Command Line Tools |
+| Node.js 22 | Se manca o è più vecchio di 22.18: da NodeSource su Debian/Ubuntu, altrimenti (o se NodeSource non è raggiungibile) la build ufficiale di nodejs.org verificata con SHA-256, in `/usr/local` oppure in `~/.local` senza permessi di amministratore |
+| pnpm | Attiva con corepack la versione fissata in `package.json` (ripiego: `npm install -g`) |
+| Claude Code | Solo con `--with-claude` o in modalità `real` |
+| Progetto | `pnpm install --frozen-lockfile` e `scripts/dev-setup.sh` (database, progetto demo, `.env`) |
+
+Opzioni: `./scripts/install.sh real` per usare Claude Code vero, `--tools-only` per installare solo gli strumenti, `--with-claude` per aggiungere la CLI. Va lanciato come utente normale: chiede `sudo` solo per i pacchetti di sistema. Se installa Node in una cartella che non è in testa al `PATH`, alla fine stampa la riga da aggiungere al profilo della shell.
 
 Apri http://localhost:3000 **oppure, da qualsiasi altro dispositivo della rete, `http://<ip-della-macchina>:3000`** (lo script stampa gli indirizzi). Crea l'utente operatore, registra il progetto demo (`.onyx-data/projects/demo`) e lancia un task.
 
 In modalità `stub` gli agenti sono simulati da `packages/agent-runtime/bin/claude-stub.ts`, che rigioca trascrizioni `stream-json` registrate: nessun token consumato. Nel prompt si può scegliere lo scenario con un marcatore, ad esempio `[stub:hang]` (run che non termina, per provare l'abort), `[stub:crash]`, `[stub:error-max-turns]`, `[stub:quick]`, `[stub:mcp]`, che avvia il vero server MCP `onyx` della run ed espande il primo simbolo del pacchetto di contesto, oppure `[stub:guard] read:dist/app.js grep:logs bash:{cat .env}`, che prova quelle letture passando dal vero hook di guardia.
 
-Per usare Claude Code reale: `./scripts/dev-setup.sh real`, poi imposta **una sola** credenziale tra `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` in `apps/api/.env`.
+Per usare Claude Code reale: `./scripts/install.sh real`, poi imposta **una sola** credenziale tra `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` in `apps/api/.env`. `./scripts/dev-setup.sh [stub|real]` rigenera solo `.env`, database e progetto demo.
 
 ## Contesto Onyx (Fase 2)
 
@@ -72,6 +88,7 @@ La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le 
 
 | Comando | Effetto |
 |---|---|
+| `./scripts/install.sh [stub\|real]` | Installa ciò che manca (pacchetti, Node.js, pnpm, Claude Code) e prepara il progetto |
 | `pnpm dev` | API (`:4000`, tsx watch), web (`:3000`, Next.js dev) e bundle del server MCP in watch |
 | `pnpm test` | Test di tutti i pacchetti (Vitest) |
 | `pnpm typecheck` | TypeScript strict su tutti i pacchetti |
