@@ -2536,6 +2536,13 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 
 ---
 
+**Aggiunta dopo la Fase 5 — accesso con la CLI reale**:
+
+- Causa dell'errore "Autorizzazione non riuscita / Invalid request format" su claude.ai: con l'installazione predefinita (`scripts/install.sh` in modalità `stub`) *Sign in with Claude* eseguiva lo stub, che stampava un link finto con `state` di 16 byte e una `code_challenge` non valida; claude.ai rifiuta uno `state` più corto di 32 byte con quel messaggio. Il formato del link e l'estrazione sono stati confrontati con l'output reale di `claude setup-token` 2.1.288 (link `https://claude.com/cai/oauth/authorize?…` con `redirect_uri` `platform.claude.com`, `state` e `code_challenge` di 43 caratteri base64url, stampato sia come testo sia come hyperlink OSC 8), salvato in `apps/api/tests/fixtures/claude/setup-token-2.1.288.json`.
+- `scripts/install.sh` e `scripts/dev-setup.sh` usano ora Claude Code reale per default; lo stub resta con `stub` esplicito. Nuovo comando `onyx-use-claude` (`onyx use-claude`): installa la CLI se manca, aggiorna `CLAUDE_BIN` in `apps/api/.env` (o in `/etc/onyx/onyx.env` in produzione) e riavvia Onyx se era acceso; `onyx use-stub` torna al simulatore; `onyx-status` e `onyx-update` dicono quale CLI è configurata.
+- Settings mostra un avviso quando la CLI configurata è il simulatore (`ClaudeAccountDto.simulator`) e in quel caso non offre il link esterno. Il link viene preso dall'hyperlink OSC 8 della CLI (con ripiego sul testo dello schermo) e accettato solo se contiene `client_id`, `redirect_uri`, `code_challenge` e `state`. Se la CLI risponde "OAuth error" al codice incollato, la pagina mostra l'errore (`ClaudeLoginDto.error`) e il pulsante *Get a new sign-in link* (`POST /api/settings/claude/login/retry`, che manda Invio alla CLI come chiede "Press Enter to retry").
+- Lo stub ora riproduce l'output della CLI 2.1.x (hyperlink OSC 8, spaziatura di Ink, errore OAuth con nuovo tentativo). Verifica end-to-end con Playwright e la CLI reale 2.1.288 dentro Onyx, senza account né token: link reale, codice sbagliato → errore, nuovo link con nuovo `state`.
+
 ## 15. Architecture Decision Records
 
 | ID | Decisione | Alternative scartate | Motivazione |

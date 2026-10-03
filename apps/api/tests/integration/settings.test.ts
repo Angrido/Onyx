@@ -84,11 +84,13 @@ describe("Claude account settings", () => {
     );
     const signInUrl = new URL(waiting.login?.signInUrl ?? "");
     expect(signInUrl.searchParams.get("redirect_uri")).toBe(
-      "https://console.anthropic.com/oauth/code/callback",
+      "https://platform.claude.com/oauth/code/callback",
     );
     expect(signInUrl.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(signInUrl.searchParams.get("state")).toMatch(/^[0-9a-f]{32}$/);
+    expect(signInUrl.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(waiting.login?.screen).toContain("Paste code here");
+    expect(waiting.login?.error).toBeNull();
+    expect(waiting.simulator).toBe(true);
 
     const submitted = await api.post<ClaudeAccountDto>("/api/settings/claude/login/code", {
       code: "code-from-the-browser#state",
@@ -141,7 +143,7 @@ describe("Claude account settings", () => {
     expect(credentials?.detail).toBe("oauth-token (settings)");
   });
 
-  it("pastes an API key, disconnects, and reports a failed sign-in", async () => {
+  it("pastes an API key, disconnects, and offers a new link after an OAuth error", async () => {
     const pasted = await api.put<ClaudeAccountDto>("/api/settings/claude/token", {
       token: "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789",
     });
@@ -154,6 +156,7 @@ describe("Claude account settings", () => {
       headers: { cookie, origin: ORIGIN },
     });
     await new Promise((resolve) => setTimeout(resolve, 300));
+    const first = await waitFor(account, (value) => Boolean(value.login?.signInUrl));
     socket.send(
       JSON.stringify({
         v: 1,
@@ -161,8 +164,24 @@ describe("Claude account settings", () => {
         data: { terminalId: started.body.id, data: "bad\r" },
       }),
     );
-    const failed = await waitFor(account, (value) => value.login?.state === "failed");
+    const failed = await waitFor(account, (value) => value.login?.error !== null);
+    expect(failed.login).toMatchObject({
+      state: "running",
+      error: "OAuth error: Request failed with status code 400",
+    });
     expect(failed.configured).toBe(false);
+    const retried = await api.post<ClaudeAccountDto>("/api/settings/claude/login/retry");
+    expect(retried.status).toBe(200);
+    const fresh = await waitFor(
+      account,
+      (value) =>
+        value.login?.error === null &&
+        Boolean(value.login.signInUrl) &&
+        value.login.signInUrl !== first.login?.signInUrl,
+    );
+    expect(fresh.login?.state).toBe("running");
+    const cancelled = await api.delete("/api/settings/claude/login");
+    expect(cancelled.body).toMatchObject({ login: { state: "cancelled" } });
     socket.terminate();
   });
 });

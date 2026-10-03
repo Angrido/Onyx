@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -930,38 +930,72 @@ async function runTddScenario(prompt: string): Promise<void> {
   await writeLine(resultLine(summary, denials));
 }
 
-async function runSetupToken(): Promise<void> {
-  const say = (text: string) => process.stdout.write(`${text}\r\n`);
-  const columns = process.stdout.columns > 0 ? process.stdout.columns : 80;
-  const hardWrap = (text: string) => {
-    const lines: string[] = [];
-    for (let index = 0; index < text.length; index += columns)
-      lines.push(text.slice(index, index + columns));
-    return lines.join("\r\n");
-  };
-  const signInUrl = [
-    "https://claude.ai/oauth/authorize?code=true",
+function base64Url(bytes: number): string {
+  return randomBytes(bytes).toString("base64url");
+}
+
+function inkText(column: number, text: string): string {
+  let position = column;
+  return text
+    .split(" ")
+    .map((word) => {
+      const placed = `\u001b[${position}G${word}`;
+      position += word.length + 1;
+      return placed;
+    })
+    .join("");
+}
+
+function stubSignInUrl(): string {
+  return [
+    "https://claude.com/cai/oauth/authorize?code=true",
     "client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e",
     "response_type=code",
-    "redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback",
-    "scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code",
-    `code_challenge=${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}`,
+    "redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback",
+    "scope=user%3Ainference",
+    `code_challenge=${base64Url(32)}`,
     "code_challenge_method=S256",
-    `state=${randomUUID().replaceAll("-", "")}`,
+    `state=${base64Url(32)}`,
   ].join("&");
-  say("Opening browser to sign in with your Claude account…");
+}
+
+async function runSetupToken(): Promise<void> {
+  const say = (text: string) => process.stdout.write(`${text}\r\n`);
+  const grey = (text: string) => `\u001b[38;2;153;153;153m${text}\u001b[39m`;
+  const offerLink = () => {
+    const url = stubSignInUrl();
+    say(grey("Browser didn't open? Use the url below to sign in (c to copy)"));
+    say("");
+    say(`\u001b]8;id=stub;${url}\u0007${grey(url)}\u001b]8;;\u0007`);
+    say("");
+    process.stdout.write(`${inkText(2, "Paste code here if prompted >")} `);
+  };
+  say(`Welcome to Claude Code ${grey("v0.0.0-stub")}`);
   say("");
-  say(hardWrap(`Browse to: ${signInUrl}`));
+  say(
+    `\u001b[1m${inkText(2, "This will guide you through long-lived (1-year) auth token setup for your Claude account. Claude subscription required.")}\u001b[22m`,
+  );
   say("");
-  process.stdout.write("Paste code here if prompted > ");
+  say(inkText(2, "· Opening browser to sign in…"));
+  say("");
+  offerLink();
+  let failed = false;
   const lines = createInterface({ input: process.stdin, terminal: false });
   for await (const line of lines) {
     const code = line.trim();
+    if (failed) {
+      failed = false;
+      say("");
+      offerLink();
+      continue;
+    }
     if (code.length === 0) continue;
     if (code === "bad") {
+      failed = true;
       say("");
-      say("OAuth error: Invalid code. Please make sure the full code was copied.");
-      process.exit(1);
+      say("OAuth error: Request failed with status code 400");
+      say("Press Enter to retry.");
+      continue;
     }
     const token = `sk-ant-oat01-${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}-stubAA`;
     say("");

@@ -39,6 +39,10 @@ export function registerSettingsRoutes(app: FastifyInstance, container: Containe
     credentials.submitLoginCode(SubmitLoginCodeRequestSchema.parse(request.body).code),
   );
 
+  app.post("/api/settings/claude/login/retry", async (): Promise<ClaudeAccountDto> =>
+    credentials.retryLogin(),
+  );
+
   app.delete("/api/settings/claude/login", async (): Promise<ClaudeAccountDto> =>
     credentials.cancelLogin(),
   );

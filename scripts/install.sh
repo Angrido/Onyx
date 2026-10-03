@@ -6,7 +6,7 @@ NODE_MAJOR=22
 NODE_MIN_MINOR=18
 PNPM_VERSION="$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' "$ROOT/package.json")"
 ORIGINAL_PATH="$PATH"
-MODE=stub
+MODE=real
 TOOLS_ONLY=false
 WITH_CLAUDE=false
 SUDO=""
@@ -45,8 +45,10 @@ project. Tools that are already present are left untouched.
 
 Then runs pnpm install and scripts/dev-setup.sh.
 
-  stub           agents simulated by the bundled stub, no tokens spent (default)
-  real           real Claude Code; implies --with-claude
+  real           the real Claude Code, installed if missing (default): sign in
+                 with your Claude account from Settings
+  stub           agents simulated by the bundled stub, for development and
+                 tests: no tokens spent and no real sign-in
   --tools-only   install the toolchain only, skip the project setup
   --with-claude  install the Claude Code CLI if it is missing
   -h, --help     show this help

@@ -26,7 +26,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import { credentialEnv, type AppConfig, type ClaudeCredentials } from "../config";
 import { conflict, notFound } from "../errors";
-import { ScreenBuffer, findSignInUrl } from "../infrastructure/screen-buffer";
+import { ScreenBuffer, findLoginError, findSignInUrl } from "../infrastructure/screen-buffer";
 import { ptyOutputMessage, type WsHub } from "../infrastructure/ws-hub";
 
 export interface CredentialServiceDeps {
@@ -53,6 +53,7 @@ interface LoginSession {
   output: TextTail;
   screen: ScreenBuffer;
   signInUrl: string | null;
+  error: string | null;
   screenText: string;
   processed: Promise<void>;
   state: ClaudeLoginState;
@@ -149,6 +150,7 @@ export class CredentialService {
       savedAt: resolved.savedAt?.toISOString() ?? null,
       cliVersion: this.deps.cliVersion(),
       claudeBin: this.deps.config.claudeBin,
+      simulator: this.isSimulator(),
       login: this.login ? this.toLoginDto(this.login) : null,
       lastTest: lastTest.success ? lastTest.data : null,
     };
@@ -240,6 +242,7 @@ export class CredentialService {
       output: new TextTail(LOGIN_OUTPUT_CHARS),
       screen: new ScreenBuffer(LOGIN_COLS, LOGIN_ROWS),
       signInUrl: null,
+      error: null,
       screenText: "",
       processed: Promise.resolve(),
       state: "running",
@@ -265,6 +268,23 @@ export class CredentialService {
     if (login.state !== "running") throw conflict("The sign-in has finished: start it again");
     login.pty.write(`${code}\r`);
     return this.account();
+  }
+
+  async retryLogin(): Promise<ClaudeAccountDto> {
+    const login = this.login;
+    if (!login) throw notFound("Sign-in");
+    if (login.state !== "running") throw conflict("The sign-in has finished: start it again");
+    login.error = null;
+    login.pty.write("\r");
+    return this.account();
+  }
+
+  isSimulator(): boolean {
+    const parts = [this.deps.binary.command, ...this.deps.binary.args, this.deps.config.claudeBin];
+    return (
+      (this.deps.cliVersion() ?? "").includes("stub") ||
+      parts.some((part) => /claude-stub/.test(part))
+    );
   }
 
   loginInput(id: string, data: string): void {
@@ -299,7 +319,11 @@ export class CredentialService {
     const lines = session.screen.lines();
     const text = lines.join("\n");
     session.screenText = lines.slice(-SCREEN_LINES).join("\n");
-    session.signInUrl = findSignInUrl(session.screen.linkText()) ?? session.signInUrl;
+    session.signInUrl =
+      findSignInUrl(session.screen.links().join("\n")) ??
+      findSignInUrl(session.screen.linkText()) ??
+      session.signInUrl;
+    session.error = findLoginError(lines);
     if (session.state !== "running") return;
     const token = findClaudeToken(text.replace(/\s+/g, " "));
     if (!token) return;
@@ -419,6 +443,7 @@ export class CredentialService {
       exitCode: login.exitCode,
       startedAt: login.startedAt.toISOString(),
       signInUrl: login.signInUrl,
+      error: login.error,
       screen: login.screenText,
     };
   }

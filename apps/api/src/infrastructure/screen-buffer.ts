@@ -6,15 +6,38 @@ const headless = load("@xterm/headless") as typeof Headless;
 
 const SIGN_IN_URL = /https:\/\/[^\s"'<>]+/g;
 
+const REQUIRED_SIGN_IN_PARAMS = ["client_id", "redirect_uri", "code_challenge", "state"];
+const MAX_HYPERLINKS = 20;
+const LOGIN_ERROR = /\b(?:OAuth error|Login failed|Authentication failed|Error)\b:?\s*(.*)$/i;
+
+export function isCompleteSignInUrl(candidate: string): boolean {
+  try {
+    const url = new URL(candidate);
+    return REQUIRED_SIGN_IN_PARAMS.every((name) => (url.searchParams.get(name) ?? "").length > 0);
+  } catch {
+    return false;
+  }
+}
+
 export function findSignInUrl(text: string): string | null {
   const candidates = [...text.matchAll(SIGN_IN_URL)]
     .map((match) => match[0].replace(/[).,;]+$/, ""))
-    .filter((url) => /oauth|authorize/i.test(url));
+    .filter((url) => /oauth|authorize/i.test(url) && isCompleteSignInUrl(url));
   return candidates.at(-1) ?? null;
+}
+
+export function findLoginError(lines: readonly string[]): string | null {
+  const lastLink = lines.findLastIndex((line) => /oauth\/authorize|Paste code here/i.test(line));
+  const lastError = lines.findLastIndex((line) => /\bOAuth error\b|\bLogin failed\b/i.test(line));
+  if (lastError === -1 || lastError < lastLink) return null;
+  const line = (lines[lastError] ?? "").replace(/\s+/g, " ").trim();
+  const match = LOGIN_ERROR.exec(line);
+  return (match ? line.slice(match.index) : line).slice(0, 300);
 }
 
 export class ScreenBuffer {
   private readonly terminal: Headless.Terminal;
+  private readonly hyperlinks: string[] = [];
 
   constructor(
     readonly cols: number,
@@ -22,6 +45,16 @@ export class ScreenBuffer {
     scrollback = 2_000,
   ) {
     this.terminal = new headless.Terminal({ cols, rows, scrollback, allowProposedApi: true });
+    this.terminal.parser.registerOscHandler(8, (data) => {
+      const target = data.slice(data.indexOf(";") + 1);
+      if (target.length > 0) this.hyperlinks.push(target);
+      if (this.hyperlinks.length > MAX_HYPERLINKS) this.hyperlinks.shift();
+      return false;
+    });
+  }
+
+  links(): string[] {
+    return [...this.hyperlinks];
   }
 
   write(data: string): Promise<void> {

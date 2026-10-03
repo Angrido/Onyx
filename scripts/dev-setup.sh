@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="$ROOT/.onyx-data"
-MODE="${1:-stub}"
+MODE="${1:-real}"
 
 if ! command -v pnpm >/dev/null 2>&1 || [ ! -d "$ROOT/node_modules" ]; then
   printf 'Node.js, pnpm or the project dependencies are missing: run scripts/install.sh %s instead.\n' "$MODE" >&2
@@ -12,7 +12,14 @@ fi
 
 case "$MODE" in
   stub) CLAUDE_BIN="$ROOT/packages/agent-runtime/bin/claude-stub.ts" ;;
-  real) CLAUDE_BIN="$(command -v claude || printf 'claude')" ;;
+  real)
+    CLAUDE_BIN="$(command -v claude || true)"
+    if [ -z "$CLAUDE_BIN" ] && [ -x "$HOME/.local/bin/claude" ]; then CLAUDE_BIN="$HOME/.local/bin/claude"; fi
+    if [ -z "$CLAUDE_BIN" ]; then
+      printf 'Claude Code is not installed: run scripts/install.sh real, or scripts/dev-setup.sh stub for the simulator.\n' >&2
+      exit 1
+    fi
+    ;;
   *)
     printf 'usage: dev-setup.sh [stub|real]\n' >&2
     exit 1

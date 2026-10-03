@@ -1,5 +1,19 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ScreenBuffer, findSignInUrl } from "../../src/infrastructure/screen-buffer";
+import {
+  ScreenBuffer,
+  findLoginError,
+  findSignInUrl,
+  isCompleteSignInUrl,
+} from "../../src/infrastructure/screen-buffer";
+
+const REAL_FLOW = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, "..", "fixtures", "claude", "setup-token-2.1.288.json"),
+    "utf8",
+  ),
+) as string[];
 
 const URL_TEXT =
   "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a&response_type=code&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=abc&code_challenge_method=S256&state=xyz";
@@ -28,8 +42,35 @@ describe("screen buffer", () => {
     screen.dispose();
   });
 
-  it("only treats OAuth links as sign-in links", () => {
+  it("only treats complete OAuth links as sign-in links", () => {
     expect(findSignInUrl("See https://docs.anthropic.com/en/docs.")).toBeNull();
     expect(findSignInUrl(`Go to ${URL_TEXT}.`)).toBe(URL_TEXT);
+    const truncated = URL_TEXT.slice(0, URL_TEXT.indexOf("&redirect_uri"));
+    expect(isCompleteSignInUrl(truncated)).toBe(false);
+    expect(findSignInUrl(`Browse to: ${truncated}`)).toBeNull();
+  });
+
+  it("reads the sign-in link, the OAuth error and the retried link of the real CLI", async () => {
+    const [opening = "", failure = "", retried = ""] = REAL_FLOW;
+    const screen = new ScreenBuffer(1_000, 40);
+    await screen.write(opening);
+    const first = findSignInUrl(screen.links().join("\n"));
+    expect(first).not.toBeNull();
+    expect(findSignInUrl(screen.linkText())).toBe(first);
+    const params = new URL(first ?? "").searchParams;
+    expect(params.get("redirect_uri")).toBe("https://platform.claude.com/oauth/code/callback");
+    expect(params.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(params.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(findLoginError(screen.lines())).toBeNull();
+
+    await screen.write(failure);
+    expect(findLoginError(screen.lines())).toBe("OAuth error: Request failed with status code 400");
+
+    await screen.write(retried);
+    const second = findSignInUrl(screen.links().join("\n"));
+    expect(second).not.toBe(first);
+    expect(new URL(second ?? "").searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(findLoginError(screen.lines())).toBeNull();
+    screen.dispose();
   });
 });

@@ -15,6 +15,7 @@ export const ClaudeLoginDtoSchema = z.object({
   exitCode: z.number().int().nullable(),
   startedAt: z.string(),
   signInUrl: z.string().nullable(),
+  error: z.string().nullable(),
   screen: z.string(),
 });
 export type ClaudeLoginDto = z.infer<typeof ClaudeLoginDtoSchema>;
@@ -36,6 +37,7 @@ export const ClaudeAccountDtoSchema = z.object({
   savedAt: z.string().nullable(),
   cliVersion: z.string().nullable(),
   claudeBin: z.string(),
+  simulator: z.boolean(),
   login: ClaudeLoginDtoSchema.nullable(),
   lastTest: ClaudeTestResultSchema.nullable(),
 });

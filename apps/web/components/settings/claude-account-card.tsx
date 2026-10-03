@@ -9,8 +9,10 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  RefreshCw,
   Sparkles,
   Stethoscope,
+  TriangleAlert,
   XCircle,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -28,12 +30,39 @@ function credentialLabel(account: ClaudeAccountDto): string {
   return account.kind === "oauth-token" ? "Claude subscription (Max or Pro)" : "Anthropic API key";
 }
 
+function SimulatorNotice({ claudeBin }: { claudeBin: string }) {
+  return (
+    <div
+      className="flex gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
+      data-testid="claude-simulator"
+    >
+      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+      <div className="space-y-1.5">
+        <p className="font-medium text-warning">Onyx is using the Claude Code simulator</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Agents, the sign-in and the connection test are simulated, so nothing reaches your Claude
+          account and a sign-in link would be refused by claude.ai. On the Onyx machine run{" "}
+          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
+            onyx use-claude
+          </code>{" "}
+          to install the real Claude Code and switch to it, then reload this page and sign in.
+        </p>
+        <p className="truncate font-mono text-[11px] text-muted-foreground" title={claudeBin}>
+          CLAUDE_BIN={claudeBin}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function LoginPanel({
   login,
+  simulator,
   onCancel,
   onSubmitted,
 }: {
   login: ClaudeLoginDto;
+  simulator: boolean;
   onCancel: () => void;
   onSubmitted: (account: ClaudeAccountDto) => void;
 }) {
@@ -49,6 +78,12 @@ function LoginPanel({
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
+  const retry = useMutation({
+    mutationFn: () => api.post<ClaudeAccountDto>("/api/settings/claude/login/retry"),
+    onSuccess: onSubmitted,
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const failedAttempt = running && login.error !== null;
 
   return (
     <div
@@ -61,7 +96,16 @@ function LoginPanel({
         <li>Paste it below and press Connect.</li>
       </ol>
       <div className="flex flex-wrap items-center gap-2">
-        {login.signInUrl ? (
+        {failedAttempt ? (
+          <Button size="sm" onClick={() => retry.mutate()} disabled={retry.isPending}>
+            {retry.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            Get a new sign-in link
+          </Button>
+        ) : simulator && login.signInUrl ? (
+          <span className="text-xs text-warning" data-testid="claude-simulated-link">
+            Simulated sign-in: no real link. Type any code below to finish.
+          </span>
+        ) : login.signInUrl ? (
           <Button asChild size="sm">
             <a
               href={login.signInUrl}
@@ -85,7 +129,13 @@ function LoginPanel({
           </Button>
         ) : null}
       </div>
-      {running ? (
+      {failedAttempt ? (
+        <p className="text-xs text-destructive" data-testid="claude-login-error">
+          {login.error}. The code was not accepted: get a new link, sign in again and paste the new
+          code.
+        </p>
+      ) : null}
+      {running && !failedAttempt ? (
         <form
           className="flex gap-2"
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -210,10 +260,13 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
               saved <RelativeTime iso={data.savedAt} />
             </span>
           ) : null}
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             Claude Code {data.cliVersion ?? "not found"}
+            {data.simulator ? <Badge tone="warning">simulator</Badge> : null}
           </span>
         </div>
+
+        {data.simulator ? <SimulatorNotice claudeBin={data.claudeBin} /> : null}
 
         {lastTest ? (
           <p
@@ -255,6 +308,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
           <LoginPanel
             key={data.login.id}
             login={data.login}
+            simulator={data.simulator}
             onCancel={() => cancel.mutate()}
             onSubmitted={store}
           />

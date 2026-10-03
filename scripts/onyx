@@ -10,7 +10,9 @@ LOG_FILE="$LOG_DIR/onyx-dev.log"
 API_URL="${ONYX_API_URL:-http://127.0.0.1:4000}"
 WEB_URL="${ONYX_WEB_URL:-http://127.0.0.1:3000}"
 SERVICES=(onyx-api.service onyx-web.service)
-COMMANDS=(onyx-start onyx-stop onyx-restart onyx-update onyx-status onyx-logs)
+COMMANDS=(onyx-start onyx-stop onyx-restart onyx-update onyx-status onyx-logs onyx-use-claude)
+STUB_BIN="$ROOT/packages/agent-runtime/bin/claude-stub.ts"
+SERVICE_ENV=/etc/onyx/onyx.env
 
 if [ -t 1 ]; then
   BOLD=$'\033[1m'
@@ -48,8 +50,11 @@ Usage: onyx <command>    (or onyx-start, onyx-stop, onyx-update, …)
   update     pull the latest code, install, migrate, rebuild and restart
   status     show whether Onyx is running and where to reach it
   logs       follow the logs
+  use-claude use the real Claude Code (installed if missing), so Onyx can
+             sign in with your Claude account; restarts Onyx
+  use-stub   go back to the bundled simulator (development and tests)
   install    put onyx-start, onyx-stop, onyx-update, onyx-restart,
-             onyx-status and onyx-logs on the PATH
+             onyx-status, onyx-logs and onyx-use-claude on the PATH
 
 Onyx runs as systemd services when onyx-api.service is installed
 (deploy/lxc/bootstrap.sh); otherwise it runs pnpm dev from this checkout.
@@ -112,6 +117,116 @@ dev_pid() {
   return 1
 }
 
+env_file() {
+  if [ "$(mode)" = service ]; then printf '%s\n' "$SERVICE_ENV"; else printf '%s\n' "$ROOT/apps/api/.env"; fi
+}
+
+env_value() {
+  local file="$1"
+  local key="$2"
+  [ -r "$file" ] || return 0
+  sed -n "s/^${key}=//p" "$file" | tail -n 1
+}
+
+set_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local temp
+  temp="$(mktemp)"
+  if [ -f "$file" ]; then
+    awk -v key="$key" -v value="$value" 'BEGIN { done = 0 } index($0, key "=") == 1 { if (!done) print key "=" value; done = 1; next } { print } END { if (!done) print key "=" value }' "$file" > "$temp"
+  else
+    printf '%s=%s\n' "$key" "$value" > "$temp"
+  fi
+  if [ -w "$file" ] || { [ ! -e "$file" ] && [ -w "$(dirname "$file")" ]; }; then
+    cat "$temp" > "$file"
+  else
+    as_root cp "$temp" "$file"
+  fi
+  rm -f "$temp"
+}
+
+claude_bin() {
+  env_value "$(env_file)" CLAUDE_BIN
+}
+
+is_stub() {
+  case "$1" in
+    *claude-stub*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+claude_line() {
+  local bin
+  bin="$(claude_bin)"
+  if [ -z "$bin" ]; then
+    info "Claude   not configured (CLAUDE_BIN missing in $(env_file))"
+  elif is_stub "$bin"; then
+    printf '    %sClaude   simulator (no real agents, no real sign-in): run onyx use-claude%s\n' "$YELLOW" "$RESET"
+  else
+    info "Claude   $bin"
+  fi
+}
+
+find_claude() {
+  if [ "$(mode)" = service ]; then
+    runuser -u onyx -- bash -lc 'command -v claude || { [ -x "$HOME/.local/bin/claude" ] && printf "%s\n" "$HOME/.local/bin/claude"; }' 2>/dev/null
+  else
+    command -v claude 2>/dev/null || { [ -x "$HOME/.local/bin/claude" ] && printf '%s\n' "$HOME/.local/bin/claude"; }
+  fi
+}
+
+install_claude() {
+  step "Installing Claude Code"
+  has curl || fail "curl is needed to install Claude Code"
+  if [ "$(mode)" = service ]; then
+    as_root runuser -u onyx -- bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
+  else
+    curl -fsSL https://claude.ai/install.sh | bash
+  fi
+}
+
+restart_if_running() {
+  local running=false
+  if [ "$(mode)" = service ]; then
+    if systemctl is-active --quiet onyx-api.service; then running=true; fi
+  elif dev_pid >/dev/null; then
+    running=true
+  fi
+  if $running; then
+    run restart
+  else
+    info "Start Onyx with: onyx-start"
+  fi
+}
+
+use_claude() {
+  local bin
+  bin="$(find_claude || true)"
+  if [ -z "$bin" ]; then
+    install_claude
+    bin="$(find_claude || true)"
+  fi
+  [ -n "$bin" ] || fail "Claude Code is still missing: install it with  curl -fsSL https://claude.ai/install.sh | bash"
+  local version
+  version="$("$bin" --version 2>/dev/null | awk 'NR == 1' || true)"
+  step "Using Claude Code ${version:-at $bin}"
+  set_env_value "$(env_file)" CLAUDE_BIN "$bin"
+  ok "CLAUDE_BIN=$bin in $(env_file)"
+  restart_if_running
+  printf '\nOpen Settings in the console and press %sSign in with Claude%s.\n' "$BOLD" "$RESET"
+}
+
+use_stub() {
+  [ "$(mode)" = dev ] || fail "the simulator is only available in a development checkout"
+  step "Using the Claude Code simulator"
+  set_env_value "$(env_file)" CLAUDE_BIN "$STUB_BIN"
+  ok "CLAUDE_BIN=$STUB_BIN"
+  restart_if_running
+}
+
 load_dev_env() {
   if [ -f "$ROOT/apps/api/.env" ]; then
     set -a
@@ -168,9 +283,11 @@ dev_status() {
     ok "running in development mode (pid $pid)"
   else
     printf '%s•%s not running (development mode)\n' "$YELLOW" "$RESET"
+    claude_line
     return 0
   fi
   if curl --noproxy '*' -fsS -o /dev/null --max-time 2 "$API_URL/api/health" 2>/dev/null; then info "API      $API_URL  ok"; else info "API      $API_URL  not answering"; fi
+  claude_line
   info "Console  open one of:"
   lan_urls ":3000"
 }
@@ -198,6 +315,9 @@ dev_update() {
   else
     ok "Updated. Start Onyx with: onyx-start"
   fi
+  if is_stub "$(claude_bin)"; then
+    warn "Onyx is using the Claude Code simulator: run onyx use-claude to sign in with your Claude account"
+  fi
 }
 
 service_start() {
@@ -220,6 +340,7 @@ service_status() {
     if systemctl is-active --quiet "$unit"; then ok "$unit active"; else printf '%s•%s %s %s\n' "$YELLOW" "$RESET" "$unit" "$(systemctl is-active "$unit" 2>/dev/null || true)"; fi
   done
   if [ -L /opt/onyx/current ]; then info "release  $(basename "$(readlink -f /opt/onyx/current)")"; fi
+  claude_line
   info "Console  open one of:"
   lan_urls ""
   info "      http://$(hostname).local"
@@ -293,6 +414,8 @@ run() {
     update) if [ "$current" = service ]; then service_update; else dev_update; fi ;;
     status) if [ "$current" = service ]; then service_status; else dev_status; fi ;;
     logs) logs ;;
+    use-claude) use_claude ;;
+    use-stub) use_stub ;;
     install) install_commands ;;
     -h | --help | help) usage ;;
     *)
