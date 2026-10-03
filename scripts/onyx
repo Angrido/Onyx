@@ -415,6 +415,7 @@ dev_update() {
   else
     ok "Updated. Start Onyx with: onyx-start"
   fi
+  install_commands >/dev/null || true
   if is_stub "$(claude_bin)"; then
     warn "Onyx is using the Claude Code simulator: run onyx use-claude to sign in with your Claude account"
   fi
@@ -468,6 +469,7 @@ service_update() {
       printf '%s\n' "$old" | while read -r dir; do as_root rm -rf "$dir"; done
     fi
   fi
+  install_commands >/dev/null || true
   ok "Onyx updated"
   service_status
 }

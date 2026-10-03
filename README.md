@@ -15,7 +15,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 4 | Model Router, compartimenti di sessione con handoff, recinti di scrittura, terminali interattivi con `/clear` e `/compact` | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 5 | TDD Auto-Loop: test Vitest/Jest in PTY, digest dei fallimenti, anti-cheat, gate, escalation su stallo | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 6 | Orchestrator multi-agente: planner, approvazione del piano, DAG, git worktree in parallelo, merge assistito, sub-agenti nativi, budget, centro approvazioni | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
-| 7 | Hardening e polish | Da fare |
+| 7 | Hardening: token cifrati, backup e ripristino testati, aggiornamento e verifica di Claude Code, firme di movimento, accessibilità, palette dei comandi, Lighthouse ≥ 90 | **Completata** (manca solo la registrazione delle trascrizioni reali, vedi `architecture.md` §16) |
 
 ## Requisiti
 
@@ -49,6 +49,9 @@ onyx-start
 | `onyx-status` | Dice se Onyx è acceso e dove raggiungerlo |
 | `onyx-logs` | Segue i log |
 | `onyx-use-claude` | Passa alla CLI Claude Code vera (la installa se manca) e riavvia Onyx: serve per collegare il tuo account Claude da Settings. `onyx use-stub` torna al simulatore |
+| `onyx-update-claude` | Aggiorna Claude Code, controlla senza consumare token che accetti tutte le opzioni usate da Onyx e riavvia |
+| `onyx-backup` | Scrive subito un backup del database (`onyx backups` li elenca) |
+| `onyx-restore [nome\|latest]` | Ferma Onyx, salva il database corrente, ripristina il backup, applica le migrazioni e riavvia |
 
 Funzionano in due modi, scelti da soli: in sviluppo eseguono `pnpm dev` dalla cartella del repository (log in `.onyx-data/logs/onyx-dev.log`); nel container di produzione (installato con `deploy/lxc/bootstrap.sh`) gestiscono i servizi systemd e `onyx-update` costruisce e installa una nuova release, tenendo le ultime tre. `ONYX_MODE=dev` o `ONYX_MODE=service` forzano la scelta.
 
@@ -138,6 +141,16 @@ Dalla pagina di un progetto, **Plan a feature** fa scomporre una funzionalità i
 4. Alla fine la suite completa e `tsc` girano sul branch unito. `main` non cambia; dalla pagina del piano **Push the branch** spinge il branch di lavoro su GitHub e offre il link per la pull request.
 
 Un piano fermato da un errore o da un riavvio si riprende con **Resume**: i task già uniti restano, gli altri ripartono. In **Settings → Budgets** si impostano limiti di spesa globali o per progetto (al giorno, al mese o totali): oltre la soglia soft le nuove run aspettano un'approvazione, alla soglia hard vengono rifiutate e quelle in corso si fermano. Gli agenti `architect` e `builder` hanno anche sotto-agenti nativi di Claude Code (`explorer`, `test-writer`, `reviewer`).
+
+## Hardening (Fase 7)
+
+- **Backup**: Onyx copia il database ogni giorno (e prima di ogni aggiornamento o ripristino), verifica ogni copia e tiene le ultime 14. Da **Settings → Backups** si fa un backup, lo si verifica o lo si scarica; `onyx-restore` lo ripristina.
+- **Token cifrati**: i token di Claude e GitHub salvati da Settings sono cifrati nel database; la chiave sta in `secret.key` nella cartella dei dati. Copiala insieme al backup se ripristini su un'altra macchina.
+- **Claude Code**: `onyx-update-claude` aggiorna la CLI e verifica che sia compatibile; se non lo è, Settings dice quali opzioni mancano.
+- **Tastiera**: **Ctrl+K** (⌘K) apre la palette dei comandi per pagine, progetti, task e azioni; *Skip to content* porta al contenuto.
+- **Movimento**: l'orb di ogni agente mostra lo strumento in uso, il TDD loop lampeggia sui test rossi e si illumina al verde; con *riduci movimento* attivo nel sistema le animazioni restano ferme.
+
+La guida operativa completa (dati, backup, ripristino, aggiornamenti, sicurezza, problemi comuni) è in [`docs/operations.md`](./docs/operations.md).
 
 ## Accesso dalla rete
 

@@ -1906,9 +1906,7 @@ onyx/
 │   │       └── 10-onyx-eth0.network.example
 │   ├── systemd/
 │   │   ├── onyx-api.service
-│   │   ├── onyx-web.service
-│   │   ├── onyx-backup.service
-│   │   └── onyx-backup.timer
+│   │   └── onyx-web.service
 │   ├── caddy/
 │   │   └── Caddyfile
 │   ├── nftables/
@@ -1917,13 +1915,14 @@ onyx/
 │   │   └── onyx.env.example
 │   └── scripts/
 │       ├── build.sh
-│       ├── release.sh
-│       └── backup.sh
+│       └── release.sh
 ├── scripts/
 │   ├── install.sh
-│   └── dev-setup.sh
+│   ├── dev-setup.sh
+│   └── onyx
 └── docs/
-    └── adr/
+    ├── adr/
+    └── operations.md
 ```
 
 ### 8.2 Responsabilità dei pacchetti
@@ -2243,7 +2242,8 @@ Caddy gestisce l'upgrade WebSocket in modo trasparente. Per l'HTTPS in LAN si ag
 
 | Livello | Meccanismo | Frequenza |
 |---|---|---|
-| Database | `sqlite3 /var/lib/onyx/onyx.db ".backup /var/backups/onyx/onyx-<data>.db"` da `onyx-backup.timer`, con retention di 14 copie | Giornaliero |
+| Database | L'API scrive `onyx-<data>.db` in `/var/backups/onyx` con l'API di backup online di SQLite, lo converte in un file unico, verifica `integrity_check` e salva un manifest (SHA-256, migrazioni, conteggi, impronta della chiave); retention di 14 copie (ADR-044) | Giornaliero, più prima di ogni aggiornamento e di ogni ripristino |
+| Ripristino | `onyx-restore <nome\|latest>`: verifica, ferma Onyx, salva il database corrente, sostituisce, applica le migrazioni, riavvia (procedura in `docs/operations.md`) | Su richiesta |
 | Container | `vzdump 210 --mode snapshot --compress zstd --storage <storage-backup>` dall'host Proxmox | Settimanale |
 | Repository | Push sui remote Git dei progetti (gestito dall'operatore) | — |
 
@@ -2476,7 +2476,8 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | Chiamate esterne agli endpoint interni | `/internal/*` accetta solo connessioni da `127.0.0.1` e un token di run firmato HMAC con scadenza |
 | Escalation di privilegi nel container | Container unprivileged, utente `onyx` senza sudo, `NoNewPrivileges` |
 | Esfiltrazione via rete | Firewall in ingresso; in uscita, opzionalmente, allowlist verso `api.anthropic.com` e i registry dei pacchetti |
-| Perdita di dati | WAL + backup giornalieri + `vzdump` |
+| Perdita di dati | WAL + backup giornalieri verificati + backup prima di aggiornamenti e ripristini + `vzdump` |
+| Furto del database o di un backup | Token di Claude e GitHub cifrati con AES-256-GCM; chiave in un file `0600` separato dai backup (ADR-043) |
 
 ### 12.2 Modalità di permesso per profilo
 
@@ -2590,6 +2591,12 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-040 | Verifica per nodo con il TDD loop nel worktree del task e verifica finale (suite completa e `tsc`) sul branch unito | Solo la suite finale | Un nodo rosso si corregge nel suo perimetro, con il suo contesto e prima di contaminare il branch di lavoro; la suite finale cattura le incompatibilità tra nodi |
 | ADR-041 | Budget applicati dallo scheduler al momento dell'ammissione (`go`/`hold`/`deny`); soglia soft come approvazione valida per il periodo, soglia hard con rifiuto delle nuove run e stop di quelle attive del perimetro | Controllo solo all'avvio del task; flag `--max-budget-usd` come unico limite | Una run in coda non parte mai oltre il limite; l'approvazione soft non si ripete a ogni run; il flag della CLI resta il limite per singola run (`Task.budgetUsd`) |
 | ADR-042 | Sub-agenti nativi (`explorer`, `test-writer`, `reviewer`) definiti nelle configurazioni predefinite e passati con `--agents` da un file della run | File `.claude/agents/*.md` nel progetto | Non scrive nulla nel repository dell'utente; le definizioni seguono la configurazione scelta dal router; alle configurazioni già esistenti si aggiungono solo se non ne hanno |
+| ADR-043 | Token salvati cifrati con AES-256-GCM, chiave in `secret.key` (`0600`) o in `ONYX_SECRET_KEY`, nome dell'impostazione come dato associato; la chiave non entra nei backup | Token in chiaro; chiave derivata dalla password dell'operatore | Un database copiato o un backup non espone i token; la chiave non dipende da un login, quindi le run notturne funzionano; con un'altra chiave un token risulta mancante invece di bloccare l'avvio |
+| ADR-044 | Backup scritti dall'API con l'API di backup online di SQLite, convertiti in file unico, verificati e accompagnati da un manifest; schedulazione interna | Timer systemd con `sqlite3 .backup` | Funziona anche in modalità sviluppo, dove non c'è systemd; la copia è coerente mentre gli agenti scrivono; il manifest permette di verificare il checksum e di avvisare se la chiave dei segreti è cambiata |
+| ADR-045 | Ripristino offline da una CLI che si rifiuta di procedere se Onyx risponde, salva il database corrente e lascia a `onyx-restore` migrazioni e riavvio | Ripristino dalla UI con Onyx acceso | Sostituire il file sotto un processo che lo tiene aperto in WAL corromperebbe il database; la copia `pre-restore` rende ogni ripristino reversibile |
+| ADR-046 | Compatibilità di Claude Code verificata senza richieste: opzioni documentate da `--help`, opzioni nascoste provate con input `stream-json` e stdin vuoto | Run di prova con un prompt reale | Non consuma token né quota dell'abbonamento; un'opzione sconosciuta fallisce durante il parsing, una valida termina senza nulla da inviare; l'esito compare in readiness e in Settings |
+| ADR-047 | Trascrizioni reali per i test di contratto registrate solo su richiesta esplicita (`--yes`), con budget per scenario e anonimizzazione | Registrazione automatica a ogni aggiornamento | Registrare costa (poco) e richiede un account: deve essere una scelta dell'operatore; senza trascrizioni i test di contratto restano sulle fixture sintetiche |
+| ADR-048 | Il codice del browser importa da `@onyx/contracts/client` (canali, enum, helper dei token) senza zod; gli schemi zod sono costruiti dalle stesse liste | Importare dal barrel dei contratti anche nel browser | Toglie zod e la costruzione di tutti gli schemi dal bundle iniziale (first load della console da 294 a 259 kB; il tempo di blocco su mobile scende sotto la soglia di Lighthouse su tutte le pagine) senza duplicare gli enum |
 
 ---
 
@@ -2813,6 +2820,25 @@ Planner su Opus con output strutturato, gate di approvazione del piano, schedule
 Firme di movimento complete, accessibilità (tastiera, contrasto, `reduced-motion`), backup e ripristino testati, procedura di aggiornamento della CLI con rigenerazione delle fixture, documentazione operativa, revisione di sicurezza.
 
 **DoD**: test di ripristino da backup superato; Lighthouse ≥ 90 su performance e accessibilità; checklist di sicurezza del [§12](#12-sicurezza) verificata.
+
+**Esito (completata, con un punto aperto)**:
+
+- Totale del monorepo: 487 test verdi più uno saltato in attesa di trascrizioni reali (`api` 212, `ignore-compiler` 67, `agent-runtime` 52, `web` 47, `graphify` 46, `lean-ctx` 30, `contracts` 15, `db` 12, `mcp-server` 6); lint, Prettier, typecheck strict e build di Next.js passano.
+- **Ripristino** (test `apps/api/tests/integration/backup.test.ts`): con Onyx acceso si creano progetto, task, budget e token, si fa un backup dall'API (verificato, scaricabile), poi si cancella il progetto, si aggiunge un budget e si toglie il token; a Onyx spento la CLI vera (processo separato) ripristina il backup e salva la copia `pre-restore`; alla riapertura progetto, task, budget e token (ancora decifrabile) sono quelli del backup, e la copia `pre-restore` contiene lo stato modificato. La CLI rifiuta il ripristino con Onyx acceso, un backup troncato (checksum e integrità) e un nome fuori dalla cartella. Verificati anche schedulazione e retention. La procedura completa `onyx backup` → `onyx restore latest` è stata provata sul database di sviluppo, dove ha applicato due migrazioni mancanti.
+- **Lighthouse ≥ 90**: con Lighthouse 13 sulla build di produzione, le 11 pagine principali ottengono 100 di performance e 100 di accessibilità su desktop, 91–98 di performance e 100 di accessibilità su mobile; axe-core 4 non trova violazioni WCAG 2.1 AA. *Best practices* resta a 78 solo perché la LAN usa HTTP.
+- **Checklist di sicurezza**: verificata voce per voce in `docs/operations.md` §7, con i test che la coprono (`security.test.ts`: token cifrati a riposo, migrazione dei token in chiaro, chiave diversa, ambiente dei processi figli, rate limit, header; scadenza dei token di run).
+- Verifica end-to-end con Playwright dall'IP di rete: login e skip link da tastiera, palette con Ctrl+K verso Approvals e un progetto, backup e verifica da Settings, nessun errore in console.
+- **Punto aperto**: le trascrizioni reali di Claude Code per i test di contratto vanno registrate sull'installazione con un account (`fixtures:record -- --yes`, pochi centesimi); il controllo di compatibilità è stato provato sulla CLI 2.1.288 vera senza inviare richieste.
+
+**Differenze rispetto al piano**:
+
+- Revisione di sicurezza: i token salvati erano in chiaro nel database e quindi nei backup; ora sono cifrati (ADR-043) e quelli delle versioni precedenti vengono cifrati all'avvio. I token di run scadono comunque dopo 12 ore; l'API invia `no-store`, `nosniff` e `Referrer-Policy`, il web una CSP limitata a `frame-ancestors`, `object-src`, `base-uri` e `form-action` (Next.js usa script inline) e una `Permissions-Policy`. `Cross-Origin-Opener-Policy` non è inviata perché su HTTP non sicuro i browser la ignorano registrando un errore. `postcss` e `mysql2` vulnerabili sono sostituiti con `overrides`; restano due avvisi non sfruttabili, documentati.
+- Backup: il timer `onyx-backup.timer` con `sqlite3` è sostituito dalla schedulazione dell'API (ADR-044), che funziona anche in sviluppo; `release.sh` rimuove il timer dalle installazioni esistenti. Nuova CLI `onyx-cli` (`dist/cli.js`) con `backup`, `list`, `verify`, `restore`, `check-claude`; comandi `onyx-backup`, `onyx backups`, `onyx-restore`.
+- Aggiornamento della CLI: `onyx-update-claude` e controllo di compatibilità senza token (ADR-046); registratore di trascrizioni su richiesta (ADR-047). Lo stub stampa l'help reale della 2.1.288 e può simulare opzioni mancanti.
+- Firme di movimento: satellite per famiglia di tool sull'orb (lettura, modifica, shell, contesto, delega, web), desaturazione delle run fermate, flash rosso e onda verde nel TDD loop, contatore dei tentativi animato, catena di sessioni che si dissolve e si ricostruisce alla rotazione. Le animazioni d'ingresso dei contenuti presenti al primo render sono disattivate (`AnimatePresence initial={false}`), così il contenuto è visibile prima dell'idratazione.
+- Accessibilità: skip link, `main` focalizzabile, titoli delle card come `h2`, palette dei comandi con titolo e descrizione per gli screen reader. Con `prefers-reduced-motion` l'orb resta nello stato finale e le animazioni CSS si fermano dopo un fotogramma.
+- Prestazioni: entry point `@onyx/contracts/client` senza zod (ADR-048), palette caricata al primo uso, TDD loop caricati lato server nella pagina del task (CLS su mobile da 0,51 a sotto 0,1).
+- Documentazione operativa in `docs/operations.md`.
 
 ---
 
