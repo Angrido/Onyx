@@ -9,6 +9,7 @@ import { AuthService } from "./application/auth-service";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
+import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
 import { ProjectService } from "./application/project-service";
 import { recoverInterruptedWork } from "./application/recovery";
@@ -28,6 +29,7 @@ import {
   type TaskClassifier,
 } from "./infrastructure/aux-model";
 import { EventWriter } from "./infrastructure/event-writer";
+import { GitHubClient } from "./infrastructure/github-client";
 import { IndexStore } from "./infrastructure/index-store";
 import { RunTokenRegistry } from "./infrastructure/run-tokens";
 import { AnthropicTokenizer, O200kTokenizer } from "./infrastructure/token-meter";
@@ -59,6 +61,7 @@ export interface Container {
   executor: RunExecutor;
   scheduler: RunScheduler;
   terminals: TerminalService;
+  github: GitHubService;
   auth: AuthService;
   projects: ProjectService;
   workspaces: WorkspaceService;
@@ -190,6 +193,13 @@ export async function createContainer(
   });
   scheduling.terminals = terminals;
   const runService = new RunService(prisma, scheduler);
+  const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
+    indexes
+      .start(projectId)
+      .catch((error: unknown) =>
+        logger.warn({ err: error, projectId }, "Initial indexing could not start"),
+      );
+  });
   runs.service = runService;
 
   const container: Container = {
@@ -209,12 +219,13 @@ export async function createContainer(
     scheduler,
     terminals,
     auth: new AuthService(prisma, config.sessionTtlMs),
-    projects: new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
-      indexes
-        .start(projectId)
-        .catch((error: unknown) =>
-          logger.warn({ err: error, projectId }, "Initial indexing could not start"),
-        );
+    projects,
+    github: new GitHubService({
+      prisma,
+      logger,
+      client: new GitHubClient({ baseUrl: config.github.apiUrl }),
+      projects,
+      config,
     }),
     workspaces: new WorkspaceService(prisma),
     tasks: new TaskService(prisma, scheduler, hub, (projectId, targetPaths, prompt) =>
@@ -269,6 +280,7 @@ export async function createContainer(
       if (cliVersion === null)
         logger.warn({ command: binary.command }, "Claude Code CLI not found");
       const seeded = await seedDatabase(prisma);
+      await container.github.cleanup();
       await calibration.load();
       logger.info({ seeded, cliVersion }, "Database ready");
       const recovery = await recoverInterruptedWork(prisma, logger, {

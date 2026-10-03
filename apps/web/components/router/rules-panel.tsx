@@ -188,7 +188,7 @@ function RuleDialog({
           className="scrollbar-thin max-h-[70vh] space-y-4 overflow-y-auto pr-1"
           onSubmit={submit}
         >
-          <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
             <Field label="Name" htmlFor="rule-name">
               <Input
                 id="rule-name"
@@ -208,7 +208,7 @@ function RuleDialog({
               />
             </Field>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Scope" htmlFor="rule-scope">
               <Select
                 id="rule-scope"
@@ -277,7 +277,7 @@ function RuleDialog({
               ))}
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
               label="Path globs"
               htmlFor="rule-paths"
@@ -305,7 +305,7 @@ function RuleDialog({
               />
             </Field>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Max files" htmlFor="rule-max-files">
               <Input
                 id="rule-max-files"

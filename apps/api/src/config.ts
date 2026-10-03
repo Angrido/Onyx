@@ -48,6 +48,8 @@ const EnvSchema = z.object({
   ONYX_STATUSLINE: z.string().optional(),
   ONYX_TERMINAL_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   ONYX_INTERNAL_API_URL: z.string().url().optional(),
+  ONYX_GITHUB_TOKEN: z.string().optional(),
+  ONYX_GITHUB_API_URL: z.string().url().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
 });
@@ -61,6 +63,11 @@ export interface ContextConfig {
   mapBudgetTokens: number;
   indexWaitMs: number;
   mcpServerPath: string | null;
+}
+
+export interface GitHubConfig {
+  token: string | null;
+  apiUrl: string;
 }
 
 export interface TerminalConfig {
@@ -89,6 +96,7 @@ export interface AppConfig {
   credentials: ClaudeCredentials;
   context: ContextConfig;
   terminal: TerminalConfig;
+  github: GitHubConfig;
   internalApiUrl: string;
 }
 
@@ -175,6 +183,13 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       mcpServerPath,
     },
     terminal: { statusLinePath, idleMs: env.ONYX_TERMINAL_IDLE_MS },
+    github: {
+      token:
+        env.ONYX_GITHUB_TOKEN && env.ONYX_GITHUB_TOKEN.trim().length > 0
+          ? env.ONYX_GITHUB_TOKEN.trim()
+          : null,
+      apiUrl: env.ONYX_GITHUB_API_URL ?? "https://api.github.com",
+    },
     internalApiUrl: (
       env.ONYX_INTERNAL_API_URL ?? `http://${loopbackHost(env.API_HOST)}:${env.API_PORT}`
     ).replace(/\/+$/, ""),

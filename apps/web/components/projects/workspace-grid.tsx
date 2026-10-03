@@ -91,7 +91,7 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
 
 export function WorkspaceGrid({ workspaces }: { workspaces: WorkspaceDto[] }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {workspaces.map((workspace) => (
         <WorkspaceCard key={workspace.id} workspace={workspace} />
       ))}

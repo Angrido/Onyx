@@ -207,7 +207,7 @@ function Workbench({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
         {state.files.length > 0 ? (
           <FileTree
             files={state.files}

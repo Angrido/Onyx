@@ -146,7 +146,7 @@ export function FilePanel({
               : ""}
             .
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <PathList title="Imports" paths={data.dependencies} onSelect={onSelect} />
             <PathList title="Imported by" paths={data.dependents} onSelect={onSelect} />
           </div>

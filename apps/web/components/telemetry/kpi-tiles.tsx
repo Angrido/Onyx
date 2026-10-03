@@ -69,7 +69,7 @@ export function KpiTiles({ initial }: { initial: TelemetrySummary }) {
     today.usage.cacheCreationTokens;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Tile
         icon={<Bot className="size-3.5" />}
         label="Active agents"

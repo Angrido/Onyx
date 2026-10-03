@@ -190,7 +190,7 @@ export function RouterSimulator({
           <p className="text-sm text-muted-foreground">Register a project to simulate routing.</p>
         ) : (
           <form className="space-y-3" onSubmit={submit}>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Project" htmlFor="sim-project">
                 <Select
                   id="sim-project"

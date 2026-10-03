@@ -7,6 +7,7 @@ import "./http/fastify-types";
 import { registerErrorHandling } from "./http/error-handler";
 import { registerAuthRoutes } from "./http/routes/auth-routes";
 import { registerContextRoutes } from "./http/routes/context-routes";
+import { registerGitHubRoutes } from "./http/routes/github-routes";
 import { registerHookRoutes } from "./http/routes/hook-routes";
 import { registerProjectRoutes } from "./http/routes/project-routes";
 import { registerRouterRoutes } from "./http/routes/router-routes";
@@ -48,6 +49,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerSurgeonRoutes(app, container);
   registerRouterRoutes(app, container);
   registerTerminalRoutes(app, container);
+  registerGitHubRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

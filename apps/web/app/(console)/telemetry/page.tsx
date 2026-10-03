@@ -60,7 +60,7 @@ export default async function TelemetryPage() {
       />
       <KpiTiles initial={summary} />
       <RoutingSavings telemetry={routing} />
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <WindowCard title="Today" window={summary.today} />
         <WindowCard title="Last 7 days" window={summary.last7Days} />
       </div>

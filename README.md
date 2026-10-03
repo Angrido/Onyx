@@ -74,6 +74,12 @@ A ogni run il profilo diventa:
 
 **Measure** confronta la stima con un tokenizer di riferimento (`count_tokens` se c'è una API key, altrimenti `o200k_base` in locale), **Calibrate** adatta lo stimatore al progetto, **Export** scrive il `.claudesignore` per chi usa Claude Code fuori da Onyx. Sul benchmark (`pnpm --filter @onyx/api bench:surgeon <cartella…>`) l'errore sul risparmio del preset, dopo la calibrazione, va dallo 0,0% al 12,5% su hono, httpx, fastify e Onyx.
 
+## Progetti da GitHub
+
+**New project** (o **Import from GitHub** nella console) apre la scheda *From GitHub*: incolla un token personale e scegli uno dei tuoi repository, anche privati, oppure sfoglia i repository pubblici di un utente senza token. Onyx lo clona in `ONYX_PROJECTS_DIR/<nome>`, lo registra con i workspace di dominio e avvia l'indicizzazione; la scheda *Local folder* registra invece una cartella già presente sul server.
+
+Il token consigliato è *fine-grained* con accesso in sola lettura a **Contents** sui repository che vuoi importare ([crealo qui](https://github.com/settings/personal-access-tokens/new)); un token classico richiede lo scope `repo` per i privati. Viene salvato nel database di Onyx e non è mai restituito dall'API; in alternativa si imposta `ONYX_GITHUB_TOKEN` nell'ambiente del servizio.
+
 ## Model Router e compartimenti (Fase 4)
 
 Ogni run passa dal router, che sceglie il tier più economico adatto al task: prima le regole (pagina **Router**, modificabili e per progetto), poi un punteggio euristico su blast radius, cross-domain, file toccati, parole chiave architetturali, dimensione del contesto e fallimenti precedenti, infine, con una API key, il classificatore Haiku 4.5 quando l'euristica è incerta. La decisione e la sua motivazione compaiono nel feed della run e nella pagina del task; se una run finisce i turni, il task torna in coda sul tier superiore. Il **simulatore** prova un task senza eseguirlo; il riquadro dei costi confronta il costo per task completato con quello che si sarebbe speso con tutto su Opus.

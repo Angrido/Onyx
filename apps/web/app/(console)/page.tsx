@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { TaskList } from "@/components/tasks/task-list";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
 import { Button } from "@/components/ui/button";
+import { GitHubMark } from "@/components/ui/github-mark";
 import { serverFetch } from "@/lib/api/server";
 
 export const metadata = { title: "Console" };
@@ -21,9 +22,17 @@ export default async function ConsolePage() {
         title="Agent console"
         description="Live state of every Claude Code agent orchestrated by this Onyx instance."
         actions={
-          <Button asChild variant="secondary">
-            <Link href="/projects">Open projects</Link>
-          </Button>
+          <>
+            <Button asChild variant="secondary">
+              <Link href="/projects">Open projects</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/projects?new=github">
+                <GitHubMark />
+                Import from GitHub
+              </Link>
+            </Button>
+          </>
         }
       />
       <KpiTiles initial={telemetry} />
@@ -34,7 +43,7 @@ export default async function ConsolePage() {
           initial={tasks.items}
           emptyAction={
             <Button asChild size="sm">
-              <Link href="/projects">Pick a project</Link>
+              <Link href="/projects?new=github">Pick a project</Link>
             </Button>
           }
         />

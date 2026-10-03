@@ -35,7 +35,7 @@ export function RoutingSavings({ telemetry }: { telemetry: RoutingTelemetry }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <Stat
             label="Completed tasks"
             value={String(telemetry.completedTasks)}
