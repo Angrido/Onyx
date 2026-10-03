@@ -1,7 +1,21 @@
+import { hostname, networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { NextConfig } from "next";
 
 const internalApiUrl = process.env.ONYX_INTERNAL_URL ?? "http://127.0.0.1:4000";
+
+function localNetworkHosts(): string[] {
+  const addresses = Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .filter((entry) => !entry.internal)
+    .map((entry) => entry.address);
+  const extra = (process.env.ONYX_DEV_ORIGINS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const name = hostname();
+  return [...new Set([...addresses, name, `${name}.local`, "*.local", "*.lan", ...extra])];
+}
 
 const config: NextConfig = {
   output: "standalone",
@@ -9,6 +23,7 @@ const config: NextConfig = {
   transpilePackages: ["@onyx/contracts"],
   poweredByHeader: false,
   reactStrictMode: true,
+  allowedDevOrigins: localNetworkHosts(),
   eslint: { ignoreDuringBuilds: true },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${internalApiUrl}/api/:path*` }];

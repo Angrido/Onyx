@@ -1,11 +1,13 @@
 import type {
   CatalogResponse,
   HealthResponse,
+  NetworkInfo,
   ReadyResponse,
   TelemetrySummary,
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
+import { describeNetwork } from "../../infrastructure/network";
 
 export function registerSystemRoutes(app: FastifyInstance, container: Container): void {
   app.get("/api/health", { config: { public: true } }, async (): Promise<HealthResponse> => ({
@@ -27,5 +29,9 @@ export function registerSystemRoutes(app: FastifyInstance, container: Container)
 
   app.get("/api/telemetry/summary", async (): Promise<TelemetrySummary> =>
     container.telemetry.summary(),
+  );
+
+  app.get("/api/system/network", async (request): Promise<NetworkInfo> =>
+    describeNetwork(request.protocol, request.host),
   );
 }

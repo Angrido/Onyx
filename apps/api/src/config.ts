@@ -117,7 +117,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       env.ONYX_ALLOWED_PROJECT_ROOTS.length > 0
         ? env.ONYX_ALLOWED_PROJECT_ROOTS.map((root) => resolve(root))
         : [projectsDir],
-    allowedOrigins: allowedOrigins.length > 0 ? allowedOrigins : ["http://localhost:3000"],
+    allowedOrigins,
     childEnvPassthrough: env.ONYX_CHILD_ENV_PASSTHROUGH,
     cookieSecure: env.COOKIE_SECURE,
     sessionTtlMs: env.SESSION_TTL_HOURS * 3_600_000,

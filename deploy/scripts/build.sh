@@ -26,7 +26,7 @@ if [ -d apps/web/public ]; then
 fi
 
 mkdir -p "$OUT/deploy"
-cp -r deploy/scripts deploy/systemd deploy/caddy deploy/env "$OUT/deploy/"
+cp -r deploy/scripts deploy/systemd deploy/caddy deploy/env deploy/avahi deploy/nftables "$OUT/deploy/"
 git rev-parse --short HEAD > "$OUT/REVISION" 2>/dev/null || date +%Y%m%d%H%M%S > "$OUT/REVISION"
 
 printf 'Release staged in %s (revision %s)\n' "$OUT" "$(cat "$OUT/REVISION")"

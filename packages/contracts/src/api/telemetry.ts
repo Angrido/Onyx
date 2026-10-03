@@ -44,3 +44,19 @@ export const ReadyResponseSchema = z.object({
   cliVersion: z.string().nullable(),
 });
 export type ReadyResponse = z.infer<typeof ReadyResponseSchema>;
+
+export const NetworkAddressSchema = z.object({
+  interface: z.string(),
+  address: z.string(),
+  family: z.enum(["IPv4", "IPv6"]),
+});
+export type NetworkAddress = z.infer<typeof NetworkAddressSchema>;
+
+export const NetworkInfoSchema = z.object({
+  hostname: z.string(),
+  mdnsName: z.string(),
+  currentOrigin: z.string().nullable(),
+  addresses: z.array(NetworkAddressSchema),
+  urls: z.array(z.string()),
+});
+export type NetworkInfo = z.infer<typeof NetworkInfoSchema>;

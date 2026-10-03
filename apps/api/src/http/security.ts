@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuthService, IssuedSession } from "../application/auth-service";
 import { forbidden, unauthorized } from "../errors";
+import type { OriginPolicy } from "./origin-policy";
 
 export const SESSION_COOKIE = "onyx_sid";
 
@@ -8,7 +9,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export interface SecurityOptions {
   auth: AuthService;
-  allowedOrigins: readonly string[];
+  originPolicy: OriginPolicy;
   cookieSecure: boolean;
 }
 
@@ -23,7 +24,11 @@ export function registerSecurity(app: FastifyInstance, options: SecurityOptions)
   app.addHook("onRequest", async (request) => {
     const origin = request.headers.origin;
     const needsOriginCheck = !SAFE_METHODS.has(request.method) || isUpgrade(request);
-    if (needsOriginCheck && origin !== undefined && !options.allowedOrigins.includes(origin)) {
+    if (
+      needsOriginCheck &&
+      origin !== undefined &&
+      !options.originPolicy.isAllowed(origin, request.host)
+    ) {
       throw forbidden("Origin not allowed");
     }
 

@@ -117,6 +117,73 @@ describe("authentication", () => {
     expect(sameSite.statusCode).toBe(200);
   });
 
+  it("accepts setup and writes from any LAN address the browser used", async () => {
+    const { app } = context;
+    const setup = await app.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      headers: { host: "192.168.1.50:3000", origin: "http://192.168.1.50:3000" },
+      payload: { username: "admin", password: PASSWORD },
+    });
+    expect(setup.statusCode).toBe(201);
+    const cookie = `onyx_sid=${setup.cookies.find((entry) => entry.name === "onyx_sid")?.value}`;
+
+    const viaMdns = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie, host: "onyx.local", origin: "http://onyx.local" },
+      payload: { name: "lan", rootPath: context.projectRoot },
+    });
+    expect(viaMdns.statusCode).toBe(201);
+
+    const viaProxy = await app.inject({
+      method: "POST",
+      url: "/api/auth/logout",
+      remoteAddress: "127.0.0.1",
+      headers: {
+        cookie,
+        host: "127.0.0.1:4000",
+        "x-forwarded-host": "10.0.0.20",
+        origin: "http://10.0.0.20",
+      },
+    });
+    expect(viaProxy.statusCode).toBe(204);
+  });
+
+  it("rejects DNS rebinding and mismatched hosts", async () => {
+    const { app } = context;
+    const rebinding = await app.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      headers: { host: "rebind.attacker.io", origin: "http://rebind.attacker.io" },
+      payload: { username: "admin", password: PASSWORD },
+    });
+    expect(rebinding.statusCode).toBe(403);
+
+    const mismatched = await app.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      headers: { host: "192.168.1.50", origin: "http://192.168.1.99" },
+      payload: { username: "admin", password: PASSWORD },
+    });
+    expect(mismatched.statusCode).toBe(403);
+  });
+
+  it("describes how to reach Onyx on the network", async () => {
+    const { app } = context;
+    const cookie = await authenticate(app);
+    const network = await app.inject({
+      method: "GET",
+      url: "/api/system/network",
+      headers: { cookie, host: "192.168.1.50:3000" },
+    });
+    expect(network.statusCode).toBe(200);
+    const body = network.json<{ currentOrigin: string; urls: string[]; mdnsName: string }>();
+    expect(body.currentOrigin).toBe("http://192.168.1.50:3000");
+    expect(body.urls.every((url) => url.endsWith(":3000"))).toBe(true);
+    expect(body.urls).toContain(`http://${body.mdnsName}:3000`);
+  });
+
   it("serves health and readiness publicly", async () => {
     const health = await context.app.inject({ method: "GET", url: "/api/health" });
     expect(health.json()).toMatchObject({ status: "ok" });

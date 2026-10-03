@@ -27,11 +27,22 @@ pnpm install
 pnpm dev
 ```
 
-Apri http://localhost:3000, crea l'utente operatore, registra il progetto demo (`.onyx-data/projects/demo`) e lancia un task.
+Apri http://localhost:3000 **oppure, da qualsiasi altro dispositivo della rete, `http://<ip-della-macchina>:3000`** (lo script stampa gli indirizzi). Crea l'utente operatore, registra il progetto demo (`.onyx-data/projects/demo`) e lancia un task.
 
 In modalità `stub` gli agenti sono simulati da `packages/agent-runtime/bin/claude-stub.ts`, che rigioca trascrizioni `stream-json` registrate: nessun token consumato. Nel prompt si può scegliere lo scenario con un marcatore, ad esempio `[stub:hang]` (run che non termina, per provare l'abort), `[stub:crash]`, `[stub:error-max-turns]`, `[stub:quick]`.
 
 Per usare Claude Code reale: `./scripts/dev-setup.sh real`, poi imposta **una sola** credenziale tra `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` in `apps/api/.env`.
+
+## Accesso dalla rete
+
+Onyx è raggiungibile da ogni dispositivo della LAN, senza configurare indirizzi:
+
+| Modalità | URL |
+|---|---|
+| Sviluppo (`pnpm dev`) | `http://<ip>:3000` (UI su `0.0.0.0:3000`, API su `0.0.0.0:4000`) |
+| Produzione (container) | `http://<ip>` oppure `http://onyx.local` (Caddy su `:80`, nome pubblicato via mDNS) |
+
+La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le richieste sono accettate da qualsiasi IP o nome di rete locale (`.local`, `.lan`, nomi senza dominio…); un dominio pubblico va aggiunto a `ONYX_ALLOWED_ORIGINS`. Il firewall di esempio (`deploy/nftables/nftables.conf`) ammette tutte le reti private. Dettagli in `architecture.md` §11.8.
 
 ## Comandi
 

@@ -249,7 +249,7 @@ Regola di dipendenza: `Transport → Application → Domain`, e `Infrastructure`
 
 | # | Da → A | Protocollo | Formato | Autenticazione | Note |
 |---|---|---|---|---|---|
-| C1 | Browser → Caddy | HTTP/1.1, HTTP/2, WebSocket | HTML, JSON | Cookie di sessione `onyx_sid` (httpOnly, SameSite=Strict) | Unico punto esposto sulla LAN |
+| C1 | Browser → Caddy | HTTP/1.1, HTTP/2, WebSocket | HTML, JSON | Cookie di sessione `onyx_sid` (httpOnly, SameSite=Strict) + controllo dell'origine sullo stesso host ([§11.8](#118-raggiungibilità-da-tutta-la-rete)) | Unico punto esposto sulla LAN, su tutte le interfacce |
 | C2 | Caddy → `onyx-web` | HTTP | — | — | Tutto tranne `/api/*` e `/ws` |
 | C3 | Caddy → `onyx-api` | HTTP + Upgrade | JSON | Cookie | `/api/*`, `/ws` |
 | C4 | `onyx-web` (server) → `onyx-api` | HTTP loopback | JSON | Cookie inoltrato | Fetch dai Server Components |
@@ -2025,7 +2025,6 @@ API_PORT=4000
 DATABASE_URL=file:/var/lib/onyx/onyx.db
 ONYX_DATA_DIR=/var/lib/onyx
 ONYX_PROJECTS_DIR=/srv/onyx/projects
-ONYX_PUBLIC_ORIGIN=http://192.168.1.50
 ONYX_ALLOWED_ORIGINS=
 ONYX_INTERNAL_URL=http://127.0.0.1:4000
 COOKIE_SECURE=false
@@ -2040,7 +2039,7 @@ CLAUDE_CODE_OAUTH_TOKEN=
 
 | Variabile | Significato |
 |---|---|
-| `ONYX_PUBLIC_ORIGIN`, `ONYX_ALLOWED_ORIGINS` | Origin ammesse per richieste che modificano stato e per l'upgrade WebSocket. Va elencato ogni nome con cui si apre la dashboard (IP, `onyx.lan`, …) |
+| `ONYX_ALLOWED_ORIGINS` | Facoltativa: origin pubbliche aggiuntive (es. `https://onyx.example.com`). IP e nomi di rete locale sono accettati automaticamente ([§11.8](#118-raggiungibilità-da-tutta-la-rete)) |
 | `ONYX_ALLOWED_PROJECT_ROOTS` | Facoltativa: radici entro cui si possono registrare progetti (default `ONYX_PROJECTS_DIR`) |
 | `ONYX_CHILD_ENV_PASSTHROUGH` | Facoltativa: variabili extra da passare ai processi `claude` oltre all'allowlist |
 | `COOKIE_SECURE` | `true` solo quando la dashboard è servita in HTTPS |
@@ -2303,12 +2302,24 @@ Consiglio aggiuntivo: registrare l'indirizzo come prenotazione o esclusione nel 
 
 ### 11.7 Firewall del container (nftables)
 
-Solo Caddy è esposto, e solo verso la LAN. `/etc/nftables.conf`:
+Solo Caddy (80/443), SSH e mDNS sono raggiungibili, e solo da indirizzi privati: tutte le reti domestiche e aziendali (10/8, 172.16/12, 192.168/16), la rete di Tailscale (100.64/10), link-local e gli equivalenti IPv6. Non serve adattare la subnet. File `deploy/nftables/nftables.conf`, da copiare in `/etc/nftables.conf`:
 
 ```text
 flush ruleset
 
 table inet onyx {
+  set lan_v4 {
+    type ipv4_addr
+    flags interval
+    elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 }
+  }
+
+  set lan_v6 {
+    type ipv6_addr
+    flags interval
+    elements = { fc00::/7, fe80::/10 }
+  }
+
   chain input {
     type filter hook input priority 0; policy drop;
     iif "lo" accept
@@ -2316,11 +2327,16 @@ table inet onyx {
     ct state invalid drop
     ip protocol icmp accept
     meta l4proto ipv6-icmp accept
-    ip saddr 192.168.1.0/24 tcp dport { 22, 80, 443 } accept
+    ip saddr @lan_v4 tcp dport { 22, 80, 443 } accept
+    ip6 saddr @lan_v6 tcp dport { 22, 80, 443 } accept
+    ip saddr @lan_v4 udp dport 5353 accept
+    ip6 saddr @lan_v6 udp dport 5353 accept
   }
+
   chain forward {
     type filter hook forward priority 0; policy drop;
   }
+
   chain output {
     type filter hook output priority 0; policy accept;
   }
@@ -2335,6 +2351,20 @@ nft list ruleset
 
 Il controllo `nft -c` valida la sintassi prima dell'applicazione. In alternativa (o in aggiunta) si può usare il firewall di Proxmox a livello di CT (`firewall=1` su `net0`); se il firewall è disattivato a livello Datacenter, prima di attivarlo va verificato che le regole dell'host lascino passare GUI (8006) e SSH.
 
+### 11.8 Raggiungibilità da tutta la rete
+
+Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualunque nome o indirizzo il dispositivo usi.
+
+| Elemento | Comportamento |
+|---|---|
+| Ingresso | Caddy ascolta su `:80` su tutte le interfacce, IPv4 e IPv6. API e web restano su loopback |
+| Nome di rete | `bootstrap.sh` installa `avahi-daemon` e pubblica il servizio `_http._tcp` (`deploy/avahi/onyx.service`): con hostname `onyx` la dashboard risponde a `http://onyx.local` su macOS, Linux, iOS, Android e Windows 10+ |
+| Controllo dell'origine | Una richiesta che modifica stato (o un upgrade WebSocket) è accettata se l'host dell'`Origin` coincide con l'host usato per raggiungere Onyx (`Host` o `X-Forwarded-Host` da Caddy o Next.js) **e** quell'host è di rete locale: IP, `localhost`, nome a singola etichetta, hostname della macchina, suffissi `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.localdomain`. Così funziona con qualsiasi IP o nome LAN senza configurazione, e restano bloccati sia i siti esterni sia il DNS rebinding (che usa domini pubblici) |
+| Domini pubblici | Se Onyx viene pubblicato con un dominio pubblico (es. dietro un reverse proxy con TLS), quell'origin va dichiarato in `ONYX_ALLOWED_ORIGINS` |
+| WebSocket | In produzione stessa origine (`/ws` tramite Caddy). In sviluppo il browser si collega a `ws://<host usato dal browser>:4000/ws` (`NEXT_PUBLIC_ONYX_WS_PORT`), quindi funziona anche da altri dispositivi |
+| Sviluppo | `pnpm dev` avvia Next.js su `0.0.0.0:3000` con `allowedDevOrigins` calcolati dalle interfacce di rete, e l'API su `0.0.0.0:4000` (`scripts/dev-setup.sh`) |
+| Indirizzi in UI | La console mostra la scheda "On your network" con gli URL utilizzabili (`GET /api/system/network`) |
+
 ---
 
 ## 12. Sicurezza
@@ -2344,6 +2374,7 @@ Il controllo `nft -c` valida la sintassi prima dell'applicazione. In alternativa
 | Minaccia | Mitigazione |
 |---|---|
 | Accesso non autorizzato alla dashboard dalla LAN | Login obbligatorio (argon2id), cookie httpOnly + SameSite=Strict, rate limit sul login, sessioni con scadenza |
+| Richieste cross-site e DNS rebinding | Controllo dell'origine sullo stesso host limitato a nomi di rete locale; domini pubblici solo se dichiarati ([§11.8](#118-raggiungibilità-da-tutta-la-rete)) |
 | Agente che legge segreti | Regole `deny` bloccate su `.env*`, chiavi e certificati; hook `PreToolUse` sui comandi Bash di lettura; ambiente del processo con allowlist |
 | Agente che esegue comandi distruttivi | `acceptEdits` come default (mai `bypassPermissions` di default); allowlist dei comandi Bash; deny su `rm -rf`, `git push`, `curl \| sh`; worktree usa-e-getta per i task paralleli |
 | Prompt injection da file del repository | Recinto di scrittura per dominio, gate umani su merge e permessi fuori allowlist, audit log |
@@ -2426,6 +2457,7 @@ Il controllo `nft -c` valida la sintassi prima dell'applicazione. In alternativa
 | ADR-011 | Stub eseguibile di Claude Code (`claude-stub.ts`) che rigioca fixture `stream-json` | Mock in-process; chiamate reali nei test | Test deterministici e gratuiti del runtime reale (spawn, segnali, process group, timeout); lo stesso stub alimenta la modalità di sviluppo |
 | ADR-012 | Regola ESLint locale `onyx/no-comments` | Revisione manuale | La convenzione "codice senza commenti" diventa verificabile in CI |
 | ADR-013 | Bundle dell'API con tsup che include solo `@onyx/*`; dipendenze di terze parti installate con `pnpm deploy --prod` | Bundle completo | Le dipendenze CommonJS e native (`better-sqlite3`, runtime Prisma) non si possono includere nel bundle in modo affidabile |
+| ADR-014 | Origine ammessa se coincide con l'host di rete locale usato dal browser; mDNS per `onyx.local` | Lista fissa di origin da configurare | La lista fissa bloccava l'accesso da qualsiasi indirizzo non previsto; la regola sullo stesso host funziona con ogni IP o nome LAN e continua a respingere siti esterni e DNS rebinding |
 
 ---
 

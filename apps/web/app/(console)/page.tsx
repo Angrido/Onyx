@@ -1,5 +1,6 @@
 import type { TaskListResponse, TelemetrySummary } from "@onyx/contracts";
 import Link from "next/link";
+import { NetworkCard } from "@/components/layout/network-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { TaskList } from "@/components/tasks/task-list";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
@@ -26,6 +27,7 @@ export default async function ConsolePage() {
         }
       />
       <KpiTiles initial={telemetry} />
+      <NetworkCard />
       <section className="space-y-3">
         <h2 className="text-sm font-semibold tracking-tight">Recent tasks</h2>
         <TaskList

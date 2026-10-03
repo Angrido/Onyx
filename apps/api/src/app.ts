@@ -10,6 +10,7 @@ import { registerProjectRoutes } from "./http/routes/project-routes";
 import { registerSystemRoutes } from "./http/routes/system-routes";
 import { registerTaskRoutes } from "./http/routes/task-routes";
 import { registerWsRoutes } from "./http/routes/ws-routes";
+import { createOriginPolicy } from "./http/origin-policy";
 import { registerSecurity } from "./http/security";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -20,7 +21,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   const app = Fastify({
     loggerInstance,
     bodyLimit: MAX_BODY_BYTES,
-    trustProxy: "127.0.0.1",
+    trustProxy: ["127.0.0.1", "::1"],
   });
 
   await app.register(cookie);
@@ -30,7 +31,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerErrorHandling(app);
   registerSecurity(app, {
     auth: container.auth,
-    allowedOrigins: container.config.allowedOrigins,
+    originPolicy: createOriginPolicy(container.config.allowedOrigins),
     cookieSecure: container.config.cookieSecure,
   });
 

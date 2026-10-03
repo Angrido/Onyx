@@ -5,11 +5,26 @@ export type ChannelListener = (message: ServerMessage) => void;
 
 const MAX_BACKOFF_MS = 15_000;
 
+export interface WsEndpointSettings {
+  url?: string | undefined;
+  port?: string | undefined;
+}
+
+export function resolveWsUrl(
+  location: Pick<Location, "protocol" | "hostname" | "host">,
+  settings: WsEndpointSettings,
+): string {
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  if (settings.url) return settings.url.replaceAll("{hostname}", location.hostname);
+  if (settings.port) return `${protocol}://${location.hostname}:${settings.port}/ws`;
+  return `${protocol}://${location.host}/ws`;
+}
+
 export function defaultWsUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_ONYX_WS_URL;
-  if (configured) return configured;
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${window.location.host}/ws`;
+  return resolveWsUrl(window.location, {
+    url: process.env.NEXT_PUBLIC_ONYX_WS_URL,
+    port: process.env.NEXT_PUBLIC_ONYX_WS_PORT,
+  });
 }
 
 export class WsClient {
@@ -42,8 +57,13 @@ export class WsClient {
   stop(): void {
     this.stopped = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.socket?.close();
+    const socket = this.socket;
     this.socket = null;
+    if (socket?.readyState === WebSocket.CONNECTING) {
+      socket.onopen = () => socket.close();
+    } else {
+      socket?.close();
+    }
     this.setState("closed");
   }
 

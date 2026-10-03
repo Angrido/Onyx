@@ -13,7 +13,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get full-upgrade -y
-apt-get install -y ca-certificates curl gnupg git build-essential python3 sqlite3 caddy nftables locales
+apt-get install -y ca-certificates curl gnupg git build-essential python3 sqlite3 caddy nftables locales avahi-daemon libnss-mdns
 
 if ! command -v node >/dev/null 2>&1 || ! node --version | grep -q "^v${NODE_MAJOR}\."; then
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
@@ -43,11 +43,26 @@ systemctl daemon-reload
 systemctl enable onyx-api.service onyx-web.service onyx-backup.timer
 systemctl reload-or-restart caddy
 
+if [ -f /etc/avahi/avahi-daemon.conf ]; then
+  sed -i '/^rlimit-nproc=/d' /etc/avahi/avahi-daemon.conf
+fi
+install -m 644 "$REPO_DIR/deploy/avahi/onyx.service" /etc/avahi/services/onyx.service
+systemctl enable avahi-daemon.service
+systemctl restart avahi-daemon.service || printf 'avahi-daemon could not start: onyx.local will not be advertised\n' >&2
+
 if ! runuser -u onyx -- bash -lc 'command -v claude' >/dev/null 2>&1; then
   runuser -u onyx -- bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
 fi
 
 printf '\nNext steps:\n'
-printf '  1. Edit /etc/onyx/onyx.env (credentials, ONYX_PUBLIC_ORIGIN).\n'
+printf '  1. Edit /etc/onyx/onyx.env (Claude credentials).\n'
 printf '  2. Review deploy/nftables/nftables.conf, then copy it to /etc/nftables.conf and enable nftables.\n'
 printf '  3. Run deploy/scripts/build.sh and deploy/scripts/release.sh <release-dir>.\n'
+printf '\nOnce released, Onyx answers on every interface through Caddy:\n'
+for address in $(hostname -I 2>/dev/null); do
+  case "$address" in
+    *:*) printf '  http://[%s]\n' "$address" ;;
+    *) printf '  http://%s\n' "$address" ;;
+  esac
+done
+printf '  http://%s.local\n' "$(hostname)"
