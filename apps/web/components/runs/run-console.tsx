@@ -14,7 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-import { formatDuration, formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import { formatDuration, formatSaving, formatTokens, formatUsd } from "@/lib/format";
 import {
   INITIAL_FEED,
   applyDelta,
@@ -137,6 +137,7 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
   const costUsd = feed.result?.costUsd ?? run.costUsd;
   const elapsedLive = useElapsed(run.startedAt, run.endedAt, !terminal);
   const elapsed = feed.result?.durationMs ?? elapsedLive;
+  const savings = feed.context ? contextSavings(feed.context) : null;
   const model = feed.model ?? run.modelId;
 
   return (
@@ -178,12 +179,9 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
           <Metric label="Window" value={formatTokens(feedContextTokens(feed))} />
           <Metric
             label="Onyx saving"
-            value={(() => {
-              const savings = feed.context ? contextSavings(feed.context) : null;
-              return savings === null ? "—" : `−${formatPercent(savings)}`;
-            })()}
+            value={savings === null ? "—" : formatSaving(savings)}
             className={
-              feed.context && contextSavings(feed.context) !== null ? "text-success" : undefined
+              savings === null ? undefined : savings >= 0 ? "text-success" : "text-warning"
             }
           />
           <Metric label="Cost" value={formatUsd(costUsd)} />

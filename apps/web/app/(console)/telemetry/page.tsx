@@ -1,5 +1,11 @@
-import type { CatalogResponse, TelemetrySummary, UsageWindow } from "@onyx/contracts";
+import type {
+  CatalogResponse,
+  RoutingTelemetry,
+  TelemetrySummary,
+  UsageWindow,
+} from "@onyx/contracts";
 import { PageHeader } from "@/components/layout/page-header";
+import { RoutingSavings } from "@/components/router/routing-savings";
 import { ModelBadge } from "@/components/tasks/status-badge";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
 import { Badge } from "@/components/ui/badge";
@@ -40,9 +46,10 @@ function WindowCard({ title, window }: { title: string; window: UsageWindow }) {
 }
 
 export default async function TelemetryPage() {
-  const [summary, catalog] = await Promise.all([
+  const [summary, catalog, routing] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
     serverFetch<CatalogResponse>("/api/catalog"),
+    serverFetch<RoutingTelemetry>("/api/telemetry/routing"),
   ]);
   return (
     <>
@@ -52,6 +59,7 @@ export default async function TelemetryPage() {
         description="Usage reported by Claude Code for every run. Costs come from the CLI result; with a subscription token they are notional."
       />
       <KpiTiles initial={summary} />
+      <RoutingSavings telemetry={routing} />
       <div className="grid gap-6 md:grid-cols-2">
         <WindowCard title="Today" window={summary.today} />
         <WindowCard title="Last 7 days" window={summary.last7Days} />
@@ -59,9 +67,7 @@ export default async function TelemetryPage() {
       <Card>
         <CardHeader>
           <CardTitle>Spend by model · last 7 days</CardTitle>
-          <CardDescription>
-            Router efficiency becomes measurable here once routing lands in Phase 4.
-          </CardDescription>
+          <CardDescription>The router decides which tier each run lands on.</CardDescription>
         </CardHeader>
         <CardContent>
           {summary.byModel.length === 0 ? (

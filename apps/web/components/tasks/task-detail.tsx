@@ -8,7 +8,7 @@ import type {
   TaskDto,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { History, Loader2, Play, RotateCcw, Square } from "lucide-react";
+import { GitBranch, History, Loader2, Play, RotateCcw, Route, Square } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
@@ -16,14 +16,21 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { RunConsole } from "@/components/runs/run-console";
 import { ModelSelect } from "@/components/tasks/model-select";
-import { ModelBadge, RunStatusBadge, TaskStatusBadge } from "@/components/tasks/status-badge";
+import {
+  ModelBadge,
+  RunStatusBadge,
+  TaskStatusBadge,
+  TierBadge,
+} from "@/components/tasks/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { formatDuration, formatUsd } from "@/lib/format";
+import { formatDuration, formatUsd, shortId } from "@/lib/format";
+import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 import { useLiveTask } from "@/lib/live";
 import { cn } from "@/lib/utils";
 
@@ -77,7 +84,7 @@ function RunControls({ task, catalog }: { task: TaskDetailDto; catalog: CatalogR
             models={catalog.models}
             value={model}
             onChange={setModel}
-            defaultLabel="Agent default"
+            defaultLabel="Auto (router)"
           />
         </Field>
         <Field label="Agent profile" htmlFor="run-agent">
@@ -148,6 +155,69 @@ function RunControls({ task, catalog }: { task: TaskDetailDto; catalog: CatalogR
   );
 }
 
+function RoutingCard({ task, run }: { task: TaskDetailDto; run: RunDto | null }) {
+  const workspaceHref = task.workspaceId
+    ? `/projects/${task.projectId}/workspaces/${task.workspaceId}`
+    : null;
+  return (
+    <Card data-testid="task-routing">
+      <CardHeader className="flex-row items-center gap-2">
+        <Route className="size-4 text-muted-foreground" />
+        <CardTitle>Routing</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-xs">
+        {run?.routing ? (
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <TierBadge tier={run.routing.tier} />
+              <ModelBadge modelId={run.modelId} />
+              <Badge>{ROUTING_STRATEGY_LABELS[run.routing.strategy]}</Badge>
+            </div>
+            <p className="leading-relaxed text-muted-foreground">{run.routing.rationale}</p>
+          </>
+        ) : (
+          <p className="text-muted-foreground">
+            {task.modelOverride
+              ? `Pinned to ${task.modelOverride}.`
+              : "The router decides when the task is dispatched."}
+          </p>
+        )}
+        {workspaceHref ? (
+          <Link
+            href={workspaceHref}
+            className="flex items-center gap-2 rounded-md bg-surface-2 px-2.5 py-1.5 hover:text-foreground"
+          >
+            <GitBranch className="size-3.5 text-info" />
+            <span className="text-muted-foreground">Workspace sessions</span>
+            {run ? (
+              <span className="ml-auto font-mono" title={run.sessionId}>
+                {shortId(run.sessionId)}
+              </span>
+            ) : null}
+          </Link>
+        ) : null}
+        {run && run.changedFiles.length > 0 ? (
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Changed files
+            </p>
+            <ul className="space-y-0.5 font-mono text-[11px]">
+              {run.changedFiles.slice(0, 12).map((file) => (
+                <li key={file} className="truncate" title={file}>
+                  {file}
+                </li>
+              ))}
+              {run.changedFiles.length > 12 ? (
+                <li className="text-muted-foreground">+{run.changedFiles.length - 12} more</li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RunHistory({
   runs,
   selected,
@@ -185,9 +255,12 @@ function RunHistory({
               />
             ) : null}
             <span className="relative flex min-w-0 flex-1 flex-col gap-1">
-              <span className="flex items-center gap-2">
+              <span className="flex flex-wrap items-center gap-2">
                 <RunStatusBadge status={run.status} />
                 <ModelBadge modelId={run.modelId} />
+                {run.routing?.strategy === "ESCALATION" ? (
+                  <Badge tone="warning">escalated</Badge>
+                ) : null}
               </span>
               <span className="truncate">{run.prompt}</span>
             </span>
@@ -236,7 +309,7 @@ export function TaskDetail({
         }
         actions={<TaskStatusBadge status={task.status} />}
       />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
@@ -274,6 +347,7 @@ export function TaskDetail({
         </div>
         <div className="space-y-6">
           <RunControls task={task} catalog={catalog} />
+          <RoutingCard task={task} run={selectedRun} />
           <RunHistory
             runs={task.runs}
             selected={selectedRun?.id ?? null}

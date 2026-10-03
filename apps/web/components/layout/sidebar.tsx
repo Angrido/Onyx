@@ -1,7 +1,7 @@
 "use client";
 
 import type { UserDto } from "@onyx/contracts";
-import { Activity, FolderGit2, LayoutDashboard, LogOut } from "lucide-react";
+import { Activity, FolderGit2, LayoutDashboard, LogOut, Route } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -13,6 +13,7 @@ import { useConnectionState } from "@/lib/ws/context";
 const NAV = [
   { href: "/", label: "Console", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderGit2 },
+  { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },
 ] as const;
 

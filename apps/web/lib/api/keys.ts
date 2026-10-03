@@ -9,6 +9,13 @@ export const queryKeys = {
   task: (id: string) => ["task", id] as const,
   run: (id: string) => ["run", id] as const,
   sessions: (workspaceId: string) => ["sessions", workspaceId] as const,
+  workspace: (workspaceId: string) => ["workspace", workspaceId] as const,
+  terminals: (workspaceId: string) => ["terminals", workspaceId] as const,
+  routerSettings: ["router", "settings"] as const,
+  routingRules: ["router", "rules"] as const,
+  routingDecisions: ["router", "decisions"] as const,
+  routingTelemetry: ["router", "telemetry"] as const,
+  routerPreview: (input: object) => ["router", "preview", input] as const,
   index: (projectId: string) => ["index", projectId] as const,
   graph: (projectId: string, focus: string | null, depth: number) =>
     ["graph", projectId, focus, depth] as const,

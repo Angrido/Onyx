@@ -5,9 +5,11 @@ import {
   contextTokensOf,
   type ContextItem,
   type GuardItem,
+  type RoutingItem,
   type RunItem,
   type RunItemOf,
   type RunStatus,
+  type SessionItem,
   type TokenUsage,
 } from "@onyx/contracts";
 
@@ -45,7 +47,9 @@ export type FeedEntry =
   | { kind: "result"; key: string; item: RunItemOf<"result"> }
   | { kind: "system"; key: string; subtype: string }
   | { kind: "context"; key: string; item: ContextItem }
-  | { kind: "guard"; key: string; item: GuardItem };
+  | { kind: "guard"; key: string; item: GuardItem }
+  | { kind: "routing"; key: string; item: RoutingItem }
+  | { kind: "session"; key: string; item: SessionItem };
 
 export interface FeedState {
   entries: FeedEntry[];
@@ -58,6 +62,8 @@ export interface FeedState {
   result: RunItemOf<"result"> | null;
   context: ContextItem | null;
   guardDenials: number;
+  routing: RoutingItem | null;
+  session: SessionItem | null;
   partialText: string;
 }
 
@@ -72,6 +78,8 @@ export const INITIAL_FEED: FeedState = {
   result: null,
   context: null,
   guardDenials: 0,
+  routing: null,
+  session: null,
   partialText: "",
 };
 
@@ -164,6 +172,12 @@ function appendItem(state: FeedState, entries: FeedEntry[], item: RunItem, key: 
       entries.push({ kind: "guard", key, item });
       return { ...state, guardDenials: state.guardDenials + 1 };
     }
+    case "routing":
+      entries.push({ kind: "routing", key, item });
+      return { ...state, routing: item };
+    case "session":
+      entries.push({ kind: "session", key, item });
+      return { ...state, session: item };
     case "unknown":
       return state;
   }

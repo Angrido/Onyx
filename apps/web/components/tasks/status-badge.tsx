@@ -54,3 +54,7 @@ export function ModelBadge({ modelId }: { modelId: string }) {
     </Badge>
   );
 }
+
+export function TierBadge({ tier }: { tier: ModelTier }) {
+  return <Badge tone={TIER_TONES[tier]}>{TIER_STYLES[tier].label}</Badge>;
+}

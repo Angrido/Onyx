@@ -47,3 +47,7 @@ export function formatRelative(iso: string, now = Date.now()): string {
 export function shortId(id: string): string {
   return id.slice(-6);
 }
+
+export function formatSaving(ratio: number): string {
+  return ratio >= 0 ? `−${formatPercent(ratio)}` : `+${formatPercent(-ratio)}`;
+}

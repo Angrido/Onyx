@@ -64,13 +64,17 @@ function now(): string {
   return new Date().toISOString();
 }
 
-export function ptyOutputMessage(terminalId: string, data: string): ServerMessageOf<"pty.output"> {
+export function ptyOutputMessage(
+  terminalId: string,
+  data: string,
+  reset = false,
+): ServerMessageOf<"pty.output"> {
   return {
     v: WS_PROTOCOL_VERSION,
     type: "pty.output",
     ch: channelNames.pty(terminalId),
     ts: now(),
-    data: { terminalId, data },
+    data: { terminalId, data, reset },
   };
 }
 

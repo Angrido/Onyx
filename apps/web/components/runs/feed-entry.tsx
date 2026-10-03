@@ -1,6 +1,12 @@
 "use client";
 
-import type { ContextEntry, ContextItem, ContextRole } from "@onyx/contracts";
+import type {
+  ContextEntry,
+  ContextItem,
+  ContextRole,
+  RoutingItem,
+  SessionItem,
+} from "@onyx/contracts";
 import {
   AlertTriangle,
   Boxes,
@@ -11,8 +17,10 @@ import {
   FileSearch,
   FileText,
   FolderSearch,
+  GitBranch,
   Layers3,
   Loader2,
+  Route,
   ShieldX,
   Sparkles,
   SquareTerminal,
@@ -25,7 +33,16 @@ import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { RunStatusBadge } from "@/components/tasks/status-badge";
 import { contextSavings, type FeedEntry, type ToolResultView } from "@/lib/run-feed";
-import { formatDuration, formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import {
+  formatDuration,
+  formatPercent,
+  formatSaving,
+  formatTokens,
+  formatUsd,
+  shortId,
+} from "@/lib/format";
+import { END_REASON_LABELS, ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
+import { TIER_STYLES, modelLabel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 
 const TOOL_ICONS: Record<string, typeof Wrench> = {
@@ -191,8 +208,13 @@ function ContextView({ item }: { item: ContextItem }) {
               : (item.note ?? `${formatTokens(item.mapTokens)} map`)}
           </span>
           {savings !== null ? (
-            <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-              −{formatPercent(savings)} vs naive
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                savings >= 0 ? "bg-success/15 text-success" : "bg-warning/15 text-warning",
+              )}
+            >
+              {formatSaving(savings)} vs naive
             </span>
           ) : null}
           {item.mcpEnabled ? (
@@ -325,6 +347,80 @@ function GuardEntry({
   );
 }
 
+function RoutingEntry({ item }: { item: RoutingItem }) {
+  const tier = TIER_STYLES[item.tier];
+  return (
+    <div
+      className={cn("rounded-lg border px-3 py-2 text-xs", tier.border, tier.bg)}
+      data-testid="routing-entry"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Route className={cn("size-3.5", tier.text)} />
+        <span className={cn("font-semibold", tier.text)}>{tier.label}</span>
+        <span className="font-medium">{modelLabel(item.modelId)}</span>
+        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+          {ROUTING_STRATEGY_LABELS[item.strategy]}
+          {item.ruleName ? ` · ${item.ruleName}` : ""}
+        </span>
+        {item.score !== null ? (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            score {item.score.toFixed(2)}
+            {item.confidence !== null ? ` · confidence ${formatPercent(item.confidence)}` : ""}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-muted-foreground">{item.rationale}</p>
+    </div>
+  );
+}
+
+function SessionEntry({ item }: { item: SessionItem }) {
+  const title =
+    item.action === "resumed"
+      ? `Resumed session ${shortId(item.sessionId)}`
+      : `New session ${shortId(item.sessionId)}`;
+  const detail = [
+    item.workspaceName,
+    item.reason ? END_REASON_LABELS[item.reason] : null,
+    item.action === "resumed"
+      ? `${formatTokens(item.contextTokens)} / ${formatTokens(item.maxSessionTokens)} context`
+      : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  const header = (
+    <>
+      <GitBranch className="size-3.5 text-info" />
+      <span className="font-medium">{title}</span>
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{detail}</span>
+      {item.handoff ? (
+        <span className="rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-semibold text-info">
+          handoff · {formatTokens(item.handoff.tokens)}
+        </span>
+      ) : null}
+    </>
+  );
+  if (!item.handoff) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-lg border border-border bg-surface-1/70 px-3 py-2 text-xs"
+        data-testid="session-entry"
+      >
+        {header}
+      </div>
+    );
+  }
+  return (
+    <div data-testid="session-entry">
+      <Collapsible header={header}>
+        <pre className="scrollbar-thin max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+          {item.handoff.text}
+        </pre>
+      </Collapsible>
+    </div>
+  );
+}
+
 export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | null }) {
   switch (entry.kind) {
     case "prompt":
@@ -336,8 +432,8 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
     case "init":
       return (
         <p className="text-center text-[11px] text-muted-foreground">
-          Session <span className="font-mono">{entry.sessionId.slice(0, 8)}</span> · {entry.model} ·{" "}
-          {entry.tools.length} tools
+          Claude session <span className="font-mono">{shortId(entry.sessionId)}</span> ·{" "}
+          {entry.model} · {entry.tools.length} tools
         </p>
       );
     case "text":
@@ -440,5 +536,9 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
       return <ContextView item={entry.item} />;
     case "guard":
       return <GuardEntry entry={entry} cwd={cwd} />;
+    case "routing":
+      return <RoutingEntry item={entry.item} />;
+    case "session":
+      return <SessionEntry item={entry.item} />;
   }
 }

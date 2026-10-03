@@ -4,16 +4,18 @@ import {
   TaskKindSchema,
   type CatalogResponse,
   type GraphResponse,
+  type RouterPreviewResponse,
   type TaskDto,
   type TaskKind,
   type WorkspaceDto,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileCode2, Loader2, Sparkles, X } from "lucide-react";
+import { FileCode2, Loader2, Route, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { ModelSelect } from "@/components/tasks/model-select";
+import { ModelBadge, TierBadge } from "@/components/tasks/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,17 +29,38 @@ import {
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { KIND_LABELS } from "@/lib/router";
+import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 
-const KIND_LABELS: Record<TaskKind, string> = {
-  ARCHITECTURE: "Architecture",
-  FEATURE: "Feature",
-  REFACTOR: "Refactor",
-  BUGFIX: "Bug fix",
-  UI_STYLE: "UI / styling",
-  TEST_FIX: "Test fix",
-  DOCS: "Docs",
-  CHORE: "Chore",
-};
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+function RoutingHint({ preview }: { preview: RouterPreviewResponse }) {
+  const { decision } = preview;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-0/60 px-3 py-2 text-xs"
+      data-testid="task-routing-preview"
+    >
+      <Route className="size-3.5 text-primary" />
+      <TierBadge tier={decision.tier} />
+      <ModelBadge modelId={decision.modelId} />
+      <span className="text-muted-foreground">
+        {ROUTING_STRATEGY_LABELS[decision.strategy]}
+        {preview.workspaceName
+          ? ` · ${preview.workspaceName}${preview.workspaceInferred ? " (inferred)" : ""}`
+          : " · no workspace matches the targets"}
+      </span>
+      <p className="basis-full text-muted-foreground">{decision.rationale}</p>
+    </div>
+  );
+}
 
 export function CreateTaskDialog({
   projectId,
@@ -54,7 +77,7 @@ export function CreateTaskDialog({
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [kind, setKind] = useState<TaskKind>("FEATURE");
-  const [workspaceId, setWorkspaceId] = useState(workspaces[0]?.id ?? "");
+  const [workspaceId, setWorkspaceId] = useState("");
   const [model, setModel] = useState("");
   const [runNow, setRunNow] = useState(true);
   const [targetPaths, setTargetPaths] = useState<string[]>([]);
@@ -69,6 +92,25 @@ export function CreateTaskDialog({
     select: (graph) => graph.nodes.map((node) => node.id).sort(),
   });
 
+  const previewInput = useDebounced(
+    {
+      projectId,
+      workspaceId: workspaceId || null,
+      title,
+      prompt: prompt.trim(),
+      kind,
+      targetPaths,
+    },
+    700,
+  );
+  const routing = useQuery({
+    queryKey: queryKeys.routerPreview(previewInput),
+    queryFn: () => api.post<RouterPreviewResponse>("/api/router/preview", previewInput),
+    enabled: open && !model && previewInput.prompt.length >= 12,
+    retry: false,
+    staleTime: 60_000,
+  });
+
   function addTarget() {
     const value = targetDraft.trim().replace(/^\.\//, "");
     if (value.length > 0 && !targetPaths.includes(value)) setTargetPaths([...targetPaths, value]);
@@ -79,7 +121,7 @@ export function CreateTaskDialog({
     mutationFn: async () => {
       const task = await api.post<TaskDto>("/api/tasks", {
         projectId,
-        workspaceId,
+        workspaceId: workspaceId || null,
         title,
         prompt,
         kind,
@@ -117,8 +159,8 @@ export function CreateTaskDialog({
         <DialogHeader>
           <DialogTitle>Delegate a task</DialogTitle>
           <DialogDescription>
-            The agent runs headless in the selected workspace. Leave the model empty to use the
-            workspace agent default.
+            The agent runs headless in a workspace compartment. With Auto, Onyx picks the workspace
+            from the target files and the model tier from its routing rules.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
@@ -200,6 +242,7 @@ export function CreateTaskDialog({
                 value={workspaceId}
                 onChange={(event) => setWorkspaceId(event.target.value)}
               >
+                <option value="">Auto</option>
                 {workspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.name}
@@ -226,10 +269,11 @@ export function CreateTaskDialog({
                 models={catalog.models}
                 value={model}
                 onChange={setModel}
-                defaultLabel="Agent default"
+                defaultLabel="Auto (router)"
               />
             </Field>
           </div>
+          {!model && routing.data ? <RoutingHint preview={routing.data} /> : null}
           <label className="flex items-center gap-3 text-sm text-muted-foreground">
             <input
               type="checkbox"
@@ -240,7 +284,7 @@ export function CreateTaskDialog({
             Run immediately
           </label>
           <DialogFooter>
-            <Button type="submit" disabled={mutation.isPending || !workspaceId}>
+            <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
               {runNow ? "Create and run" : "Create"}
             </Button>

@@ -88,11 +88,17 @@ export function describeScore(features: RoutingFeatures): string {
   const parts: string[] = [];
   if (features.blastRadius > 0) parts.push(`blast radius ${features.blastRadius}`);
   if (features.crossDomain) parts.push(`cross-domain (${features.domains.join(", ")})`);
-  if (features.filesTouched > 0) parts.push(`${features.filesTouched} target files`);
+  if (features.filesTouched > 0)
+    parts.push(`${features.filesTouched} target file${features.filesTouched === 1 ? "" : "s"}`);
   if (features.archKeywords.length > 0)
     parts.push(`architecture keywords: ${features.archKeywords.join(", ")}`);
   if (features.contextTokens > 0)
-    parts.push(`~${Math.round(features.contextTokens / 1_000)}k tokens of targets`);
-  if (features.priorFailures > 0) parts.push(`${features.priorFailures} failed runs`);
+    parts.push(
+      features.contextTokens >= 1_000
+        ? `~${Math.round(features.contextTokens / 1_000)}k tokens of targets`
+        : `~${features.contextTokens} tokens of targets`,
+    );
+  if (features.priorFailures > 0)
+    parts.push(`${features.priorFailures} failed run${features.priorFailures === 1 ? "" : "s"}`);
   return parts.length > 0 ? parts.join(", ") : "no complexity signals";
 }

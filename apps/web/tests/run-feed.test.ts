@@ -152,4 +152,33 @@ describe("guard items", () => {
     expect(state.guardDenials).toBe(2);
     expect(state.entries.map((entry) => entry.kind)).toEqual(["guard", "guard"]);
   });
+
+  it("records routing and session items as feed entries", () => {
+    const state = applyRunEvent(INITIAL_FEED, 1, [
+      {
+        kind: "routing",
+        strategy: "RULE",
+        tier: "BUILDER",
+        modelId: "claude-sonnet-5-5",
+        rationale: "Rule ui-styling matched",
+        score: null,
+        confidence: null,
+        ruleName: "ui-styling",
+      },
+      {
+        kind: "session",
+        action: "started",
+        sessionId: "s2",
+        workspaceName: "Frontend",
+        reason: "DOMAIN_SWITCH",
+        previousSessionId: "s1",
+        handoff: { text: "# Handoff for the Frontend workspace", tokens: 120 },
+        contextTokens: 0,
+        maxSessionTokens: 150_000,
+      },
+    ]);
+    expect(state.entries.map((entry) => entry.kind)).toEqual(["routing", "session"]);
+    expect(state.routing?.ruleName).toBe("ui-styling");
+    expect(state.session?.handoff?.tokens).toBe(120);
+  });
 });

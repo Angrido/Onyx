@@ -198,7 +198,7 @@ export class TerminalService {
       const output = record.output.toString();
       return [
         ptyStateMessage(this.toDto(record)),
-        ...(output.length > 0 ? [ptyOutputMessage(record.id, output)] : []),
+        ptyOutputMessage(record.id, output, true),
       ];
     });
   }

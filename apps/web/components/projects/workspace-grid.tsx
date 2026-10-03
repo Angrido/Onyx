@@ -2,7 +2,8 @@
 
 import type { Domain, WorkspaceDto } from "@onyx/contracts";
 import { useMutation } from "@tanstack/react-query";
-import { Database, Layers, Monitor, RotateCcw, Server, Wrench } from "lucide-react";
+import { Database, Layers, Monitor, RotateCcw, Server, SquareTerminal, Wrench } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -34,10 +35,13 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <Link
+          href={`/projects/${workspace.projectId}/workspaces/${workspace.id}`}
+          className="flex items-center gap-2 hover:text-primary"
+        >
           <Icon className="size-4 text-muted-foreground" />
           <span className="text-sm font-medium">{workspace.name}</span>
-        </div>
+        </Link>
         <Badge>{workspace.resetStrategy.toLowerCase()}</Badge>
       </div>
       <div className="flex flex-wrap gap-1">
@@ -62,16 +66,24 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
             {workspace.activeSessionId ? shortId(workspace.activeSessionId) : "none"}
           </span>
         </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!workspace.activeSessionId || reset.isPending}
-          onClick={() => reset.mutate()}
-          title="Start the next run with a clean context"
-        >
-          <RotateCcw />
-          Reset
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!workspace.activeSessionId || reset.isPending}
+            onClick={() => reset.mutate()}
+            title="Start the next run in a new session with a handoff note"
+          >
+            <RotateCcw />
+            Reset
+          </Button>
+          <Button variant="secondary" size="sm" asChild>
+            <Link href={`/projects/${workspace.projectId}/workspaces/${workspace.id}`}>
+              <SquareTerminal />
+              Open
+            </Link>
+          </Button>
+        </div>
       </div>
     </Card>
   );

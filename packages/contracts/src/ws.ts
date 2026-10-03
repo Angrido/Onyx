@@ -134,7 +134,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("pty.output"),
     ch: ChannelSchema,
     ts: z.string(),
-    data: z.object({ terminalId: z.string(), data: z.string() }),
+    data: z.object({ terminalId: z.string(), data: z.string(), reset: z.boolean() }),
   }),
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),
