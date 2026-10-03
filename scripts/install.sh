@@ -374,6 +374,8 @@ setup_project() {
   (cd "$ROOT" && pnpm install --frozen-lockfile)
   step "Development environment (${MODE})"
   "$ROOT/scripts/dev-setup.sh" "$MODE"
+  step "Commands"
+  "$ROOT/scripts/onyx" install
 }
 
 summary() {
@@ -402,4 +404,6 @@ if ! $TOOLS_ONLY; then setup_project; fi
 summary
 if $TOOLS_ONLY; then
   printf '\nToolchain ready. Prepare the project with: scripts/install.sh %s\n' "$MODE"
+else
+  printf '\nStart Onyx with onyx-start, stop it with onyx-stop, update it with onyx-update.\n'
 fi

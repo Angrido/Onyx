@@ -31,8 +31,23 @@ Non serve installarli a mano: lo fa `scripts/install.sh`.
 git clone https://github.com/Angrido/Onyx.git
 cd Onyx
 ./scripts/install.sh
-pnpm dev
+onyx-start
 ```
+
+### Comandi
+
+`scripts/install.sh` mette sul `PATH` questi comandi (per farlo a mano: `./scripts/onyx install`, in `/usr/local/bin` da root, altrimenti in `~/.local/bin`):
+
+| Comando | Effetto |
+|---|---|
+| `onyx-start` | Avvia Onyx in background e stampa gli indirizzi della console |
+| `onyx-stop` | Ferma Onyx e tutti i suoi processi |
+| `onyx-restart` | Ferma e riavvia |
+| `onyx-update` | Scarica l'ultima versione (`git pull`), aggiorna le dipendenze, applica le migrazioni del database, ricompila e riavvia se era acceso |
+| `onyx-status` | Dice se Onyx è acceso e dove raggiungerlo |
+| `onyx-logs` | Segue i log |
+
+Funzionano in due modi, scelti da soli: in sviluppo eseguono `pnpm dev` dalla cartella del repository (log in `.onyx-data/logs/onyx-dev.log`); nel container di produzione (installato con `deploy/lxc/bootstrap.sh`) gestiscono i servizi systemd e `onyx-update` costruisce e installa una nuova release, tenendo le ultime tre. `ONYX_MODE=dev` o `ONYX_MODE=service` forzano la scelta.
 
 `scripts/install.sh` installa solo ciò che manca e si può rilanciare quando si vuole:
 
@@ -42,7 +57,7 @@ pnpm dev
 | Node.js 22 | Se manca o è più vecchio di 22.18: da NodeSource su Debian/Ubuntu, altrimenti (o se NodeSource non è raggiungibile) la build ufficiale di nodejs.org verificata con SHA-256, in `/usr/local` oppure in `~/.local` senza permessi di amministratore |
 | pnpm | Attiva con corepack la versione fissata in `package.json` (ripiego: `npm install -g`) |
 | Claude Code | Solo con `--with-claude` o in modalità `real` |
-| Progetto | `pnpm install --frozen-lockfile` e `scripts/dev-setup.sh` (database, progetto demo, `.env`) |
+| Progetto | `pnpm install --frozen-lockfile`, `scripts/dev-setup.sh` (database, progetto demo, `.env`) e i comandi `onyx-*` |
 
 Opzioni: `./scripts/install.sh real` per usare Claude Code vero, `--tools-only` per installare solo gli strumenti, `--with-claude` per aggiungere la CLI. Va lanciato come utente normale: chiede `sudo` solo per i pacchetti di sistema. Se installa Node in una cartella che non è in testa al `PATH`, alla fine stampa la riga da aggiungere al profilo della shell.
 
@@ -153,6 +168,7 @@ Vedi `architecture.md` §10 e §11. In sintesi, dentro il container:
 
 ```bash
 ./deploy/lxc/bootstrap.sh
-./deploy/scripts/build.sh /tmp/onyx-release
-./deploy/scripts/release.sh /tmp/onyx-release
+onyx-update
 ```
+
+`onyx-update` costruisce la release e la installa; da lì in poi `onyx-start`, `onyx-stop`, `onyx-status` e `onyx-logs` gestiscono i servizi.

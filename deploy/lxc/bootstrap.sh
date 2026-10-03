@@ -48,10 +48,12 @@ if ! runuser -u onyx -- bash -lc 'command -v claude' >/dev/null 2>&1; then
   runuser -u onyx -- bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
 fi
 
+ONYX_MODE=service "$REPO_DIR/scripts/onyx" install
+
 printf '\nNext steps:\n'
 printf '  1. Edit /etc/onyx/onyx.env (Claude credentials).\n'
 printf '  2. Review deploy/nftables/nftables.conf, then copy it to /etc/nftables.conf and enable nftables.\n'
-printf '  3. Run deploy/scripts/build.sh and deploy/scripts/release.sh <release-dir>.\n'
+printf '  3. Run onyx-update to build and install the first release (later runs update it).\n'
 printf '\nOnce released, Onyx answers on every interface through Caddy:\n'
 for address in $(hostname -I 2>/dev/null); do
   case "$address" in
