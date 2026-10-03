@@ -12,7 +12,8 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 1 | Monorepo, database, Agent Runtime, API, console web | **Completata** |
 | 2 | Lean-ctx (scheletri AST con tree-sitter), Graphify (grafo delle importazioni), server MCP `onyx`, vista Graph | **Completata** (manca solo la prova con un modello reale, vedi `architecture.md` §16) |
 | 3 | Context Surgeon: profili di contesto, regole di permesso compilate, hook di guardia, calibrazione dei token | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
-| 4–7 | Model Router, TDD Auto-Loop, orchestrazione multi-agente, hardening | Da fare |
+| 4 | Model Router, compartimenti di sessione con handoff, recinti di scrittura, terminali interattivi con `/clear` e `/compact` | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
+| 5–7 | TDD Auto-Loop, orchestrazione multi-agente, hardening | Da fare |
 
 ## Requisiti
 
@@ -73,6 +74,19 @@ A ogni run il profilo diventa:
 
 **Measure** confronta la stima con un tokenizer di riferimento (`count_tokens` se c'è una API key, altrimenti `o200k_base` in locale), **Calibrate** adatta lo stimatore al progetto, **Export** scrive il `.claudesignore` per chi usa Claude Code fuori da Onyx. Sul benchmark (`pnpm --filter @onyx/api bench:surgeon <cartella…>`) l'errore sul risparmio del preset, dopo la calibrazione, va dallo 0,0% al 12,5% su hono, httpx, fastify e Onyx.
 
+## Model Router e compartimenti (Fase 4)
+
+Ogni run passa dal router, che sceglie il tier più economico adatto al task: prima le regole (pagina **Router**, modificabili e per progetto), poi un punteggio euristico su blast radius, cross-domain, file toccati, parole chiave architetturali, dimensione del contesto e fallimenti precedenti, infine, con una API key, il classificatore Haiku 4.5 quando l'euristica è incerta. La decisione e la sua motivazione compaiono nel feed della run e nella pagina del task; se una run finisce i turni, il task torna in coda sul tier superiore. Il **simulatore** prova un task senza eseguirlo; il riquadro dei costi confronta il costo per task completato con quello che si sarebbe speso con tutto su Opus.
+
+Ogni workspace è un compartimento con la sua catena di sessioni Claude:
+
+- quando un altro workspace modifica file, la sessione successiva parte da zero con una **nota di handoff** (≤ 1.500 token) su cosa è cambiato e cosa resta aperto, secondo la strategia `HARD`, `HANDOFF` o `SOFT`;
+- oltre `maxSessionTokens` la sessione ruota con la nota;
+- i file degli altri workspace sono in sola lettura (anche via Bash);
+- un task con workspace "Auto" va al workspace che possiede i suoi file.
+
+Dalla pagina del workspace si apre un **terminale interattivo** di Claude Code (xterm.js) nello stesso compartimento: Onyx inietta `/compact` quando il contesto supera il limite e `/clear` con la nota di handoff dopo un cambio di dominio; i pulsanti fanno lo stesso a richiesta. La catena delle sessioni mostra perché ognuna è finita e la nota con cui è partita la successiva.
+
 ## Accesso dalla rete
 
 Onyx è raggiungibile da ogni dispositivo della LAN, senza configurare indirizzi:
@@ -103,15 +117,15 @@ La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le 
 
 | Percorso | Ruolo |
 |---|---|
-| `apps/api` | Fastify 5: auth, progetti, workspace, task, run, Context Surgeon, hook interni, WebSocket, scheduler, telemetria |
-| `apps/web` | Next.js 15: console, progetti, Context Surgeon, grafo, task, run live, telemetria |
+| `apps/api` | Fastify 5: auth, progetti, workspace, task, run, Context Surgeon, router, compartimenti, terminali, hook interni, WebSocket, scheduler, telemetria |
+| `apps/web` | Next.js 15: console, progetti, workspace con terminale, Context Surgeon, grafo, router, task, run live, telemetria |
 | `packages/contracts` | Schemi zod condivisi: REST, WebSocket, eventi `stream-json` e normalizzatore |
 | `packages/db` | Schema Prisma 7 + SQLite, migrazioni, seed |
-| `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool con abort sul process group, stub |
+| `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool con abort sul process group, terminali PTY (`node-pty`), stub |
 | `packages/lean-ctx` | Parse tree-sitter (TS, TSX, JS, Python), simboli, scheletri L1/L2, estratti, mappa L0 |
 | `packages/graphify` | Enumerazione repomix, resolver dei moduli, grafo, metriche, pacchetto di contesto, benchmark |
-| `packages/ignore-compiler` | Policy gitignore, preset ed euristiche, compilatore verso regole di permesso, guardia dei percorsi per l'hook |
-| `packages/mcp-server` | Server MCP `onyx` (stdio) impacchettato in `dist/onyx-mcp.js` |
+| `packages/ignore-compiler` | Policy gitignore, preset ed euristiche, compilatore verso regole di permesso, guardia dei percorsi e recinto di scrittura per l'hook |
+| `packages/mcp-server` | Server MCP `onyx` (stdio) in `dist/onyx-mcp.js` e comando di statusline per i terminali in `dist/onyx-statusline.js` |
 | `packages/config` | Preset TypeScript, ESLint, Prettier |
 | `deploy/` | systemd, Caddy, nftables, bootstrap LXC, build/release/backup |
 

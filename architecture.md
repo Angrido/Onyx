@@ -785,19 +785,23 @@ flowchart TB
 | Condizione | Tier |
 |---|---|
 | `S ≥ 0.55` | `ARCHITECT` (Opus 5.5) |
-| `0.20 ≤ S < 0.55` | `BUILDER` (Sonnet 5.5), oppure `opusplan` per `FEATURE` con `S ≥ 0.40` |
+| `0.20 ≤ S < 0.55` | `BUILDER` (Sonnet 5.5) |
 | `S < 0.20` e `kind ∈ {DOCS, CHORE}` | `SCOUT` (Haiku 4.5) |
 | `S < 0.20` altrimenti | `BUILDER` |
 
 **Regole seed**
 
-| Priorità | Regola | Tier |
-|---|---|---|
-| 10 | `kind = ARCHITECTURE` oppure parole chiave architetturali | `ARCHITECT` |
-| 20 | Workspace `DATABASE` e percorsi di migrazione/schema | `ARCHITECT` |
-| 30 | `kind = UI_STYLE` oppure solo file di stile/componenti con modifiche di presentazione | `BUILDER` |
-| 40 | `kind = TEST_FIX` dentro un TDD loop | `BUILDER` (escalation su stallo) |
-| 50 | `kind ∈ {DOCS, CHORE}` | `SCOUT` |
+Le condizioni di un `matcher` valgono tutte insieme (AND); un "oppure" si esprime con più regole. A parità di priorità vince la regola del progetto su quella globale.
+
+| Priorità | Regola | Condizioni | Tier |
+|---|---|---|---|
+| 10 | `architecture-work` | `kind = ARCHITECTURE` | `ARCHITECT` |
+| 15 | `architecture-keywords` | `kind ∈ {FEATURE, REFACTOR, BUGFIX}` e almeno una parola chiave architetturale (italiano o inglese) | `ARCHITECT` |
+| 20 | `database-changes` | Workspace `DATABASE` e percorsi `**/prisma/**`, `**/migrations/**` | `ARCHITECT` |
+| 30 | `ui-styling` | `kind = UI_STYLE` | `BUILDER` |
+| 35 | `style-only-files` | Solo file di stile (`styleOnly`) | `BUILDER` |
+| 40 | `test-fixing` | `kind = TEST_FIX` | `BUILDER` (escalation su stallo dalla Fase 5) |
+| 50 | `docs-and-chores` | `kind ∈ {DOCS, CHORE}` | `SCOUT` |
 
 Esempio di `matcher` di una `RoutingRule`:
 
@@ -808,9 +812,12 @@ Esempio di `matcher` di una `RoutingRule`:
   "pathGlobs": ["apps/web/**/*.css", "apps/web/components/**/*.tsx"],
   "keywordsAny": ["colore", "padding", "layout", "tailwind", "animazione", "responsive"],
   "maxFilesTouched": 6,
-  "maxBlastRadius": 10
+  "maxBlastRadius": 10,
+  "styleOnly": false
 }
 ```
+
+`pathGlobs` richiede che **tutti** i file target corrispondano a uno dei glob; `keywordsAny` che almeno una parola compaia in titolo o prompt; `maxFilesTouched` e `maxBlastRadius` sono limiti superiori.
 
 **Escalation e de-escalation**
 
@@ -829,27 +836,29 @@ Esempio di `matcher` di una `RoutingRule`:
 
 | Workspace | Dominio | `pathGlobs` (esempio) | Recinto di scrittura | Modello default | Comando test |
 |---|---|---|---|---|---|
-| Frontend | `FRONTEND` | `apps/web/**`, `packages/ui/**` | Solo `pathGlobs` | Sonnet 5.5 | `pnpm --filter web test` |
-| Backend | `BACKEND` | `apps/api/**`, `packages/core/**` | Solo `pathGlobs` | Sonnet 5.5 | `pnpm --filter api test` |
-| Database | `DATABASE` | `packages/db/**`, `**/prisma/**` | Solo `pathGlobs` | Opus 5.5 | `pnpm --filter db test` |
-| Infra | `INFRA` | `deploy/**`, `.github/**` | Solo `pathGlobs` | Sonnet 5.5 | — |
+| Frontend | `FRONTEND` | `apps/web/**`, `packages/ui/**` | `writeFenceGlobs` (default: `pathGlobs`) | Sonnet 5.5 | `pnpm --filter web test` |
+| Backend | `BACKEND` | `apps/api/**`, `packages/core/**` | `writeFenceGlobs` (default: `pathGlobs`) | Sonnet 5.5 | `pnpm --filter api test` |
+| Database | `DATABASE` | `packages/db/**`, `**/prisma/**` | `writeFenceGlobs` (default: `pathGlobs`) | Opus 5.5 | `pnpm --filter db test` |
+| Infra | `INFRA` | `deploy/**`, `.github/**` | `writeFenceGlobs` (default: `pathGlobs`) | Sonnet 5.5 | — |
 
 **Componenti di un compartimento**
 
 - **Primer di dominio**: convenzioni, architettura locale, comandi; stabile e cache-friendly.
-- **Recinto di scrittura**: regole `Edit(...)` in `deny` per tutto ciò che è fuori dal dominio. La lettura resta possibile, ma attraverso gli scheletri Lean-ctx.
+- **Recinto di scrittura**: i file rivendicati dai `pathGlobs` di un altro workspace sono in sola lettura, con regole `Edit(//…)` in `deny` (raggruppate per directory solo quando nessun file scrivibile ci finisce dentro) e con l'hook `PreToolUse` che controlla anche `Edit`, `Write`, `MultiEdit`, `NotebookEdit` e i comandi Bash che scrivono (`>`, `tee`, `rm`, `mv`, `cp`, `sed -i`, `git checkout`…). I file di nessun workspace (configurazioni alla radice, pacchetti condivisi) restano scrivibili (ADR-025). La lettura resta possibile, ma attraverso gli scheletri Lean-ctx.
 - **Overlay ignore**: regole del Surgeon specifiche del workspace.
 - **Catena di sessioni**: `Session` collegate da `previousId`. Ogni sessione corrisponde a un UUID di sessione Claude.
 
-**Rilevamento del cambio di dominio**: i `targetPaths` del task vengono confrontati con i `pathGlobs` dei workspace. Se il dominio risultante è diverso da quello della sessione attiva, scatta `DomainSwitch`. I task cross-domain vengono scomposti dal Planner in sotto-task per dominio.
+**Rilevamento del cambio di dominio**: un task senza workspace lo riceve dai `targetPaths` (o dai file citati nel prompt) confrontati con i `pathGlobs`: vince il workspace che possiede più file. Quando una run di un altro workspace dello stesso progetto ha modificato file dopo l'ultima attività della sessione attiva, la sessione ruota con `DOMAIN_SWITCH` e la nuova riceve l'handoff; nei terminali interattivi aperti la stessa condizione inietta `/clear`. I task cross-domain verranno scomposti dal Planner in sotto-task per dominio (Fase 6).
 
 **Strategie di reset**
 
 | Strategia | Headless (`-p`) | Terminale interattivo (PTY) | Quando |
 |---|---|---|---|
-| `HARD` | Nuova sessione con `--session-id` nuovo, nessun `--resume`; contesto vuoto + primer | Iniezione automatica di `/clear` nello stdin del PTY, poi del primer | Cambio di dominio senza continuità |
-| `HANDOFF` (default) | Come `HARD`, più una nota di handoff (≤ 1.500 token) generata da Haiku 4.5 a partire dagli eventi persistiti: file modificati, decisioni, TODO aperti | `/clear` seguito dalla nota di handoff | Cambio di dominio con continuità di lavoro |
-| `SOFT` | Rotazione con handoff quando `contextTokens > maxSessionTokens` (in `-p` il comando `/compact` non è disponibile) | Iniezione di `/compact <focus del dominio>` | Pressione di contesto nello stesso dominio |
+| `HARD` | Nuova sessione con `--session-id` nuovo, nessun `--resume`; contesto vuoto + primer | Iniezione automatica di `/clear` nello stdin del PTY; il primer resta perché è nel system prompt (`--append-system-prompt-file`) | Cambio di dominio senza continuità |
+| `HANDOFF` (default) | Come `HARD`, più una nota di handoff (≤ 1.500 token) composta dalle run persistite (file modificati, esiti, TODO aperti) e, con una API key, condensata da Haiku 4.5 (ADR-024) | `/clear`; la nota arriva alla nuova sessione come `additionalContext` dell'hook `SessionStart` | Cambio di dominio con continuità di lavoro |
+| `SOFT` | Rotazione con handoff quando `contextTokens ≥ maxSessionTokens` (in `-p` il comando `/compact` non è disponibile) | Iniezione di `/compact <focus del dominio>` | Pressione di contesto nello stesso dominio |
+
+Nei terminali la pressione di contesto porta sempre a `/compact`, qualunque sia la strategia: compattare in place costa meno che ruotare. La strategia decide invece cosa succede al cambio di dominio (`HARD`: `/clear` senza nota; `HANDOFF` e `SOFT`: `/clear` con nota). Le iniezioni partono solo quando il terminale è inattivo (nessun output o input per `ONYX_TERMINAL_IDLE_MS`) e la riga di input è vuota, così non si mescolano con quello che l'operatore sta scrivendo.
 
 La rotazione per pressione di contesto usa `Session.contextTokens` (input + cache letta + cache creata dell'ultimo turno) confrontato con `Workspace.maxSessionTokens` (default 150.000).
 
@@ -2552,6 +2561,13 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-019 | Regole di permesso con percorsi assoluti `//<radice>/…` | Percorsi `/…` o `./…` | Nelle impostazioni `/…` è relativo al file di settings, che per Onyx sta nella directory di runtime: i percorsi relativi avrebbero puntato al posto sbagliato |
 | ADR-020 | Policy con la semantica di git (libreria `ignore`) e riscrittura delle regole quando si re-include un file | Semantica "l'ultima regola vince" senza eccezioni per le directory | Il file esportato deve comportarsi come un `.gitignore` per chi lo legge o lo usa fuori da Onyx; la UI genera regole corrette invece di negazioni che non avrebbero effetto |
 | ADR-021 | Stimatore euristico calibrato per tipo di file contro un tokenizer di riferimento (`count_tokens` con API key, `o200k_base` altrimenti) | Contare sempre i token con un tokenizer; solo euristica fissa | Indicizzare migliaia di file con un tokenizer è lento e con `count_tokens` costa chiamate; la calibrazione porta l'errore entro il ±15% con una sola misura |
+| ADR-022 | `matcher` delle regole di routing in AND, valutate per priorità; un "oppure" diventa una regola in più | Matcher con OR interno; linguaggio di espressioni | Ogni regola si legge in una riga e la motivazione registrata dice esattamente quali condizioni hanno deciso |
+| ADR-023 | Classificatore Haiku 4.5 con output strutturato dell'SDK ufficiale (`messages.parse` + schema zod), solo con API key e solo quando la confidenza dell'euristica è sotto soglia | Classificare ogni task; chiamate HTTP a mano; un classificatore via CLI | Nessun costo quando l'euristica è sicura; il verdetto è tipizzato e validato; senza API key l'euristica decide da sola |
+| ADR-024 | Nota di handoff composta in modo deterministico dalle run persistite, condensata da Haiku 4.5 solo se c'è una API key e solo se resta nel budget | Nota sempre scritta da un modello | Funziona senza credenziali ausiliarie, non inventa fatti, è riproducibile nei test; il modello serve solo a compattare |
+| ADR-025 | Recinto di scrittura: in sola lettura i file rivendicati da altri workspace; regole `Edit` statiche più hook `PreToolUse` che copre anche Bash | Negare tutto ciò che è fuori dal dominio; solo regole statiche | I file condivisi (configurazioni alla radice, pacchetti comuni) devono restare modificabili; le regole `Edit` non vedono le scritture fatte con Bash |
+| ADR-026 | Terminali interattivi con `node-pty`; sessione legata e handoff consegnato dall'hook HTTP `SessionStart`, contesto letto dal comando `statusLine`, iniezioni solo a terminale inattivo | Scrivere la nota nello stdin; leggere i file di trascrizione | `additionalContext` è il canale documentato per dare contesto a una sessione nuova; la statusline riceve l'uso del contesto senza dipendere dal formato delle trascrizioni, che non è un contratto pubblico |
+| ADR-027 | Controfattuale "tutto su Opus" calcolato prezzando lo stesso uso di token di ogni run con il listino del modello del tier `ARCHITECT` | Rieseguire i task su Opus | Gratuito e disponibile per ogni run; non coglie che Opus potrebbe usare più o meno turni, limite dichiarato nella pagina Router |
+| ADR-028 | Nessun `opusplan` nelle run headless | `opusplan` per le feature di complessità media | In `-p` la fase di pianificazione non ha un operatore che la approvi; il cambio di modello resta al confine di task (ADR-010) |
 
 ---
 
@@ -2670,6 +2686,31 @@ Scansione e arricchimento dei nodi, euristiche del preset aggressivo, UI ad albe
 Feature extraction, regole seed, scoring, classificatore ausiliario opzionale, escalation/de-escalation, simulatore in UI; workspace di dominio, recinti di scrittura, catene di sessioni con UUID pre-assegnati, strategie `HARD`/`HANDOFF`/`SOFT`, iniezione di `/clear` e `/compact` nei PTY interattivi.
 
 **DoD**: una sequenza di task Frontend → Backend → Frontend produce tre sessioni distinte con note di handoff; i task UI vanno su Sonnet e quelli architetturali su Opus, con motivazioni registrate; il costo per task completato è confrontato con il controfattuale "tutto su Opus".
+
+**Esito (completata, con un punto aperto)**:
+
+- Totale del monorepo: 372 test verdi (`api` 121, `ignore-compiler` 67, `graphify` 46, `agent-runtime` 45, `web` 31, `lean-ctx` 30, `contracts` 15, `db` 11, `mcp-server` 6); lint, Prettier, typecheck strict e build di release passano. La release avviata in modo autonomo apre un terminale: `node-pty` compilato nel bundle, sessione legata dall'hook `SessionStart`, contesto letto da `onyx-statusline.js`.
+- **Tre sessioni con handoff** (test `apps/api/tests/integration/router.test.ts` e verifica in UI): Frontend → Backend → Frontend produce tre sessioni; la terza nasce con `DOMAIN_SWITCH`, ha come `previousId` la prima e una nota che elenca il lavoro precedente del Frontend, i file cambiati dal Backend e i TODO aperti. Un altro task Frontend senza cambi altrui riprende la stessa sessione con `--resume`.
+- **Instradamento con motivazione**: i task `UI_STYLE` vanno su Sonnet 5.5 (`Rule ui-styling matched (kind UI_STYLE)`), quelli `ARCHITECTURE` su Opus 5.5 (`Rule architecture-work matched`), un refactor con parole chiave architetturali su Opus tramite `architecture-keywords`. Ogni run ha la sua `RoutingDecision` con feature, componenti del punteggio, strategia e motivazione, visibile nel feed, nella pagina del task e nella pagina Router. Un `error_max_turns` su Sonnet rimette il task in coda su Opus (`ESCALATION`); la riesecuzione dopo il successo torna al tier di base (`DEESCALATION`).
+- **Costo contro il controfattuale**: ogni `TokenLog` `RUN_TOTAL` salva `counterfactualUsd`; la pagina Router e la Telemetria mostrano costo per task completato, controfattuale e risparmio per tier. Nella verifica end-to-end (4 task: UI, Backend, Frontend, architettura) il costo per task è $0,0066 contro $0,011 "tutto su Opus 5.5", −38%. I costi vengono dallo stub e servono a verificare il calcolo, non a stimare il risparmio reale.
+- **Terminali interattivi** (test `apps/api/tests/integration/terminals.test.ts` con lo stub in modalità interattiva): con `maxSessionTokens` a 10.000 il secondo messaggio porta il contesto oltre il limite e Onyx inietta `/compact` con il focus del dominio; una run Backend che modifica file fa iniettare `/clear` al terminale Frontend, la sessione ruota con `DOMAIN_SWITCH` e la nuova riceve la nota (con le richieste fatte nel terminale) come `additionalContext`; `/clear` manuale ruota con `MANUAL_RESET` senza nota; un task Frontend resta in coda finché il terminale è aperto e poi riprende la sessione del terminale.
+- Verifica end-to-end con Playwright dall'IP di rete (`http://192.0.2.2:3000`): dialogo del task con workspace e modello automatici e anteprima del routing (Builder · Sonnet 5.5, workspace Frontend dedotto), voci di routing e di sessione nel feed con la nota espandibile, simulatore, creazione di una regola, terminale xterm.js con risposta, `/compact` e `/clear` + handoff dai pulsanti, catena di sessioni aggiornata; pagine Router, workspace e task senza scroll orizzontale a 390 px; nessun errore in console.
+- **Punto aperto del DoD**: tutto è verificato con lo stub, che segue il formato documentato di hook HTTP, `SessionStart`, `UserPromptSubmit` e `statusLine`. Con la CLI vera, nel container della Fase 0, vanno controllati: che `/clear` e `/compact` scritti nel PTY vengano eseguiti anche con il menu di completamento dei comandi aperto; che `SessionStart` con `source: "clear"` arrivi con il nuovo `session_id` e che l'`additionalContext` restituito entri nel contesto; che l'input JSON della statusline abbia `context_window.current_usage`; che il costo reale di qualche task UI e architetturale confermi la direzione del risparmio misurato.
+
+**Differenze rispetto al piano**:
+
+- Niente `opusplan` (ADR-028): tra 0,20 e 0,55 il tier è sempre `BUILDER`.
+- Regole seed in AND (ADR-022): "ARCHITECTURE oppure parole chiave" è diviso in `architecture-work` e `architecture-keywords`; nuova regola `style-only-files`; `test-fixing` non sa ancora se il task è dentro un TDD loop (Fase 5). La migrazione aggiorna il matcher della regola seed esistente.
+- Escalation solo su `error_max_turns`; lo stallo e la regressione del TDD loop arrivano con la Fase 5. `router.autoEscalate` la disattiva; un modello scelto a mano (`OVERRIDE`) non viene mai cambiato.
+- Classificatore (ADR-023) solo per le decisioni euristiche con confidenza sotto `router.classifierConfidence` (default 0,5); la confidenza è la distanza del punteggio dalla soglia che decide il tier (per docs e chore anche quella del Builder), divisa per 0,1 e limitata a 1. Le chiamate ausiliarie (classificatore, handoff) finiscono in `TokenLog` con scope `AUX`.
+- Nota di handoff deterministica con condensazione facoltativa (ADR-024); i TODO aperti vengono da checkbox e da `TODO`/`FIXME`/`Next steps` nei risultati.
+- Recinto di scrittura sui file degli altri workspace (ADR-025) invece di "tutto ciò che è fuori dal dominio".
+- Workspace automatico: con `workspaceId: null` il task va al workspace che possiede più file target; senza file target riconosciuti la creazione fallisce con un messaggio esplicito.
+- Terminali (ADR-026): occupano uno slot di `MAX_CONCURRENT_AGENTS` e il loro workspace, quindi le run headless dello stesso workspace aspettano la chiusura; la nota di handoff passa da `SessionStart` invece di essere scritta nello stdin; l'attività del terminale (richieste da `UserPromptSubmit`, file da `PostToolUse`) entra nelle note, ma un terminale non è una `AgentRun` e quindi non fa ruotare le sessioni degli altri workspace. Nuove variabili `ONYX_STATUSLINE` (default: `onyx-statusline.js` accanto a `ONYX_MCP_SERVER`) e `ONYX_TERMINAL_IDLE_MS` (default 1.500).
+- Controfattuale calcolato sui token reali di ogni run (ADR-027).
+- Nuova migrazione `20261004090000_router_compartments` con `AgentRun.changedFiles` (file modificati dalla run, al massimo 200) e `Session.handoffTokens`; nuove impostazioni `router.classifierConfidence`, `router.autoEscalate`, `router.tierModels`. Nuovi eventi di run `routing` e `session`; nuovi messaggi WebSocket `pty.input`, `pty.resize`, `pty.output` (con `reset` per lo snapshot all'iscrizione) e `pty.state`.
+- Rotte: `GET/PUT /api/router/settings`, `GET/POST /api/routing-rules`, `PATCH/DELETE /api/routing-rules/:id`, `POST /api/router/preview`, `GET /api/routing-decisions`, `GET /api/telemetry/routing`, `GET /api/workspaces/:id`, `GET /api/workspaces/:id/sessions`, `POST /api/workspaces/:id/reset` (`{ handoff }`), `POST /api/workspaces/:id/terminal`, `GET /api/terminals`, `GET/DELETE /api/terminals/:id`, `POST /api/terminals/:id/inject`; hook interni `session-start`, `user-prompt-submit`, `statusline`.
+- UI: pagina Router nella barra di navigazione, pagina del workspace (terminale, catena di sessioni, reset, impostazioni del compartimento), dialogo del task con "Auto" per workspace e modello, scheda Routing nella pagina del task. Nella console della run il risparmio di contesto ha il segno: `+N%` quando il pacchetto supera la baseline naive (file molto piccoli).
 
 ### Fase 5 — TDD Auto-Loop
 
