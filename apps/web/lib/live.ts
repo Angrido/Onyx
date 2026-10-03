@@ -11,6 +11,7 @@ export function useLiveProject(projectId: string): void {
   const onMessage = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
     void queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.orchestrations(projectId) });
   }, [queryClient, projectId]);
   useChannel(channels.project(projectId), onMessage);
 }

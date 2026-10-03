@@ -247,6 +247,38 @@ export class GitService {
     };
   }
 
+  async pushBranch(
+    projectId: string,
+    branch: string,
+    actor: string,
+  ): Promise<{ pushed: boolean; pushError: string | null; compareUrl: string | null }> {
+    const project = await this.project(projectId);
+    const remote = await this.git(project.rootPath, ["remote", "get-url", "origin"]).catch(
+      () => "",
+    );
+    if (remote.trim().length === 0) throw badRequest("The project has no origin remote to push to");
+    const remoteUrl = sanitizeRemote(remote.trim());
+    const token = await this.deps.github.token();
+    let pushError: string | null = null;
+    try {
+      await this.git(project.rootPath, ["push", "-u", "origin", `${branch}:${branch}`], {
+        env: this.pushEnv(remoteUrl, token),
+        secrets: token ? [token] : [],
+      });
+    } catch (error) {
+      pushError = this.explainPushFailure(error instanceof Error ? error.message : String(error));
+    }
+    await this.audit(actor, "git.push-branch", project.id, { branch, pushed: pushError === null });
+    const githubRepo = githubRepoOf(remoteUrl);
+    return {
+      pushed: pushError === null,
+      pushError,
+      compareUrl: githubRepo
+        ? `https://github.com/${githubRepo}/compare/${encodeURIComponent(project.defaultBranch)}...${encodeURIComponent(branch)}?expand=1`
+        : null,
+    };
+  }
+
   async switchToDefault(projectId: string, actor: string): Promise<GitStatusDto> {
     const project = await this.project(projectId);
     const before = await this.statusOf(project);

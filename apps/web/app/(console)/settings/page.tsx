@@ -1,5 +1,12 @@
-import type { ClaudeAccountDto, GitHubAccountDto, GitIdentityDto } from "@onyx/contracts";
+import type {
+  BudgetListResponse,
+  ClaudeAccountDto,
+  GitHubAccountDto,
+  GitIdentityDto,
+  ProjectListResponse,
+} from "@onyx/contracts";
 import { PageHeader } from "@/components/layout/page-header";
+import { BudgetsCard } from "@/components/settings/budgets-card";
 import { ClaudeAccountCard } from "@/components/settings/claude-account-card";
 import { GitHubAccountCard } from "@/components/settings/github-account-card";
 import { GitIdentityCard } from "@/components/settings/git-identity-card";
@@ -8,10 +15,12 @@ import { serverFetch } from "@/lib/api/server";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [claude, github, identity] = await Promise.all([
+  const [claude, github, identity, budgets, projects] = await Promise.all([
     serverFetch<ClaudeAccountDto>("/api/settings/claude"),
     serverFetch<GitHubAccountDto>("/api/github/account"),
     serverFetch<GitIdentityDto>("/api/settings/git"),
+    serverFetch<BudgetListResponse>("/api/budgets"),
+    serverFetch<ProjectListResponse>("/api/projects"),
   ]);
   return (
     <>
@@ -27,6 +36,7 @@ export default async function SettingsPage() {
           <GitIdentityCard initial={identity} />
         </div>
       </div>
+      <BudgetsCard initial={budgets.items} projects={projects.items} />
     </>
   );
 }

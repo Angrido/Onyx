@@ -11,6 +11,7 @@ import {
   type OrchestrationNode,
   type OrchestrationStatus,
   type PlanActivity,
+  type PublishPlanResult,
   type RunItemOf,
   type TaskStatus,
 } from "@onyx/contracts";
@@ -71,7 +72,7 @@ export interface OrchestratorDeps {
   tdd: TddService;
   approvals: ApprovalService;
   budgets: Pick<BudgetService, "admit" | "refresh">;
-  git: Pick<GitService, "commitEnv">;
+  git: Pick<GitService, "commitEnv" | "pushBranch">;
   indexes: IndexService;
   surgeon: SurgeonService;
   router: RouterService;
@@ -372,6 +373,19 @@ export class OrchestratorService {
     await this.audit(actor, "plan.resumed", id, {});
     this.startDriver(id);
     return this.publish(id);
+  }
+
+  async pushWorkBranch(id: string, actor: string): Promise<PublishPlanResult> {
+    const orchestration = await this.deps.prisma.orchestration.findUnique({ where: { id } });
+    if (!orchestration) throw notFound("Plan");
+    if (orchestration.status !== "COMPLETED" || !orchestration.workBranch)
+      throw conflict("Only a merged plan can be pushed");
+    const result = await this.deps.git.pushBranch(
+      orchestration.projectId,
+      orchestration.workBranch,
+      actor,
+    );
+    return { branch: orchestration.workBranch, ...result };
   }
 
   async recover(): Promise<void> {
@@ -978,6 +992,7 @@ export class OrchestratorService {
       });
       await this.setNode(taskId, "merged", null);
       if (task.worktreePath) await repo.removeWorktree(task.worktreePath);
+      await repo.run(["branch", "-D", task.branchName ?? ""]).catch(() => undefined);
       return;
     }
     await this.setNode(taskId, "conflict", `Merge conflict in ${outcome.conflicts.join(", ")}`);

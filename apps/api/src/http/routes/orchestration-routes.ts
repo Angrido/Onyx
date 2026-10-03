@@ -10,6 +10,7 @@ import {
   type BudgetListResponse,
   type OrchestrationDto,
   type OrchestrationListResponse,
+  type PublishPlanResult,
 } from "@onyx/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Container } from "../../container";
@@ -60,6 +61,10 @@ export function registerOrchestrationRoutes(app: FastifyInstance, container: Con
 
   app.post("/api/orchestrations/:id/resume", async (request): Promise<OrchestrationDto> =>
     orchestrator.resume(idParam(request.params), actorOf(request)),
+  );
+
+  app.post("/api/orchestrations/:id/publish", async (request): Promise<PublishPlanResult> =>
+    orchestrator.pushWorkBranch(idParam(request.params), actorOf(request)),
   );
 
   app.get("/api/approvals", async (request): Promise<ApprovalListResponse> =>

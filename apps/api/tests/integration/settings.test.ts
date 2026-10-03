@@ -80,7 +80,10 @@ describe("Claude account settings", () => {
 
     const waiting = await waitFor(
       account,
-      (value) => value.login?.signInUrl !== null && value.login?.signInUrl !== undefined,
+      (value) =>
+        value.login?.signInUrl !== null &&
+        value.login?.signInUrl !== undefined &&
+        (value.login.screen ?? "").includes("Paste code here"),
     );
     const signInUrl = new URL(waiting.login?.signInUrl ?? "");
     expect(signInUrl.searchParams.get("redirect_uri")).toBe(

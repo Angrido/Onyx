@@ -1,18 +1,35 @@
 "use client";
 
-import type { UserDto } from "@onyx/contracts";
-import { Activity, FolderGit2, LayoutDashboard, LogOut, Route, Settings } from "lucide-react";
+import {
+  channels,
+  type ApprovalListResponse,
+  type ServerMessage,
+  type UserDto,
+} from "@onyx/contracts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Activity,
+  FolderGit2,
+  Inbox,
+  LayoutDashboard,
+  LogOut,
+  Route,
+  Settings,
+} from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useCallback } from "react";
 import { Wordmark } from "@/components/layout/brand";
 import { api } from "@/lib/api/client";
+import { queryKeys } from "@/lib/api/keys";
 import { cn } from "@/lib/utils";
-import { useConnectionState } from "@/lib/ws/context";
+import { useChannel, useConnectionState } from "@/lib/ws/context";
 
 const NAV = [
   { href: "/", label: "Console", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderGit2 },
+  { href: "/approvals", label: "Approvals", icon: Inbox },
   { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -28,10 +45,51 @@ const CONNECTION_STYLES = {
   closed: { dot: "bg-destructive", label: "Offline" },
 } as const;
 
+function usePendingApprovals(): number {
+  const queryClient = useQueryClient();
+  const { data = 0 } = useQuery({
+    queryKey: queryKeys.approvalsPending,
+    queryFn: () =>
+      api
+        .get<ApprovalListResponse>("/api/approvals?status=PENDING&limit=1")
+        .then((page) => page.pending),
+  });
+  const onMessage = useCallback(
+    (message: ServerMessage) => {
+      if (message.type === "approvals.changed")
+        queryClient.setQueryData(queryKeys.approvalsPending, message.data.pending);
+    },
+    [queryClient],
+  );
+  useChannel(channels.system, onMessage);
+  return data;
+}
+
+function PendingDot({ count, compact }: { count: number; compact: boolean }) {
+  if (count === 0) return null;
+  return (
+    <motion.span
+      key={count}
+      initial={{ scale: 0.6, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      data-testid="approvals-badge"
+      className={cn(
+        "grid place-items-center rounded-full bg-warning font-semibold text-background",
+        compact
+          ? "absolute -right-0.5 -top-0.5 size-4 text-[9px]"
+          : "relative ml-auto h-5 min-w-5 px-1.5 text-[10px]",
+      )}
+    >
+      {count > 99 ? "99+" : count}
+    </motion.span>
+  );
+}
+
 export function Sidebar({ user }: { user: UserDto }) {
   const pathname = usePathname();
   const router = useRouter();
   const connection = CONNECTION_STYLES[useConnectionState()];
+  const pending = usePendingApprovals();
 
   async function logout() {
     await api.post("/api/auth/logout");
@@ -41,22 +99,23 @@ export function Sidebar({ user }: { user: UserDto }) {
 
   return (
     <>
-      <header className="glass sticky top-0 z-30 flex items-center gap-3 border-b border-border px-4 py-2.5 md:hidden">
+      <header className="glass sticky top-0 z-30 flex items-center gap-2 border-b border-border px-4 py-2.5 md:hidden">
         <Wordmark />
-        <nav className="ml-auto flex items-center gap-1">
+        <nav className="ml-auto flex items-center">
           {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               aria-label={item.label}
               className={cn(
-                "rounded-md p-2 transition-colors",
+                "relative rounded-md p-1.5 transition-colors min-[400px]:p-2",
                 isActive(pathname, item.href)
                   ? "bg-surface-2 text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
               <item.icon className="size-4" />
+              {item.href === "/approvals" ? <PendingDot count={pending} compact /> : null}
             </Link>
           ))}
         </nav>
@@ -98,6 +157,7 @@ export function Sidebar({ user }: { user: UserDto }) {
                 ) : null}
                 <item.icon className="relative size-4" />
                 <span className="relative">{item.label}</span>
+                {item.href === "/approvals" ? <PendingDot count={pending} compact={false} /> : null}
               </Link>
             );
           })}

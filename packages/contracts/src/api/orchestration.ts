@@ -94,6 +94,14 @@ export const OrchestrationListResponseSchema = z.object({
 });
 export type OrchestrationListResponse = z.infer<typeof OrchestrationListResponseSchema>;
 
+export const PublishPlanResultSchema = z.object({
+  branch: z.string(),
+  pushed: z.boolean(),
+  pushError: z.string().nullable(),
+  compareUrl: z.string().nullable(),
+});
+export type PublishPlanResult = z.infer<typeof PublishPlanResultSchema>;
+
 export const CreateOrchestrationRequestSchema = z.object({
   goal: z.string().trim().min(10).max(8_000),
   parallelism: z.number().int().min(1).max(4).default(2),

@@ -19,6 +19,7 @@ import type {
   OrchestrationDto,
   OrchestrationListResponse,
   ProjectDetailDto,
+  PublishPlanResult,
   TaskDto,
   TddLoopDto,
 } from "@onyx/contracts";
@@ -394,10 +395,38 @@ describe("multi-agent orchestrator", () => {
     expect(merges).toHaveLength(3);
     expect(merges).toContain('Merge "Cart label" (Onyx plan)');
     expect(git(["worktree", "list", "--porcelain"], root).match(/^worktree /gm)).toHaveLength(1);
+    expect(git(["branch", "--list", "onyx/*", "--format=%(refname:short)"], root)).toBe(workBranch);
     const worktrees = join(context.dataDir, "worktrees", project.id, planned.id);
     expect(existsSync(worktrees) ? readdirSync(worktrees) : []).toEqual([]);
     const root_ = await api.get<TaskDto>(`/api/tasks/${finished.rootTaskId}`);
     expect(root_.body.status).toBe("COMPLETED");
+
+    const refused = await api.post(`/api/orchestrations/${planned.id}/publish`);
+    expect(refused.status).toBe(400);
+    const remote = join(fixtures, "shop-remote.git");
+    execFileSync("git", ["init", "-q", "--bare", remote]);
+    git(["remote", "add", "origin", remote], root);
+    const published = await api.post<PublishPlanResult>(
+      `/api/orchestrations/${planned.id}/publish`,
+    );
+    expect(published.body).toEqual({
+      branch: workBranch,
+      pushed: true,
+      pushError: null,
+      compareUrl: null,
+    });
+    expect(git(["rev-parse", workBranch], remote)).toBe(git(["rev-parse", workBranch], root));
+    expect(git(["rev-parse", "--abbrev-ref", "HEAD"], root)).toBe("main");
+
+    const budget = await api.post<BudgetDto>("/api/budgets", {
+      scope: "PROJECT",
+      projectId: project.id,
+      period: "LIFETIME",
+      softUsd: null,
+      hardUsd: 100,
+    });
+    expect(budget.body.spentUsd).toBeCloseTo(finished.costUsd, 4);
+    await api.delete(`/api/budgets/${budget.body.id}`);
   }, 240_000);
 
   it("asks how to handle a merge conflict, then resumes the plan", async () => {

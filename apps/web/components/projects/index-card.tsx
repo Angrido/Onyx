@@ -124,7 +124,7 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
             )}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="ghost"
             size="sm"

@@ -35,4 +35,9 @@ export const queryKeys = {
   allSurgeon: (projectId: string) => ["surgeon", projectId] as const,
   surgeonCompiled: (projectId: string, workspaceId: string | null, version: string) =>
     ["surgeon", projectId, workspaceId, "compiled", version] as const,
+  orchestrations: (projectId: string) => ["orchestrations", projectId] as const,
+  orchestration: (id: string) => ["orchestration", id] as const,
+  approvals: ["approvals"] as const,
+  approvalsPending: ["approvals", "pending"] as const,
+  budgets: ["budgets"] as const,
 };

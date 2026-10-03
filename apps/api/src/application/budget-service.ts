@@ -210,15 +210,30 @@ export class BudgetService {
     const createdAt = start ? { gte: start } : undefined;
     const prisma = this.deps.prisma;
     if (budget.scope === "PROJECT" && budget.projectId) {
-      const runs = await prisma.tokenLog.aggregate({
-        _sum: { costUsd: true },
-        where: {
-          scope: "RUN_TOTAL",
-          ...(createdAt ? { createdAt } : {}),
-          run: { task: { projectId: budget.projectId } },
-        },
-      });
-      return runs._sum.costUsd ?? 0;
+      const projectId = budget.projectId;
+      const [runs, planners, roadmaps] = await Promise.all([
+        prisma.tokenLog.aggregate({
+          _sum: { costUsd: true },
+          where: {
+            scope: "RUN_TOTAL",
+            ...(createdAt ? { createdAt } : {}),
+            run: { task: { projectId } },
+          },
+        }),
+        prisma.orchestration.aggregate({
+          _sum: { plannerCostUsd: true },
+          where: { projectId, ...(createdAt ? { createdAt } : {}) },
+        }),
+        prisma.roadmapGeneration.aggregate({
+          _sum: { costUsd: true },
+          where: { projectId, ...(start ? { startedAt: { gte: start } } : {}) },
+        }),
+      ]);
+      return (
+        (runs._sum.costUsd ?? 0) +
+        (planners._sum.plannerCostUsd ?? 0) +
+        (roadmaps._sum.costUsd ?? 0)
+      );
     }
     const total = await prisma.tokenLog.aggregate({
       _sum: { costUsd: true },

@@ -37,17 +37,17 @@ function SimulatorNotice({ claudeBin }: { claudeBin: string }) {
       data-testid="claude-simulator"
     >
       <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
-      <div className="space-y-1.5">
+      <div className="min-w-0 space-y-1.5">
         <p className="font-medium text-warning">Onyx is using the Claude Code simulator</p>
         <p className="text-xs leading-relaxed text-muted-foreground">
           Agents, the sign-in and the connection test are simulated, so nothing reaches your Claude
           account and a sign-in link would be refused by claude.ai. On the Onyx machine run{" "}
-          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
+          <code className="whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
             onyx use-claude
           </code>{" "}
           to install the real Claude Code and switch to it, then reload this page and sign in.
         </p>
-        <p className="truncate font-mono text-[11px] text-muted-foreground" title={claudeBin}>
+        <p className="break-all font-mono text-[11px] text-muted-foreground" title={claudeBin}>
           CLAUDE_BIN={claudeBin}
         </p>
       </div>
