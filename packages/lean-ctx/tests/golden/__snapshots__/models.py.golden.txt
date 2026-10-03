@@ -1,0 +1,102 @@
+# fixtures/models.py (python)
+syntax errors: false
+tokens: raw 487, L1 283, L2 348
+
+## L1
+from __future__ import annotations
+import os.path as osp, sys
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+from ..core.base import BaseModel as Base, registry
+from . import utils
+from .constants import *
+if TYPE_CHECKING:
+    from .invoices import Invoice
+__all__ = ["Customer", "load_customers", "DEFAULT_CURRENCY"]
+DEFAULT_CURRENCY = "EUR"
+_CACHE: dict[str, "Customer"] = {}
+SUPPORTED_COUNTRIES = …#gblxgghh
+@dataclass(frozen=True)
+class Customer(Base):
+    id: str
+    name: str
+    invoices: list[Invoice] = field(default_factory=list)
+    @property
+    def display_name(self) -> str: …#nfqp9ewz
+    @display_name.setter
+    def display_name(self, value: str) -> None: …#43etuz1c
+    def _internal(self): …#jmw31m34
+    def __repr__(self) -> str: …#b0izoi6j
+    class Meta:
+        table = "customers"
+async def load_customers(path: str, *, limit: int = 100) -> list[Customer]: …#xqznw48u
+def _private_helper(): …#4yc3dynr
+def one_liner(x: int) -> int: …#08n9ltdr
+type CustomerId = str
+
+## L2
+"""Domain models for the billing service."""
+from __future__ import annotations
+import os.path as osp, sys
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+from ..core.base import BaseModel as Base, registry
+from . import utils
+from .constants import *
+if TYPE_CHECKING:
+    from .invoices import Invoice
+__all__ = ["Customer", "load_customers", "DEFAULT_CURRENCY"]
+DEFAULT_CURRENCY = "EUR"
+_CACHE: dict[str, "Customer"] = {}
+SUPPORTED_COUNTRIES = ["IT", "FR", "DE", "ES", "PT", "NL", "BE", "AT", "IE", "FI", "SE", "DK", "PL", "CZ"]
+@dataclass(frozen=True)
+class Customer(Base):
+    """A paying customer."""
+    id: str
+    name: str
+    invoices: list[Invoice] = field(default_factory=list)
+    @property
+    def display_name(self) -> str:
+        """Name shown in the UI."""
+        …#nfqp9ewz
+    @display_name.setter
+    def display_name(self, value: str) -> None: …#43etuz1c
+    def _internal(self): …#jmw31m34
+    def __repr__(self) -> str: …#b0izoi6j
+    class Meta:
+        table = "customers"
+async def load_customers(path: str, *, limit: int = 100) -> list[Customer]:
+    """Load customers from disk."""
+    …#xqznw48u
+def _private_helper(): …#4yc3dynr
+def one_liner(x: int) -> int: …#08n9ltdr
+type CustomerId = str
+
+## Symbols
+29g6lxz2 variable  local  L18-18 body~14 __all__ :: __all__
+yze01vkm variable  export L20-20 body~2 DEFAULT_CURRENCY :: DEFAULT_CURRENCY
+s3m3loxe variable  local  L21-21 body~1 _CACHE :: _CACHE: dict[str, "Customer"]
+gblxgghh variable  local  L22-22 body~24 SUPPORTED_COUNTRIES :: SUPPORTED_COUNTRIES
+lzt4kkcx class     export L25-49 body~146 Customer :: class Customer(Base)
+nfqp9ewz method    export L33-36 body~17 Customer.display_name :: def display_name(self) -> str
+43etuz1c method    export L38-40 body~11 Customer.display_name~2 :: def display_name(self, value: str) -> None
+jmw31m34 method    local  L42-43 body~2 Customer._internal :: def _internal(self)
+b0izoi6j method    export L45-46 body~9 Customer.__repr__ :: def __repr__(self) -> str
+adyqgvjx class     export L48-49 body~6 Customer.Meta :: class Meta
+xqznw48u function  export L52-62 body~75 load_customers :: async def load_customers(path: str, *, limit: int = 100) -> list[Customer]
+4yc3dynr function  local  L65-65 body~4 _private_helper :: def _private_helper()
+08n9ltdr function  local  L68-68 body~4 one_liner :: def one_liner(x: int) -> int
+p4p2o46u type      local  L71-71 body~1 CustomerId :: type CustomerId
+
+## Imports
+L8 static os.path
+L8 static sys
+L9 static dataclasses { dataclass, field }
+L10 static typing { TYPE_CHECKING }
+L11 static ..core.base { BaseModel, registry }
+L12 static . { utils }
+L13 static .constants { * }
+L16 static type-only .invoices { Invoice }
+
+## Exports
+DEFAULT_CURRENCY, Customer, load_customers

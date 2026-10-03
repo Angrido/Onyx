@@ -1,0 +1,5 @@
+{
+  "extends": "@onyx/config/tsconfig/node.json",
+  "include": ["src", "tests"],
+  "exclude": ["tests/golden/fixtures"]
+}

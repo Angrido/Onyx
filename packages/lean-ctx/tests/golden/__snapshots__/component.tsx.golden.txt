@@ -1,0 +1,52 @@
+# fixtures/component.tsx (tsx)
+syntax errors: false
+tokens: raw 395, L1 148, L2 227
+
+## L1
+"use client";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import type { Item } from "./types";
+export interface ItemListProps { …#gk0fpnsa }
+type Density = "compact" | "comfortable";
+const DENSITY_CLASSES: Record<Density, string> = …#egn38zg0;
+export function ItemList({ items, empty = null, onSelect }: ItemListProps) { …#5qgv7ekm }
+export const ItemBadge = …#prdyuxyq;
+export default function Page() { …#7rolnui5 }
+
+## L2
+"use client";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import type { Item } from "./types";
+export interface ItemListProps {
+  items: readonly Item[];
+  /** Rendered when the list is empty. */
+  empty?: ReactNode;
+  onSelect?: (item: Item) => void;
+}
+type Density = "compact" | "comfortable";
+const DENSITY_CLASSES: Record<Density, string> = {
+  compact: "gap-1 text-sm",
+  comfortable: "gap-3 text-base",
+};
+/** Shows a selectable list of items. */
+export function ItemList({ items, empty = null, onSelect }: ItemListProps) { …#5qgv7ekm }
+export const ItemBadge = memo(function ItemBadge({ item }: { item: Item }) { … });
+export default function Page() { …#7rolnui5 }
+
+## Symbols
+gk0fpnsa interface export L7-12 body~40 ItemListProps :: interface ItemListProps
+5objc8ov type      local  L14-14 body~8 Density :: type Density
+egn38zg0 variable  local  L16-19 body~21 DENSITY_CLASSES :: const DENSITY_CLASSES: Record<Density, string>
+5qgv7ekm function  export L21-35 body~147 ItemList :: function ItemList({ items, empty = null, onSelect }: ItemListProps)
+prdyuxyq variable  export L37-39 body~34 ItemBadge :: const ItemBadge
+7rolnui5 function  export L41-43 body~12 Page :: function Page()
+
+## Imports
+L3 static react { memo, useMemo, useState, ReactNode }
+L4 static @/lib/utils { cn }
+L5 static type-only ./types { Item }
+
+## Exports
+ItemListProps, ItemList, ItemBadge, Page

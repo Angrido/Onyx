@@ -1,0 +1,167 @@
+# fixtures/service.ts (typescript)
+syntax errors: false
+tokens: raw 968, L1 617, L2 762
+
+## L1
+import type { Logger } from "pino";
+import { type Clock, systemClock } from "./clock";
+import * as path from "node:path";
+import defaultExport, { helper as renamedHelper } from "../shared/helpers";
+import "./side-effect";
+import legacy = require("./legacy");
+export * from "./domain";
+export * as errors from "./errors";
+export type { Settings } from "./settings";
+export enum JobStatus { …#k5hrdstz }
+export enum Tiny { A, B }
+export interface JobServiceOptions { …#gqae0u45 }
+export type JobId = string;
+export type JobEvent = …#bj6cy16j;
+const DEFAULT_OPTIONS = { concurrency: 2 };
+export const RETRY_DELAYS_MS = [100, 200, 400, 800, 1_600, 3_200, 6_400, 12_800, 25_600, 51_200];
+const { join, resolve } = path;
+export function parseJobId(raw: string): JobId;
+export function parseJobId(raw: number): JobId;
+export function parseJobId(raw: string | number): JobId { …#vu49bwfq }
+export const toEvent = (id: JobId, type: JobEvent["type"]): JobEvent => …#0xyb51ef;
+function internalHelper(): void {}
+@injectable()
+export class JobService<T extends { id: JobId }> extends BaseService implements Disposable {
+  private readonly queue: T[] = [];
+  #secret = 42;
+  static instances = 0;
+  protected readonly handlers = new Map<string, (job: T) => Promise<void>>();
+  constructor(private readonly options: JobServiceOptions = DEFAULT_OPTIONS as JobServiceOptions) { …#w48v7ghr }
+  get size(): number { …#tn5j2dsb }
+  @trace("enqueue")
+  async enqueue(job: T): Promise<void> { …#9munismh }
+  private async drain(): Promise<void> { …#tgac4omi }
+  protected onTick = async (now: Date): Promise<void> => { …#o50zjmif };
+  abstract describe?(): string;
+  [Symbol.dispose](): void {}
+}
+export namespace Internals {
+  export const VERSION = 1;
+  export function reset(): void { …#pqh0dedq }
+  const hidden = true;
+}
+declare module "pino" {
+  interface LoggerOptions { …#v4w5f5gc }
+}
+export async function loadPlugin(name: string) { …#m06521aw }
+const lazy = () => …#62w8utd1;
+export { internalHelper as helper, lazy };
+export default JobService;
+
+## L2
+import type { Logger } from "pino";
+import { type Clock, systemClock } from "./clock";
+import * as path from "node:path";
+import defaultExport, { helper as renamedHelper } from "../shared/helpers";
+import "./side-effect";
+import legacy = require("./legacy");
+export * from "./domain";
+export * as errors from "./errors";
+export type { Settings } from "./settings";
+/** Status of a job in the queue. */
+export enum JobStatus {
+  Queued = "queued",
+  Running = "running",
+  Done = "done",
+}
+export enum Tiny { A, B }
+/** Options accepted by {@link JobService}. */
+export interface JobServiceOptions {
+  /** Maximum concurrent jobs. */
+  concurrency: number;
+  logger: Logger;
+  clock?: Clock;
+  onError?(error: unknown): void;
+}
+export type JobId = string;
+export type JobEvent =
+  | { type: "queued"; id: JobId; at: Date }
+  | { type: "started"; id: JobId; at: Date; worker: number }
+  | { type: "finished"; id: JobId; at: Date; ok: boolean };
+const DEFAULT_OPTIONS = { concurrency: 2 };
+export const RETRY_DELAYS_MS = [100, 200, 400, 800, 1_600, 3_200, 6_400, 12_800, 25_600, 51_200];
+const { join, resolve } = path;
+export function parseJobId(raw: string): JobId;
+export function parseJobId(raw: number): JobId;
+export function parseJobId(raw: string | number): JobId { …#vu49bwfq }
+export const toEvent = (id: JobId, type: JobEvent["type"]): JobEvent => …#0xyb51ef;
+function internalHelper(): void {}
+/** Coordinates job execution. */
+@injectable()
+export class JobService<T extends { id: JobId }> extends BaseService implements Disposable {
+  private readonly queue: T[] = [];
+  #secret = 42;
+  static instances = 0;
+  protected readonly handlers = new Map<string, (job: T) => Promise<void>>();
+  constructor(private readonly options: JobServiceOptions = DEFAULT_OPTIONS as JobServiceOptions) { …#w48v7ghr }
+  /** Number of queued jobs. */
+  get size(): number { …#tn5j2dsb }
+  @trace("enqueue")
+  async enqueue(job: T): Promise<void> { …#9munismh }
+  private async drain(): Promise<void> { …#tgac4omi }
+  protected onTick = async (now: Date): Promise<void> => { …#o50zjmif };
+  abstract describe?(): string;
+  [Symbol.dispose](): void {}
+}
+export namespace Internals {
+  export const VERSION = 1;
+  export function reset(): void { …#pqh0dedq }
+  const hidden = true;
+}
+declare module "pino" {
+  interface LoggerOptions {
+    jobId?: JobId;
+  }
+}
+export async function loadPlugin(name: string) { …#m06521aw }
+const lazy = () => …#62w8utd1;
+export { internalHelper as helper, lazy };
+export default JobService;
+
+## Symbols
+k5hrdstz enum      export L12-20 body~20 JobStatus :: enum JobStatus
+u4kvkpst enum      export L22-22 body~3 Tiny :: enum Tiny
+gqae0u45 interface export L24-31 body~40 JobServiceOptions :: interface JobServiceOptions
+51d7vxap type      export L33-33 body~2 JobId :: type JobId
+bj6cy16j type      export L35-38 body~49 JobEvent :: type JobEvent
+wj6p00sj variable  local  L40-40 body~6 DEFAULT_OPTIONS :: const DEFAULT_OPTIONS
+tx6opedn variable  export L42-42 body~20 RETRY_DELAYS_MS :: const RETRY_DELAYS_MS
+vu49bwfq function  export L47-53 body~34 parseJobId :: function parseJobId(raw: string | number): JobId
+0xyb51ef function  export L55-55 body~13 toEvent :: const toEvent = (id: JobId, type: JobEvent["type"]): JobEvent =>
+a151qp4j function  export L57-57 body~1 internalHelper :: function internalHelper(): void
+mminp3zm class     export L59-100 body~263 JobService :: class JobService<T extends { id: JobId }> extends BaseService implements Disposable
+w48v7ghr method    export L71-73 body~6 JobService.constructor :: constructor(private readonly options: JobServiceOptions = DEFAULT_OPTIONS as JobServiceOptions)
+tn5j2dsb method    export L75-78 body~11 JobService.size :: get size(): number
+9munismh method    export L80-84 body~17 JobService.enqueue :: async enqueue(job: T): Promise<void>
+tgac4omi method    local  L86-91 body~37 JobService.drain :: private async drain(): Promise<void>
+o50zjmif method    export L93-95 body~16 JobService.onTick :: protected onTick = async (now: Date): Promise<void> =>
+p5er1pka method    export L99-99 body~1 JobService.[Symbol.dispose] :: [Symbol.dispose](): void
+1aw261qb namespace export L102-108 body~0 Internals :: namespace Internals
+o2arur4p variable  export L103-103 body~1 Internals.VERSION :: const VERSION
+pqh0dedq function  export L104-106 body~11 Internals.reset :: function reset(): void
+hxiexhxf variable  local  L107-107 body~2 Internals.hidden :: const hidden
+nbubquwe namespace local  L110-114 body~0 pino :: module "pino"
+v4w5f5gc interface local  L111-113 body~8 pino.LoggerOptions :: interface LoggerOptions
+m06521aw function  export L116-120 body~42 loadPlugin :: async function loadPlugin(name: string)
+62w8utd1 function  export L122-122 body~8 lazy :: const lazy = () =>
+
+## Imports
+L1 static type-only pino { Logger }
+L2 static ./clock { Clock, systemClock }
+L3 static node:path { * }
+L4 static ../shared/helpers { default, helper }
+L5 static ./side-effect
+L6 require ./legacy
+L8 reexport ./domain { * }
+L9 reexport ./errors { errors }
+L10 reexport type-only ./settings { Settings }
+L118 dynamic ./plugins/default
+L122 require ./lazy-module
+
+## Exports
+helper, lazy, default, JobStatus, Tiny, JobServiceOptions, JobId, JobEvent, RETRY_DELAYS_MS, parseJobId, toEvent, internalHelper, JobService, Internals, loadPlugin, * from ./domain, errors, Settings

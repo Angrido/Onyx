@@ -36,6 +36,7 @@ export function createConfig({ webAppDir = "apps/web" } = {}) {
         "**/.turbo/**",
         "**/coverage/**",
         "**/generated/**",
+        "**/tests/golden/fixtures/**",
         "**/next-env.d.ts",
         "**/playwright-report/**",
         "**/test-results/**",

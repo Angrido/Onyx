@@ -1,0 +1,48 @@
+# fixtures/legacy.js (javascript)
+syntax errors: false
+tokens: raw 181, L1 102, L2 110
+
+## L1
+"use strict";
+const fs = require("fs");
+const { format } = require("./format");
+function readJson(file) { …#m1crf4hz }
+class Cache {
+  entries = new Map();
+  static limit = 100;
+  get(key) { …#id4j3jog }
+  set = (key, value) => { …#fscfup3z };
+}
+exports.formatAll = function formatAll(values) { …#bgnz4oud };
+module.exports = { readJson, Cache };
+
+## L2
+"use strict";
+const fs = require("fs");
+const { format } = require("./format");
+/** Reads a JSON file. */
+function readJson(file) { …#m1crf4hz }
+class Cache {
+  entries = new Map();
+  static limit = 100;
+  get(key) { …#id4j3jog }
+  set = (key, value) => { …#fscfup3z };
+}
+exports.formatAll = function formatAll(values) { …#bgnz4oud };
+module.exports = { readJson, Cache };
+
+## Symbols
+6cazymsz variable  local  L4-4 body~4 fs :: const fs
+m1crf4hz function  local  L7-13 body~17 readJson :: function readJson(file)
+ino4wqpd class     local  L15-26 body~49 Cache :: class Cache
+id4j3jog method    local  L19-21 body~12 Cache.get :: get(key)
+fscfup3z method    local  L23-25 body~12 Cache.set :: set = (key, value) =>
+bgnz4oud function  export L28-30 body~10 formatAll :: exports.formatAll = function formatAll(values)
+8mvwzyfk variable  export L32-32 body~6 default :: module.exports
+
+## Imports
+L4 require fs
+L5 require ./format
+
+## Exports
+formatAll, default, readJson, Cache

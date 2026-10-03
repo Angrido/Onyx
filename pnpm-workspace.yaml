@@ -8,4 +8,12 @@ onlyBuiltDependencies:
   - esbuild
   - prisma
   - sharp
+  - tree-sitter
+  - tree-sitter-javascript
+  - tree-sitter-python
+  - tree-sitter-typescript
   - unrs-resolver
+
+peerDependencyRules:
+  allowedVersions:
+    tree-sitter: "0.25"

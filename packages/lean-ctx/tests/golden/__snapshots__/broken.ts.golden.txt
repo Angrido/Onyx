@@ -1,0 +1,26 @@
+# fixtures/broken.ts (typescript)
+syntax errors: true
+tokens: raw 50, L1 47, L2 47
+
+## L1
+import { ok } from "./ok";
+export function fine(a: number): number { …#kukykym7 }
+export function broken(a: number { …#d5004pfy }
+export const after = 1;
+
+## L2
+import { ok } from "./ok";
+export function fine(a: number): number { …#kukykym7 }
+export function broken(a: number { …#d5004pfy }
+export const after = 1;
+
+## Symbols
+kukykym7 function  export L3-5 body~6 fine :: function fine(a: number): number
+d5004pfy function  export L7-9 body~6 broken :: function broken(a: number
+2d0lntlw variable  export L11-11 body~1 after :: const after
+
+## Imports
+L1 static ./ok { ok }
+
+## Exports
+fine, broken, after
