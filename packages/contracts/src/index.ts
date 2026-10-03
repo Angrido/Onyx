@@ -15,4 +15,5 @@ export * from "./api/context";
 export * from "./api/surgeon";
 export * from "./api/terminals";
 export * from "./api/github";
+export * from "./api/settings";
 export * from "./ws";

@@ -652,9 +652,64 @@ async function runInteractive(): Promise<void> {
   }
 }
 
+async function runSetupToken(): Promise<void> {
+  const say = (text: string) => process.stdout.write(`${text}\r\n`);
+  say("Opening browser to sign in with your Claude account…");
+  say("");
+  say("Browse to: https://claude.ai/oauth/authorize?code=true&client_id=onyx-stub&state=stub");
+  say("");
+  process.stdout.write("Paste code here if prompted > ");
+  const lines = createInterface({ input: process.stdin, terminal: false });
+  for await (const line of lines) {
+    const code = line.trim();
+    if (code.length === 0) continue;
+    if (code === "bad") {
+      say("");
+      say("OAuth error: Invalid code. Please make sure the full code was copied.");
+      process.exit(1);
+    }
+    const token = `sk-ant-oat01-${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}-stubAA`;
+    say("");
+    say("✓ Long-lived authentication token created successfully!");
+    say("");
+    say("Your OAuth token (valid for 1 year):");
+    say("");
+    say(token);
+    say("");
+    say("Store this token securely. You won't be able to see it again.");
+    process.exit(0);
+  }
+}
+
+function missingCredentials(): boolean {
+  if (process.env.CLAUDE_STUB_REQUIRE_AUTH !== "1") return false;
+  return !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY;
+}
+
 async function main(): Promise<void> {
+  if (argv[0] === "setup-token") return runSetupToken();
   if (!argv.includes("-p")) return runInteractive();
   const prompt = await readPrompt();
+  if (missingCredentials()) {
+    await writeLine(initLine());
+    await writeLine(
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        duration_ms: 40,
+        duration_api_ms: 0,
+        num_turns: 1,
+        session_id: sessionId,
+        total_cost_usd: 0,
+        usage: STUB_USAGE,
+        modelUsage: {},
+        permission_denials: [],
+        result: "Invalid API key · Please run /login",
+      }),
+    );
+    return;
+  }
   const scenario = scenarioFor(prompt);
   switch (scenario) {
     case "success":

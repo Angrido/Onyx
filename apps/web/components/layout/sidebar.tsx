@@ -1,7 +1,7 @@
 "use client";
 
 import type { UserDto } from "@onyx/contracts";
-import { Activity, FolderGit2, LayoutDashboard, LogOut, Route } from "lucide-react";
+import { Activity, FolderGit2, LayoutDashboard, LogOut, Route, Settings } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/projects", label: "Projects", icon: FolderGit2 },
   { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },
+  { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {

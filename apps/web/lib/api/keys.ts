@@ -17,6 +17,8 @@ export const queryKeys = {
   routingTelemetry: ["router", "telemetry"] as const,
   routerPreview: (input: object) => ["router", "preview", input] as const,
   githubAccount: ["github", "account"] as const,
+  claudeAccount: ["settings", "claude"] as const,
+  gitIdentity: ["settings", "git"] as const,
   githubRepos: (owner: string) => ["github", "repos", owner] as const,
   githubImport: (jobId: string) => ["github", "import", jobId] as const,
   index: (projectId: string) => ["index", projectId] as const,

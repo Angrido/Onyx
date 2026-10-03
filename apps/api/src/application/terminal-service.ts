@@ -21,7 +21,7 @@ import {
 import { DEFAULT_AGENT_CONFIG_NAME, type PrismaClient } from "@onyx/db";
 import { WriteFence } from "@onyx/ignore-compiler";
 import type { Logger } from "pino";
-import { credentialEnv, type AppConfig } from "../config";
+import type { AppConfig } from "../config";
 import { composePrimer } from "../domain/context-primer";
 import type { Handoff, RunDigest } from "../domain/handoff";
 import {
@@ -42,6 +42,7 @@ import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
 import { ptyOutputMessage, ptyStateMessage, type WsHub } from "../infrastructure/ws-hub";
 import type { CompartmentService } from "./compartment-service";
+import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 import type { SlotReservation } from "./run-scheduler";
@@ -69,12 +70,13 @@ export interface TerminalServiceDeps {
   binary: ClaudeBinary;
   config: Pick<
     AppConfig,
-    "runtimeDir" | "credentials" | "childEnvPassthrough" | "context" | "terminal" | "internalApiUrl"
+    "runtimeDir" | "childEnvPassthrough" | "context" | "terminal" | "internalApiUrl"
   >;
   surgeon: SurgeonService;
   indexes: IndexService;
   compartments: CompartmentService;
   runTokens: RunTokenRegistry;
+  credentials: Pick<CredentialService, "childEnv">;
   reserve: (workspaceId: string) => SlotReservation;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
@@ -325,6 +327,7 @@ export class TerminalService {
       const allowedTools = toStringArray(agentConfig.allowedTools);
       const session = plan.session;
       const resume = plan.decision.action === "resume";
+      const credentialVars = await this.deps.credentials.childEnv();
       let record: TerminalRecord | null = null;
       const terminal = new ClaudeTerminal(
         this.deps.binary,
@@ -346,7 +349,7 @@ export class TerminalService {
           appendSystemPromptFile: files.primerFile,
           env: {
             ...this.passthroughEnv(),
-            ...credentialEnv(config.credentials),
+            ...credentialVars,
             [RUN_TOKEN_ENV]: token,
             [ONYX_API_URL_ENV]: config.internalApiUrl,
           },

@@ -63,14 +63,22 @@ export function buildInteractiveArgs(spec: TerminalSpec): string[] {
   ];
 }
 
-export class ClaudeTerminal {
+export interface PtyCommand {
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  env: Readonly<Record<string, string>>;
+  cols: number;
+  rows: number;
+}
+
+export class PtySession {
   private pty: IPty | null = null;
   private exitInfo: TerminalExit | null = null;
   private readonly exitWaiters: Array<(exit: TerminalExit) => void> = [];
 
   constructor(
-    private readonly binary: ClaudeBinary,
-    private readonly spec: TerminalSpec,
+    private readonly spec: PtyCommand,
     private readonly handlers: TerminalHandlers,
     private readonly options: TerminalOptions = {},
   ) {}
@@ -89,17 +97,13 @@ export class ClaudeTerminal {
       ...TERMINAL_ENV,
       ...this.spec.env,
     });
-    const pty = spawn(
-      this.binary.command,
-      [...this.binary.args, ...buildInteractiveArgs(this.spec)],
-      {
-        name: TERMINAL_ENV.TERM,
-        cols: this.spec.cols,
-        rows: this.spec.rows,
-        cwd: this.spec.cwd,
-        env,
-      },
-    );
+    const pty = spawn(this.spec.command, [...this.spec.args], {
+      name: TERMINAL_ENV.TERM,
+      cols: this.spec.cols,
+      rows: this.spec.rows,
+      cwd: this.spec.cwd,
+      env,
+    });
     this.pty = pty;
     pty.onData((data) => this.handlers.onData(data));
     pty.onExit(({ exitCode, signal }) => {
@@ -130,5 +134,27 @@ export class ClaudeTerminal {
     const exit = await exited;
     clearTimeout(timer);
     return exit;
+  }
+}
+
+export class ClaudeTerminal extends PtySession {
+  constructor(
+    binary: ClaudeBinary,
+    spec: TerminalSpec,
+    handlers: TerminalHandlers,
+    options: TerminalOptions = {},
+  ) {
+    super(
+      {
+        command: binary.command,
+        args: [...binary.args, ...buildInteractiveArgs(spec)],
+        cwd: spec.cwd,
+        env: spec.env,
+        cols: spec.cols,
+        rows: spec.rows,
+      },
+      handlers,
+      options,
+    );
   }
 }

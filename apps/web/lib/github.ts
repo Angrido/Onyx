@@ -1,7 +1,7 @@
 import type { GitHubRepoDto } from "@onyx/contracts";
 
 export const GITHUB_TOKEN_URL =
-  "https://github.com/settings/personal-access-tokens/new?name=Onyx&description=Clone+repositories+into+Onyx&contents=read";
+  "https://github.com/settings/personal-access-tokens/new?name=Onyx&description=Clone+repositories+into+Onyx&contents=write";
 
 export function projectNameFor(repoName: string): string {
   const cleaned = repoName.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "");

@@ -9,6 +9,7 @@ import { AuthService } from "./application/auth-service";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
+import { CredentialService } from "./application/credential-service";
 import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
 import { ProjectService } from "./application/project-service";
@@ -41,6 +42,7 @@ export interface ContainerOverrides {
   closeGraceMs?: number;
   indexRefreshDelayMs?: number;
   terminalKillGraceMs?: number;
+  credentialTestTimeoutMs?: number;
   classifier?: TaskClassifier | null;
   summarizer?: HandoffSummarizer | null;
 }
@@ -58,6 +60,7 @@ export interface Container {
   router: RouterService;
   compartments: CompartmentService;
   runTokens: RunTokenRegistry;
+  credentials: CredentialService;
   executor: RunExecutor;
   scheduler: RunScheduler;
   terminals: TerminalService;
@@ -151,6 +154,22 @@ export async function createContainer(
     isBusy: (workspaceId) => scheduling.scheduler?.isWorkspaceBusy(workspaceId) ?? false,
   });
 
+  const credentials = new CredentialService({
+    prisma,
+    logger,
+    hub,
+    binary,
+    config,
+    cliVersion: () => cliVersion,
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+    ...(overrides.terminalKillGraceMs === undefined
+      ? {}
+      : { killGraceMs: overrides.terminalKillGraceMs }),
+    ...(overrides.credentialTestTimeoutMs === undefined
+      ? {}
+      : { testTimeoutMs: overrides.credentialTestTimeoutMs }),
+  });
+
   const executor = new RunExecutor({
     prisma,
     pool,
@@ -163,6 +182,7 @@ export async function createContainer(
     router,
     compartments,
     runTokens,
+    credentials,
     cliVersion: () => cliVersion,
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
@@ -185,6 +205,7 @@ export async function createContainer(
     indexes,
     compartments,
     runTokens,
+    credentials,
     reserve: (workspaceId) => scheduler.reserve(workspaceId),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
@@ -215,6 +236,7 @@ export async function createContainer(
     router,
     compartments,
     runTokens,
+    credentials,
     executor,
     scheduler,
     terminals,
@@ -252,10 +274,14 @@ export async function createContainer(
         ok: cliVersion !== null,
         detail: cliVersion === null ? `${binary.command} is not executable` : cliVersion,
       });
+      const resolved = await credentials.resolve();
       checks.push({
         name: "credentials",
-        ok: config.credentials.kind !== "none",
-        detail: config.credentials.kind,
+        ok: resolved.credentials.kind !== "none",
+        detail:
+          resolved.source === null
+            ? "none"
+            : `${resolved.credentials.kind} (${resolved.source === "env" ? "environment" : "settings"})`,
       });
       try {
         const disk = await statfs(config.dataDir);
@@ -293,6 +319,7 @@ export async function createContainer(
     async stop(): Promise<void> {
       await indexes.shutdown();
       await terminals.shutdown();
+      await credentials.shutdown();
       await scheduler.shutdown();
       await writer.close();
       await prisma.$disconnect();

@@ -21,7 +21,7 @@ import {
 } from "@onyx/contracts";
 import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
-import { credentialEnv, type AppConfig } from "../config";
+import type { AppConfig } from "../config";
 import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
@@ -40,6 +40,7 @@ import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
 import type { WsHub } from "../infrastructure/ws-hub";
 import type { CompartmentService } from "./compartment-service";
+import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 import { priceUsage, type RouterService } from "./router-service";
@@ -71,15 +72,13 @@ export interface RunExecutorDeps {
   writer: EventWriter;
   hub: WsHub;
   logger: Logger;
-  config: Pick<
-    AppConfig,
-    "runtimeDir" | "credentials" | "childEnvPassthrough" | "context" | "internalApiUrl"
-  >;
+  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl">;
   indexes: IndexService;
   surgeon: SurgeonService;
   router: RouterService;
   compartments: CompartmentService;
   runTokens: RunTokenRegistry;
+  credentials: Pick<CredentialService, "childEnv">;
   cliVersion: () => string | null;
   onRunFinished?: (change: ForeignChange) => void;
   sourceEnv?: NodeJS.ProcessEnv;
@@ -523,7 +522,7 @@ export class RunExecutor {
       includePartialMessages: agentConfig.partialMessages,
       env: {
         ...this.passthroughEnv(),
-        ...credentialEnv(config.credentials),
+        ...(await this.deps.credentials.childEnv()),
         [RUN_TOKEN_ENV]: runToken,
       },
       timeouts: {

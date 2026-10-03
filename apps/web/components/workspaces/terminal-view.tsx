@@ -39,22 +39,26 @@ export function TerminalView({
   terminalId,
   interactive,
   onState,
+  onOutput,
   className,
 }: {
   terminalId: string;
   interactive: boolean;
-  onState: (terminal: TerminalDto) => void;
+  onState?: (terminal: TerminalDto) => void;
+  onOutput?: (data: string) => void;
   className?: string;
 }) {
   const client = useWsClient();
   const containerRef = useRef<HTMLDivElement>(null);
   const onStateRef = useRef(onState);
+  const onOutputRef = useRef(onOutput);
   const interactiveRef = useRef(interactive);
 
   useEffect(() => {
     onStateRef.current = onState;
+    onOutputRef.current = onOutput;
     interactiveRef.current = interactive;
-  }, [onState, interactive]);
+  }, [onState, onOutput, interactive]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -97,8 +101,9 @@ export function TerminalView({
           if (message.type === "pty.output") {
             if (message.data.reset) term.reset();
             term.write(message.data.data);
+            onOutputRef.current?.(message.data.data);
           } else if (message.type === "pty.state") {
-            onStateRef.current(message.data.terminal);
+            onStateRef.current?.(message.data.terminal);
           }
         });
         const observer = new ResizeObserver(() => refit());

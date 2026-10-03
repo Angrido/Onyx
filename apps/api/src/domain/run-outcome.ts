@@ -63,10 +63,13 @@ export function resolveRunOutcome(
         errorMessage: "Run aborted by Claude Code",
       };
     }
+    const reported = result.subtype === "success" ? lastLine(result.resultText ?? "") : null;
     return {
       runStatus: "FAILED",
       taskStatus: "FAILED",
-      errorMessage: `Claude Code finished with ${result.subtype}`,
+      errorMessage: reported
+        ? `Claude Code reported an error: ${reported.slice(0, 300)}`
+        : `Claude Code finished with ${result.subtype}`,
     };
   }
 
