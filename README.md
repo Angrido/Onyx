@@ -78,7 +78,13 @@ A ogni run il profilo diventa:
 
 **New project** (o **Import from GitHub** nella console) apre la scheda *From GitHub*: incolla un token personale e scegli uno dei tuoi repository, anche privati, oppure sfoglia i repository pubblici di un utente senza token. Onyx lo clona in `ONYX_PROJECTS_DIR/<nome>`, lo registra con i workspace di dominio e avvia l'indicizzazione; la scheda *Local folder* registra invece una cartella già presente sul server.
 
-Il token consigliato è *fine-grained* con accesso in sola lettura a **Contents** sui repository che vuoi importare ([crealo qui](https://github.com/settings/personal-access-tokens/new)); un token classico richiede lo scope `repo` per i privati. Viene salvato nel database di Onyx e non è mai restituito dall'API; in alternativa si imposta `ONYX_GITHUB_TOKEN` nell'ambiente del servizio.
+Il token consigliato è *fine-grained* con **Contents** sui repository che vuoi usare ([crealo qui](https://github.com/settings/personal-access-tokens/new)): in sola lettura basta per importare, in lettura e scrittura serve per pubblicare i branch; un token classico richiede lo scope `repo`. Viene salvato nel database di Onyx e non è mai restituito dall'API; in alternativa si imposta `ONYX_GITHUB_TOKEN` nell'ambiente del servizio.
+
+## Account Claude Max, Roadmap e branch su GitHub
+
+- **Settings → Claude account → Sign in with Claude**: si apre un terminale nella pagina con `claude setup-token`; apri il link, accedi con il tuo account Claude Max, incolla il codice nel terminale e premi Invio. Onyx salva il token e lo usa per tutti gli agenti (*Test connection* lo verifica). In alternativa puoi incollare il token generato con `claude setup-token` su un altro computer.
+- **Roadmap**: dalla pagina del progetto, *Roadmap* fa studiare il progetto a Claude in sola lettura e propone le prossime attività nella colonna *Suggested* di un Kanban. Trascini quello che ti interessa in *To do*, poi in *In progress* per farlo eseguire a un agente; i task finiti arrivano in *Done*.
+- **Branch e push**: il pannello Git mostra i file modificati dagli agenti. *Commit and push to GitHub* crea un branch nuovo separato da `main` (es. `onyx/20261005-coprire-login-con-test`), fa il commit e lo pubblica su GitHub, con il link per aprire la pull request. Serve un token GitHub con **Contents: read and write**; nome ed email dei commit si impostano in Settings.
 
 ## Model Router e compartimenti (Fase 4)
 

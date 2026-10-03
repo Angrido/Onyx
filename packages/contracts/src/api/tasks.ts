@@ -34,6 +34,7 @@ export const TaskDtoSchema = z.object({
   priority: z.number().int(),
   modelOverride: z.string().nullable(),
   targetPaths: z.array(z.string()),
+  branchName: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
   startedAt: z.string().nullable(),

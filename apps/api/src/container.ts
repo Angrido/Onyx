@@ -10,6 +10,7 @@ import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
 import { CredentialService } from "./application/credential-service";
+import { GitService } from "./application/git-service";
 import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
 import { ProjectService } from "./application/project-service";
@@ -66,6 +67,7 @@ export interface Container {
   scheduler: RunScheduler;
   terminals: TerminalService;
   github: GitHubService;
+  git: GitService;
   roadmap: RoadmapService;
   auth: AuthService;
   projects: ProjectService;
@@ -219,6 +221,20 @@ export async function createContainer(
   const tasks = new TaskService(prisma, scheduler, hub, (projectId, targetPaths, prompt) =>
     router.inferWorkspace(projectId, targetPaths, prompt),
   );
+  const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
+    indexes
+      .start(projectId)
+      .catch((error: unknown) =>
+        logger.warn({ err: error, projectId }, "Initial indexing could not start"),
+      );
+  });
+  const github = new GitHubService({
+    prisma,
+    logger,
+    client: new GitHubClient({ baseUrl: config.github.apiUrl }),
+    projects,
+    config,
+  });
   const roadmap = new RoadmapService({
     prisma,
     logger,
@@ -232,13 +248,6 @@ export async function createContainer(
     config,
     reserve: (workspaceId) => scheduler.reserve(workspaceId),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
-  });
-  const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
-    indexes
-      .start(projectId)
-      .catch((error: unknown) =>
-        logger.warn({ err: error, projectId }, "Initial indexing could not start"),
-      );
   });
   runs.service = runService;
 
@@ -261,12 +270,12 @@ export async function createContainer(
     terminals,
     auth: new AuthService(prisma, config.sessionTtlMs),
     projects,
-    github: new GitHubService({
+    github,
+    git: new GitService({
       prisma,
       logger,
-      client: new GitHubClient({ baseUrl: config.github.apiUrl }),
-      projects,
-      config,
+      github,
+      isWorkspaceBusy: (workspaceId) => scheduler.isWorkspaceBusy(workspaceId),
     }),
     workspaces: new WorkspaceService(prisma),
     tasks,

@@ -181,6 +181,7 @@ export function toTaskDto(task: TaskWithLastRun): TaskDto {
     priority: task.priority,
     modelOverride: task.modelOverride,
     targetPaths: toStringArray(task.targetPaths),
+    branchName: task.branchName,
     createdAt: iso(task.createdAt),
     updatedAt: iso(task.updatedAt),
     startedAt: isoOrNull(task.startedAt),

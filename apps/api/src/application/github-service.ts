@@ -268,6 +268,16 @@ export class GitHubService {
     return this.toJobDto(job);
   }
 
+  async token(): Promise<string | null> {
+    return (await this.resolveToken())?.token ?? null;
+  }
+
+  async viewerIdentity(): Promise<GitHubUser | null> {
+    const resolved = await this.resolveToken();
+    if (!resolved) return null;
+    return this.viewer(resolved.token).catch(() => null);
+  }
+
   jobList(): CloneJobDto[] {
     return [...this.jobs.values()]
       .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())

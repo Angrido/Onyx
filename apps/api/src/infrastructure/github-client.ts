@@ -3,6 +3,7 @@ import { z } from "zod";
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com";
 
 const UserSchema = z.object({
+  id: z.number().optional(),
   login: z.string(),
   name: z.string().nullable().optional(),
   avatar_url: z.string().nullable().optional(),

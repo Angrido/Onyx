@@ -271,6 +271,12 @@ function TaskCard({
           ) : null}
         </div>
       ) : null}
+      {column === "done" && task.branchName ? (
+        <p className="flex items-center gap-1.5 truncate font-mono text-[11px] text-muted-foreground">
+          <GitBranch className="size-3 shrink-0" />
+          {task.branchName}
+        </p>
+      ) : null}
       {column === "todo" ? (
         <Button size="sm" className="w-full" onClick={() => onMove("run")}>
           <Play />
@@ -445,7 +451,7 @@ export function RoadmapBoard({
         </span>
       </div>
       {data.generation ? <GenerationBanner generation={data.generation} /> : null}
-      {gitPanel}
+      {gitPanel ? <div>{gitPanel}</div> : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {COLUMNS.map((column) => {
           const cards =

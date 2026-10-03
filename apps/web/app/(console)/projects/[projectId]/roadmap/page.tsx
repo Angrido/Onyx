@@ -1,6 +1,12 @@
-import type { CatalogResponse, ProjectBoard, ProjectDetailDto } from "@onyx/contracts";
+import type {
+  CatalogResponse,
+  GitHubAccountDto,
+  ProjectBoard,
+  ProjectDetailDto,
+} from "@onyx/contracts";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
+import { GitPanel } from "@/components/git/git-panel";
 import { RoadmapBoard } from "@/components/roadmap/roadmap-board";
 import { serverFetch } from "@/lib/api/server";
 
@@ -8,10 +14,11 @@ export const metadata = { title: "Roadmap" };
 
 export default async function RoadmapPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
-  const [project, board, catalog] = await Promise.all([
+  const [project, board, catalog, github] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<ProjectBoard>(`/api/projects/${projectId}/board`),
     serverFetch<CatalogResponse>("/api/catalog"),
+    serverFetch<GitHubAccountDto>("/api/github/account"),
   ]);
   return (
     <>
@@ -29,6 +36,7 @@ export default async function RoadmapPage({ params }: { params: Promise<{ projec
         initial={board}
         workspaces={project.workspaces}
         catalog={catalog}
+        gitPanel={<GitPanel projectId={project.id} githubConnected={github.connected} />}
       />
     </>
   );

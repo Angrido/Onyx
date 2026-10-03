@@ -1,15 +1,17 @@
-import type { ClaudeAccountDto, GitHubAccountDto } from "@onyx/contracts";
+import type { ClaudeAccountDto, GitHubAccountDto, GitIdentityDto } from "@onyx/contracts";
 import { PageHeader } from "@/components/layout/page-header";
 import { ClaudeAccountCard } from "@/components/settings/claude-account-card";
 import { GitHubAccountCard } from "@/components/settings/github-account-card";
+import { GitIdentityCard } from "@/components/settings/git-identity-card";
 import { serverFetch } from "@/lib/api/server";
 
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [claude, github] = await Promise.all([
+  const [claude, github, identity] = await Promise.all([
     serverFetch<ClaudeAccountDto>("/api/settings/claude"),
     serverFetch<GitHubAccountDto>("/api/github/account"),
+    serverFetch<GitIdentityDto>("/api/settings/git"),
   ]);
   return (
     <>
@@ -20,7 +22,10 @@ export default async function SettingsPage() {
       />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ClaudeAccountCard initial={claude} />
-        <GitHubAccountCard initial={github} />
+        <div className="space-y-6">
+          <GitHubAccountCard initial={github} />
+          <GitIdentityCard initial={identity} />
+        </div>
       </div>
     </>
   );

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
@@ -481,7 +481,17 @@ function simulateTool(attempt: ToolAttempt): string {
     }
   }
   if (attempt.tool === "Edit" || attempt.tool === "Write") {
-    return `(stub) ${attempt.tool === "Edit" ? "edited" : "wrote"} ${String(attempt.input.file_path)}`;
+    const target = String(attempt.input.file_path);
+    if (process.env.CLAUDE_STUB_APPLY_EDITS === "1") {
+      try {
+        mkdirSync(dirname(target), { recursive: true });
+        if (attempt.tool === "Write") writeFileSync(target, "export const created = true;\n");
+        else appendFileSync(target, `export const stubEdit${Date.now()} = true;\n`);
+      } catch (error) {
+        return `edit failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    return `(stub) ${attempt.tool === "Edit" ? "edited" : "wrote"} ${target}`;
   }
   return "(stub) tool not executed";
 }
@@ -771,6 +781,20 @@ async function runRoadmapScenario(prompt: string): Promise<void> {
   await writeLine(resultLine(answer));
 }
 
+function applyLikelyEdits(prompt: string): void {
+  if (process.env.CLAUDE_STUB_APPLY_EDITS !== "1") return;
+  const listed = /Files likely involved: (.+)$/m.exec(prompt)?.[1] ?? "";
+  for (const path of listed
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)) {
+    const target = resolve(process.cwd(), path);
+    if (!target.startsWith(process.cwd())) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    appendFileSync(target, `\nexport const stubEdit${Date.now()} = true;\n`);
+  }
+}
+
 async function runSetupToken(): Promise<void> {
   const say = (text: string) => process.stdout.write(`${text}\r\n`);
   say("Opening browser to sign in with your Claude account…");
@@ -839,6 +863,7 @@ async function main(): Promise<void> {
     case "quick":
     case "error-max-turns":
     case "partial":
+      applyLikelyEdits(prompt);
       await replay(renderFixture(scenario, prompt));
       return;
     case "crash":
