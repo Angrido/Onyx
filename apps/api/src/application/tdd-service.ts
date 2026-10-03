@@ -529,6 +529,8 @@ export class TddService {
     for (const loop of loops) {
       loop.aborted = true;
       await loop.session?.stop();
+      if (!this.deps.scheduler.removeQueued(loop.taskId))
+        await this.deps.scheduler.abortTask(loop.taskId);
     }
     await Promise.allSettled(loops.map((loop) => loop.done));
   }

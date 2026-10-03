@@ -421,4 +421,26 @@ describe("TDD auto-loop", () => {
     expect(response.status).toBe(400);
     expect(response.body.error.message).toContain("No test runner found");
   });
+
+  it("stops a loop whose agent is working when Onyx shuts down", async () => {
+    const root = join(context.projectsDir, "calc");
+    execFileSync("git", ["checkout", "--", "src/math.ts"], { cwd: root });
+    setPlan([{ edits: [], hang: true }]);
+    const task = await createTask(project, "Shutdown");
+    const started = await api.post<TddLoopDto>(`/api/tasks/${task.id}/tdd`, {
+      typecheck: false,
+    });
+    await waitFor(
+      async () => (await api.get<TddLoopDto>(`/api/tdd-loops/${started.body.id}`)).body,
+      (current) => current.phase === "agent",
+      30_000,
+    );
+    const stopping = Date.now();
+    await context.container.tdd.shutdown();
+    expect(Date.now() - stopping).toBeLessThan(15_000);
+    const loop = await context.container.prisma.tddLoop.findUniqueOrThrow({
+      where: { id: started.body.id },
+    });
+    expect(loop.status).toBe("ABORTED");
+  }, 60_000);
 });

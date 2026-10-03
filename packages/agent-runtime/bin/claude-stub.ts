@@ -807,6 +807,7 @@ interface TddEdit {
 interface TddStep {
   edits: TddEdit[];
   text?: string;
+  hang?: boolean;
 }
 
 function takeTddStep(): TddStep | null {
@@ -824,6 +825,7 @@ function takeTddStep(): TddStep | null {
           isRecord(edit) && (typeof edit.file === "string" || typeof edit.command === "string"),
       ),
       ...(typeof first.text === "string" ? { text: first.text } : {}),
+      ...(first.hang === true ? { hang: true } : {}),
     };
   } catch {
     return null;
@@ -917,6 +919,7 @@ async function runTddScenario(prompt: string): Promise<void> {
       }),
     );
   }
+  if (step?.hang) return hangForever();
   const firstFailure = /^### 1\. (.+)$/m.exec(prompt)?.[1] ?? "the failures";
   const summary =
     step?.text ??
