@@ -652,6 +652,125 @@ async function runInteractive(): Promise<void> {
   }
 }
 
+function promptSection(prompt: string, title: string): string {
+  const start = prompt.indexOf(`## ${title}\n`);
+  if (start === -1) return "";
+  const rest = prompt.slice(start + title.length + 4);
+  const end = rest.indexOf("\n## ");
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+async function runRoadmapScenario(prompt: string): Promise<void> {
+  const italian = prompt.includes("in Italian");
+  const map = promptSection(prompt, "Project map");
+  const files = [...map.matchAll(/([\w./-]+\.(?:tsx|ts|jsx|js|py|css))\b/g)].map(
+    (match) => match[1] ?? "",
+  );
+  const code = files.find((file) => !file.endsWith(".css")) ?? "src/index.ts";
+  const style =
+    files.find((file) => file.endsWith(".css")) ??
+    files.find((file) => file.endsWith(".tsx")) ??
+    code;
+  const workspace = /^- (\w+) \(/m.exec(promptSection(prompt, "Workspaces"))?.[1] ?? null;
+  const todo = /^([^\s:]+):\d+ (?:TODO|FIXME|HACK|XXX): (.+)$/m.exec(
+    promptSection(prompt, "TODO and FIXME notes"),
+  );
+  const items = [
+    {
+      title: italian ? `Coprire ${code} con i test` : `Cover ${code} with tests`,
+      description: italian
+        ? `Aggiungere test unitari per ${code} e verificarli con il test runner del progetto.`
+        : `Add unit tests for ${code} and run them with the project test runner.`,
+      kind: "test",
+      priority: "high",
+      effort: "M",
+      workspace,
+      targetPaths: [code],
+      rationale: italian
+        ? "Il file è centrale e non ha test."
+        : "The file is central and untested.",
+    },
+    ...(todo
+      ? [
+          {
+            title: italian ? `Risolvere: ${todo[2]}` : `Resolve: ${todo[2]}`,
+            description: italian
+              ? `Chiudere il TODO in ${todo[1]}.`
+              : `Close the TODO in ${todo[1]}.`,
+            kind: "bug",
+            priority: "medium",
+            effort: "S",
+            workspace,
+            targetPaths: [todo[1]],
+            rationale: italian ? "Lasciato aperto nel codice." : "Left open in the code.",
+          },
+        ]
+      : []),
+    {
+      title: italian ? "Rifinire gli stili dell'interfaccia" : "Polish the UI styles",
+      description: italian
+        ? `Uniformare spaziature e colori in ${style}.`
+        : `Make spacing and colours consistent in ${style}.`,
+      kind: "ui",
+      priority: "medium",
+      effort: "S",
+      workspace: "Frontend",
+      targetPaths: [style],
+      rationale: null,
+    },
+    {
+      title: italian ? "Documentare l'avvio del progetto" : "Document the project setup",
+      description: italian
+        ? "Spiegare nel README come installare, avviare e testare il progetto."
+        : "Explain in the README how to install, run and test the project.",
+      kind: "docs",
+      priority: "low",
+      effort: "S",
+      workspace: null,
+      targetPaths: ["README.md"],
+      rationale: null,
+    },
+  ];
+  const summary = italian
+    ? "Progetto piccolo e leggibile; mancano test e documentazione."
+    : "Small, readable project; tests and documentation are missing.";
+  const answer = `\`\`\`json\n${JSON.stringify({ summary, items }, null, 2)}\n\`\`\``;
+  await writeLine(initLine());
+  await sleep(delayMs);
+  await writeLine(
+    assistantLine("msg_stub_roadmap_1", [
+      {
+        type: "tool_use",
+        id: "toolu_stub_roadmap_1",
+        name: "Read",
+        input: { file_path: join(process.cwd(), "README.md") },
+      },
+    ]),
+  );
+  await sleep(delayMs);
+  await writeLine(
+    JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            tool_use_id: "toolu_stub_roadmap_1",
+            type: "tool_result",
+            content: "(stub) README",
+            is_error: false,
+          },
+        ],
+      },
+      parent_tool_use_id: null,
+      session_id: sessionId,
+    }),
+  );
+  await sleep(delayMs);
+  await writeLine(assistantLine("msg_stub_roadmap_2", [{ type: "text", text: answer }]));
+  await writeLine(resultLine(answer));
+}
+
 async function runSetupToken(): Promise<void> {
   const say = (text: string) => process.stdout.write(`${text}\r\n`);
   say("Opening browser to sign in with your Claude account…");
@@ -708,6 +827,10 @@ async function main(): Promise<void> {
         result: "Invalid API key · Please run /login",
       }),
     );
+    return;
+  }
+  if (prompt.includes("ONYX_ROADMAP_REQUEST")) {
+    await runRoadmapScenario(prompt);
     return;
   }
   const scenario = scenarioFor(prompt);

@@ -16,6 +16,7 @@ import { ProjectService } from "./application/project-service";
 import { recoverInterruptedWork } from "./application/recovery";
 import { RunExecutor } from "./application/run-executor";
 import { RunScheduler } from "./application/run-scheduler";
+import { RoadmapService } from "./application/roadmap-service";
 import { RouterService } from "./application/router-service";
 import { RunService } from "./application/run-service";
 import { SurgeonService } from "./application/surgeon-service";
@@ -65,6 +66,7 @@ export interface Container {
   scheduler: RunScheduler;
   terminals: TerminalService;
   github: GitHubService;
+  roadmap: RoadmapService;
   auth: AuthService;
   projects: ProjectService;
   workspaces: WorkspaceService;
@@ -214,6 +216,23 @@ export async function createContainer(
   });
   scheduling.terminals = terminals;
   const runService = new RunService(prisma, scheduler);
+  const tasks = new TaskService(prisma, scheduler, hub, (projectId, targetPaths, prompt) =>
+    router.inferWorkspace(projectId, targetPaths, prompt),
+  );
+  const roadmap = new RoadmapService({
+    prisma,
+    logger,
+    pool,
+    indexes,
+    surgeon,
+    router,
+    tasks,
+    runTokens,
+    credentials,
+    config,
+    reserve: (workspaceId) => scheduler.reserve(workspaceId),
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+  });
   const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
     indexes
       .start(projectId)
@@ -250,9 +269,8 @@ export async function createContainer(
       config,
     }),
     workspaces: new WorkspaceService(prisma),
-    tasks: new TaskService(prisma, scheduler, hub, (projectId, targetPaths, prompt) =>
-      router.inferWorkspace(projectId, targetPaths, prompt),
-    ),
+    tasks,
+    roadmap,
     runs: runService,
     telemetry: new TelemetryService(prisma, () => ({
       activeRuns: scheduler.activeCount,
@@ -318,6 +336,7 @@ export async function createContainer(
 
     async stop(): Promise<void> {
       await indexes.shutdown();
+      await roadmap.shutdown();
       await terminals.shutdown();
       await credentials.shutdown();
       await scheduler.shutdown();

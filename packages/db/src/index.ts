@@ -9,6 +9,8 @@ export type {
   FileNode,
   ModelProfile,
   Project,
+  RoadmapGeneration,
+  RoadmapItem,
   RoutingDecision,
   RoutingRule,
   Session,

@@ -10,6 +10,7 @@ import { registerContextRoutes } from "./http/routes/context-routes";
 import { registerGitHubRoutes } from "./http/routes/github-routes";
 import { registerHookRoutes } from "./http/routes/hook-routes";
 import { registerProjectRoutes } from "./http/routes/project-routes";
+import { registerRoadmapRoutes } from "./http/routes/roadmap-routes";
 import { registerRouterRoutes } from "./http/routes/router-routes";
 import { registerSettingsRoutes } from "./http/routes/settings-routes";
 import { registerSurgeonRoutes } from "./http/routes/surgeon-routes";
@@ -52,6 +53,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerTerminalRoutes(app, container);
   registerGitHubRoutes(app, container);
   registerSettingsRoutes(app, container);
+  registerRoadmapRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

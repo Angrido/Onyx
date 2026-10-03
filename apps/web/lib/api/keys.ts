@@ -18,6 +18,7 @@ export const queryKeys = {
   routerPreview: (input: object) => ["router", "preview", input] as const,
   githubAccount: ["github", "account"] as const,
   claudeAccount: ["settings", "claude"] as const,
+  board: (projectId: string) => ["board", projectId] as const,
   gitIdentity: ["settings", "git"] as const,
   githubRepos: (owner: string) => ["github", "repos", owner] as const,
   githubImport: (jobId: string) => ["github", "import", jobId] as const,

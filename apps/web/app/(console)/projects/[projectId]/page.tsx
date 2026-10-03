@@ -4,12 +4,14 @@ import type {
   ProjectDetailDto,
   TaskListResponse,
 } from "@onyx/contracts";
+import { Map as MapIcon } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { IndexCard } from "@/components/projects/index-card";
 import { WorkspaceGrid } from "@/components/projects/workspace-grid";
 import { CreateTaskDialog } from "@/components/tasks/create-task-dialog";
 import { TaskList } from "@/components/tasks/task-list";
+import { Button } from "@/components/ui/button";
 import { serverFetch } from "@/lib/api/server";
 
 export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
@@ -23,6 +25,17 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
   const createTask = (
     <CreateTaskDialog projectId={project.id} workspaces={project.workspaces} catalog={catalog} />
   );
+  const actions = (
+    <>
+      <Button asChild variant="secondary">
+        <Link href={`/projects/${project.id}/roadmap`}>
+          <MapIcon />
+          Roadmap
+        </Link>
+      </Button>
+      {createTask}
+    </>
+  );
 
   return (
     <>
@@ -34,7 +47,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         }
         title={project.name}
         description={<span className="font-mono text-xs">{project.rootPath}</span>}
-        actions={createTask}
+        actions={actions}
       />
       <IndexCard projectId={project.id} initial={index} />
       <section className="space-y-3">

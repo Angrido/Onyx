@@ -202,6 +202,8 @@ model Project {
   edges          DependencyEdge[]
   routingRules   RoutingRule[]
   budgets        Budget[]
+  roadmapRuns    RoadmapGeneration[]
+  roadmapItems   RoadmapItem[]
 }
 
 model Workspace {
@@ -337,16 +339,17 @@ model Task {
   completedAt   DateTime?
   updatedAt     DateTime   @updatedAt
 
-  project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  workspace  Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  parent     Task?             @relation("TaskTree", fields: [parentTaskId], references: [id], onDelete: Cascade)
-  children   Task[]            @relation("TaskTree")
-  dependsOn  TaskDependency[]  @relation("Dependent")
-  requiredBy TaskDependency[]  @relation("Prerequisite")
-  decisions  RoutingDecision[]
-  runs       AgentRun[]
-  tddLoops   TddLoop[]
-  approvals  Approval[]
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace   Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  parent      Task?             @relation("TaskTree", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  children    Task[]            @relation("TaskTree")
+  dependsOn   TaskDependency[]  @relation("Dependent")
+  requiredBy  TaskDependency[]  @relation("Prerequisite")
+  decisions   RoutingDecision[]
+  runs        AgentRun[]
+  tddLoops    TddLoop[]
+  approvals   Approval[]
+  roadmapItem RoadmapItem?
 
   @@index([projectId, status])
   @@index([parentTaskId])
@@ -684,4 +687,68 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+enum RoadmapGenerationStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum RoadmapItemStatus {
+  SUGGESTED
+  ACCEPTED
+  DISMISSED
+}
+
+enum RoadmapPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model RoadmapGeneration {
+  id        String                  @id @default(cuid())
+  projectId String
+  status    RoadmapGenerationStatus @default(RUNNING)
+  modelId   String
+  language  String
+  focus     String?
+  summary   String?
+  error     String?
+  itemCount Int                     @default(0)
+  numTurns  Int?
+  costUsd   Float?
+  startedAt DateTime                @default(now())
+  endedAt   DateTime?
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   RoadmapItem[]
+
+  @@index([projectId, startedAt])
+}
+
+model RoadmapItem {
+  id            String            @id @default(cuid())
+  projectId     String
+  generationId  String?
+  title         String
+  description   String
+  kind          TaskKind
+  priority      RoadmapPriority   @default(MEDIUM)
+  effort        String            @default("M")
+  workspaceName String?
+  targetPaths   Json
+  rationale     String?
+  status        RoadmapItemStatus @default(SUGGESTED)
+  taskId        String?           @unique
+  position      Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  generation RoadmapGeneration? @relation(fields: [generationId], references: [id], onDelete: SetNull)
+  task       Task?              @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
 }

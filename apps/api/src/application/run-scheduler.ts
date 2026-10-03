@@ -58,13 +58,14 @@ export class RunScheduler {
     return this.busyWorkspaces.has(workspaceId);
   }
 
-  reserve(workspaceId: string): SlotReservation {
+  reserve(workspaceId: string | null): SlotReservation {
     if (this.stopped) return { ok: false, reason: "stopped" };
-    if (this.busyWorkspaces.has(workspaceId)) return { ok: false, reason: "busy" };
+    if (workspaceId !== null && this.busyWorkspaces.has(workspaceId))
+      return { ok: false, reason: "busy" };
     if (this.inFlight + this.reserved >= this.deps.maxConcurrent)
       return { ok: false, reason: "full" };
     this.reserved += 1;
-    this.busyWorkspaces.add(workspaceId);
+    if (workspaceId !== null) this.busyWorkspaces.add(workspaceId);
     let released = false;
     return {
       ok: true,
@@ -72,7 +73,7 @@ export class RunScheduler {
         if (released) return;
         released = true;
         this.reserved -= 1;
-        this.busyWorkspaces.delete(workspaceId);
+        if (workspaceId !== null) this.busyWorkspaces.delete(workspaceId);
         this.dispatch();
       },
     };
