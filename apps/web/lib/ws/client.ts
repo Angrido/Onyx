@@ -1,4 +1,5 @@
-import { WS_PROTOCOL_VERSION, type ServerMessage } from "@onyx/contracts";
+import type { ServerMessage } from "@onyx/contracts";
+import { WS_PROTOCOL_VERSION } from "@onyx/contracts/client";
 
 export type ConnectionState = "connecting" | "open" | "closed";
 export type ChannelListener = (message: ServerMessage) => void;

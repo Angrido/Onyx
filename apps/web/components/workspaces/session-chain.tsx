@@ -3,7 +3,7 @@
 import type { ResetWorkspaceResponse, SessionDto, SessionStatus } from "@onyx/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { ChevronRight, GitBranch, Loader2, RotateCcw, ScrollText } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ModelBadge } from "@/components/tasks/status-badge";
@@ -159,15 +159,24 @@ export function SessionChain({
             No sessions yet: the first run or terminal starts one.
           </p>
         ) : (
-          <ol data-testid="session-chain">
-            {sessions.map((session, index) => (
-              <SessionNode
-                key={session.id}
-                session={session}
-                last={index === sessions.length - 1}
-              />
-            ))}
-          </ol>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.ol
+              key={sessions[0]?.id ?? "empty"}
+              data-testid="session-chain"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              {sessions.map((session, index) => (
+                <SessionNode
+                  key={session.id}
+                  session={session}
+                  last={index === sessions.length - 1}
+                />
+              ))}
+            </motion.ol>
+          </AnimatePresence>
         )}
       </CardContent>
     </Card>

@@ -35,11 +35,7 @@ export function CredentialsForm({ mode }: { mode: "login" | "setup" }) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
-    >
+    <motion.div initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
       <Card className="glass">
         <CardHeader>
           <CardTitle className="text-base">

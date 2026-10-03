@@ -1,11 +1,7 @@
 "use client";
 
-import {
-  ModelTierSchema,
-  type RouterSettings,
-  type RouterSettingsDto,
-  type RouterWeights,
-} from "@onyx/contracts";
+import type { RouterSettings, RouterSettingsDto, RouterWeights } from "@onyx/contracts";
+import { MODEL_TIERS } from "@onyx/contracts/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
@@ -190,7 +186,7 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
             Tier models
           </p>
           <div className="flex flex-wrap gap-2">
-            {ModelTierSchema.options.map((tier) => {
+            {MODEL_TIERS.map((tier) => {
               const modelId = settings.tierModels[tier];
               return (
                 <span key={tier} className="flex items-center gap-1.5 text-xs">

@@ -1,11 +1,7 @@
 "use client";
 
-import {
-  channels,
-  type IndexProgress,
-  type IndexStatusDto,
-  type ServerMessage,
-} from "@onyx/contracts";
+import type { IndexProgress, IndexStatusDto, ServerMessage } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Network, RefreshCw, ScanSearch, Scissors } from "lucide-react";
 import { motion } from "motion/react";

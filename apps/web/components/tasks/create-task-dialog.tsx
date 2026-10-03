@@ -1,14 +1,14 @@
 "use client";
 
-import {
-  TaskKindSchema,
-  type CatalogResponse,
-  type GraphResponse,
-  type RouterPreviewResponse,
-  type TaskDto,
-  type TaskKind,
-  type WorkspaceDto,
+import type {
+  CatalogResponse,
+  GraphResponse,
+  RouterPreviewResponse,
+  TaskDto,
+  TaskKind,
+  WorkspaceDto,
 } from "@onyx/contracts";
+import { TASK_KINDS, oneOf } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileCode2, Loader2, Route, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -254,9 +254,9 @@ export function CreateTaskDialog({
               <Select
                 id="task-kind"
                 value={kind}
-                onChange={(event) => setKind(TaskKindSchema.parse(event.target.value))}
+                onChange={(event) => setKind(oneOf(TASK_KINDS, event.target.value) ?? kind)}
               >
-                {TaskKindSchema.options.map((option) => (
+                {TASK_KINDS.map((option) => (
                   <option key={option} value={option}>
                     {KIND_LABELS[option]}
                   </option>

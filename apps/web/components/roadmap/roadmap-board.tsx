@@ -1,15 +1,15 @@
 "use client";
 
-import {
-  channels,
-  type CatalogResponse,
-  type ProjectBoard,
-  type RoadmapGenerationDto,
-  type RoadmapItemDto,
-  type RunTaskResponse,
-  type TaskDto,
-  type WorkspaceDto,
+import type {
+  CatalogResponse,
+  ProjectBoard,
+  RoadmapGenerationDto,
+  RoadmapItemDto,
+  RunTaskResponse,
+  TaskDto,
+  WorkspaceDto,
 } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,

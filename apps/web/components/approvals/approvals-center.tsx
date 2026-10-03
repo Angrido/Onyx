@@ -1,6 +1,7 @@
 "use client";
 
-import { channels, type ApprovalDto, type ApprovalListResponse } from "@onyx/contracts";
+import type { ApprovalDto, ApprovalListResponse } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Check, FileWarning, Inbox, Loader2, X } from "lucide-react";

@@ -1,6 +1,7 @@
 "use client";
 
-import { channels, type RunDto, type RunEventsResponse, type ServerMessage } from "@onyx/contracts";
+import type { RunDto, RunEventsResponse, ServerMessage } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, ShieldX, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -20,6 +21,7 @@ import {
   applyDelta,
   applyRunEvent,
   contextSavings,
+  activeTool,
   feedContextTokens,
   feedUsage,
   isTerminal,
@@ -144,7 +146,12 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
     <Card className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
       <div className="space-y-4 border-b border-border px-5 py-4">
         <div className="flex items-center gap-4">
-          <AgentOrb tier={tierOfModel(model)} status={status} size={44} />
+          <AgentOrb
+            tier={tierOfModel(model)}
+            status={status}
+            tool={activeTool({ entries: feed.entries, status })}
+            size={44}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <ModelBadge modelId={model} />

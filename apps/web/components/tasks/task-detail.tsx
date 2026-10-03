@@ -6,6 +6,7 @@ import type {
   RunTaskResponse,
   TaskDetailDto,
   TaskDto,
+  TddLoopDto,
   TddLoopListResponse,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -281,9 +282,11 @@ function RunHistory({
 
 export function TaskDetail({
   initial,
+  initialLoops,
   catalog,
 }: {
   initial: TaskDetailDto;
+  initialLoops: TddLoopDto[];
   catalog: CatalogResponse;
 }) {
   useLiveTask(initial.id);
@@ -296,6 +299,7 @@ export function TaskDetail({
     queryKey: queryKeys.tddLoops(initial.id),
     queryFn: () =>
       api.get<TddLoopListResponse>(`/api/tasks/${initial.id}/tdd`).then((page) => page.items),
+    initialData: initialLoops,
   });
   const loopRunning = loops.some(isLoopActive);
   const [pinnedRun, setPinnedRun] = useState<string | null>(null);

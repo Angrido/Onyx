@@ -1,17 +1,19 @@
+import type {
+  ContextItem,
+  GuardItem,
+  RoutingItem,
+  RunItem,
+  RunItemOf,
+  RunStatus,
+  SessionItem,
+  TokenUsage,
+} from "@onyx/contracts";
 import {
   EMPTY_USAGE,
   TERMINAL_RUN_STATUSES,
   addUsage,
   contextTokensOf,
-  type ContextItem,
-  type GuardItem,
-  type RoutingItem,
-  type RunItem,
-  type RunItemOf,
-  type RunStatus,
-  type SessionItem,
-  type TokenUsage,
-} from "@onyx/contracts";
+} from "@onyx/contracts/client";
 
 export interface ToolResultView {
   content: string;
@@ -213,4 +215,41 @@ export function isTerminal(status: RunStatus | null): boolean {
 export function contextSavings(item: ContextItem): number | null {
   if (item.baselineTokens <= 0) return null;
   return 1 - item.packTokens / item.baselineTokens;
+}
+
+export type ToolFamily = "read" | "edit" | "shell" | "context" | "delegate" | "web" | "other";
+
+const TOOL_FAMILIES: Record<string, ToolFamily> = {
+  Read: "read",
+  Grep: "read",
+  Glob: "read",
+  LS: "read",
+  NotebookRead: "read",
+  Edit: "edit",
+  Write: "edit",
+  MultiEdit: "edit",
+  NotebookEdit: "edit",
+  Bash: "shell",
+  BashOutput: "shell",
+  KillShell: "shell",
+  Task: "delegate",
+  Agent: "delegate",
+  WebFetch: "web",
+  WebSearch: "web",
+};
+
+export function toolFamily(name: string): ToolFamily {
+  if (name.startsWith("mcp__onyx")) return "context";
+  if (name.startsWith("mcp__")) return "web";
+  return TOOL_FAMILIES[name] ?? "other";
+}
+
+export function activeTool(state: Pick<FeedState, "entries" | "status">): string | null {
+  if (isTerminal(state.status)) return null;
+  for (let index = state.entries.length - 1; index >= 0; index -= 1) {
+    const entry = state.entries[index];
+    if (entry?.kind === "tool") return entry.result === null ? entry.name : null;
+    if (entry?.kind === "text" && !entry.nested) return null;
+  }
+  return null;
 }

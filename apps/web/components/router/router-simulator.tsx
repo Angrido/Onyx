@@ -1,14 +1,14 @@
 "use client";
 
-import {
-  TaskKindSchema,
-  type ProjectDetailDto,
-  type ProjectDto,
-  type RouterPreviewResponse,
-  type RouterSettingsDto,
-  type RoutingFeatures,
-  type TaskKind,
+import type {
+  ProjectDetailDto,
+  ProjectDto,
+  RouterPreviewResponse,
+  RouterSettingsDto,
+  RoutingFeatures,
+  TaskKind,
 } from "@onyx/contracts";
+import { TASK_KINDS, oneOf } from "@onyx/contracts/client";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Bot, FlaskConical, Loader2, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -225,9 +225,9 @@ export function RouterSimulator({
                 <Select
                   id="sim-kind"
                   value={kind}
-                  onChange={(event) => setKind(TaskKindSchema.parse(event.target.value))}
+                  onChange={(event) => setKind(oneOf(TASK_KINDS, event.target.value) ?? kind)}
                 >
-                  {TaskKindSchema.options.map((option) => (
+                  {TASK_KINDS.map((option) => (
                     <option key={option} value={option}>
                       {KIND_LABELS[option]}
                     </option>

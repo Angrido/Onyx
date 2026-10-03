@@ -1,24 +1,30 @@
 import { z } from "zod";
+import { DOMAINS, MODEL_TIERS, RESET_STRATEGIES, RUN_STATUSES, TASK_KINDS } from "./client";
 
-export const DomainSchema = z.enum(["FRONTEND", "BACKEND", "DATABASE", "INFRA", "CUSTOM"]);
+export {
+  DOMAINS,
+  EMPTY_USAGE,
+  MODEL_TIERS,
+  RESET_STRATEGIES,
+  RUN_STATUSES,
+  TASK_KINDS,
+  TERMINAL_RUN_STATUSES,
+  addUsage,
+  cacheHitRatio,
+  contextTokensOf,
+  oneOf,
+} from "./client";
+
+export const DomainSchema = z.enum(DOMAINS);
 export type Domain = z.infer<typeof DomainSchema>;
 
-export const ModelTierSchema = z.enum(["SCOUT", "BUILDER", "ARCHITECT", "APEX"]);
+export const ModelTierSchema = z.enum(MODEL_TIERS);
 export type ModelTier = z.infer<typeof ModelTierSchema>;
 
-export const ResetStrategySchema = z.enum(["HARD", "HANDOFF", "SOFT"]);
+export const ResetStrategySchema = z.enum(RESET_STRATEGIES);
 export type ResetStrategy = z.infer<typeof ResetStrategySchema>;
 
-export const TaskKindSchema = z.enum([
-  "ARCHITECTURE",
-  "FEATURE",
-  "REFACTOR",
-  "BUGFIX",
-  "UI_STYLE",
-  "TEST_FIX",
-  "DOCS",
-  "CHORE",
-]);
+export const TaskKindSchema = z.enum(TASK_KINDS);
 export type TaskKind = z.infer<typeof TaskKindSchema>;
 
 export const TaskStatusSchema = z.enum([
@@ -35,24 +41,8 @@ export const TaskStatusSchema = z.enum([
 ]);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
-export const RunStatusSchema = z.enum([
-  "SPAWNING",
-  "RUNNING",
-  "COMPLETED",
-  "FAILED",
-  "ABORTED",
-  "TIMEOUT",
-  "INTERRUPTED",
-]);
+export const RunStatusSchema = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
-
-export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = [
-  "COMPLETED",
-  "FAILED",
-  "ABORTED",
-  "TIMEOUT",
-  "INTERRUPTED",
-];
 
 export const RunModeSchema = z.enum(["HEADLESS", "INTERACTIVE"]);
 export type RunMode = z.infer<typeof RunModeSchema>;
@@ -89,31 +79,6 @@ export const TokenUsageSchema = z.object({
   cacheReadTokens: z.number().int().nonnegative(),
 });
 export type TokenUsage = z.infer<typeof TokenUsageSchema>;
-
-export const EMPTY_USAGE: TokenUsage = Object.freeze({
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheCreationTokens: 0,
-  cacheReadTokens: 0,
-});
-
-export function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    cacheCreationTokens: left.cacheCreationTokens + right.cacheCreationTokens,
-    cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
-  };
-}
-
-export function contextTokensOf(usage: TokenUsage): number {
-  return usage.inputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
-}
-
-export function cacheHitRatio(usage: TokenUsage): number {
-  const total = contextTokensOf(usage);
-  return total === 0 ? 0 : usage.cacheReadTokens / total;
-}
 
 export const RoutingStrategySchema = z.enum([
   "OVERRIDE",

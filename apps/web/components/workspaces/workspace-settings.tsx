@@ -1,12 +1,7 @@
 "use client";
 
-import {
-  ResetStrategySchema,
-  TestRunnerSchema,
-  type ResetStrategy,
-  type TestRunner,
-  type WorkspaceDto,
-} from "@onyx/contracts";
+import type { ResetStrategy, TestRunner, WorkspaceDto } from "@onyx/contracts";
+import { RESET_STRATEGIES, TEST_RUNNERS, oneOf } from "@onyx/contracts/client";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Save, Settings2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -71,9 +66,11 @@ export function WorkspaceSettings({
               <Select
                 id="ws-strategy"
                 value={strategy}
-                onChange={(event) => setStrategy(ResetStrategySchema.parse(event.target.value))}
+                onChange={(event) =>
+                  setStrategy(oneOf(RESET_STRATEGIES, event.target.value) ?? strategy)
+                }
               >
-                {ResetStrategySchema.options.map((option) => (
+                {RESET_STRATEGIES.map((option) => (
                   <option key={option} value={option}>
                     {RESET_STRATEGY_LABELS[option].label}
                   </option>
@@ -115,12 +112,14 @@ export function WorkspaceSettings({
                 value={runner}
                 onChange={(event) =>
                   setRunner(
-                    event.target.value === "" ? "" : TestRunnerSchema.parse(event.target.value),
+                    event.target.value === ""
+                      ? ""
+                      : (oneOf(TEST_RUNNERS, event.target.value) ?? ""),
                   )
                 }
               >
                 <option value="">Detect</option>
-                {TestRunnerSchema.options.map((option) => (
+                {TEST_RUNNERS.map((option) => (
                   <option key={option} value={option}>
                     {option === "VITEST" ? "Vitest" : "Jest"}
                   </option>

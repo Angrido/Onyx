@@ -1,11 +1,7 @@
 "use client";
 
-import {
-  channels,
-  type ServerMessage,
-  type TddIterationDto,
-  type TddLoopDto,
-} from "@onyx/contracts";
+import type { ServerMessage, TddIterationDto, TddLoopDto } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronsUp,
@@ -17,7 +13,7 @@ import {
   Square,
   Undo2,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { ModelBadge } from "@/components/tasks/status-badge";
@@ -135,6 +131,37 @@ function IterationDetail({ iteration }: { iteration: TddIterationDto }) {
   );
 }
 
+function LoopSignal({ loop }: { loop: TddLoopDto }) {
+  const reduced = useReducedMotion() ?? false;
+  const last = loop.iterations.at(-1) ?? null;
+  if (reduced) return null;
+  if (loop.status === "GREEN")
+    return (
+      <motion.span
+        key={`green-${loop.id}`}
+        aria-hidden
+        data-testid="tdd-green-wave"
+        className="pointer-events-none absolute left-10 top-8 size-24 rounded-full bg-success/30"
+        initial={{ scale: 0, opacity: 0.6 }}
+        animate={{ scale: 9, opacity: 0 }}
+        transition={{ duration: 1.4, ease: "easeOut" }}
+      />
+    );
+  if (last && isLoopActive(loop) && iterationOutcome(last) === "red")
+    return (
+      <motion.span
+        key={`red-${last.id}`}
+        aria-hidden
+        data-testid="tdd-red-flash"
+        className="pointer-events-none absolute inset-0 rounded-xl bg-destructive/15 ring-1 ring-inset ring-destructive/50"
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 0 }}
+        transition={{ duration: 0.9, ease: "easeOut" }}
+      />
+    );
+  return null;
+}
+
 export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoopDto[] }) {
   const queryClient = useQueryClient();
   const [pinnedLoop, setPinnedLoop] = useState<string | null>(null);
@@ -171,8 +198,9 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
   if (!loop) return null;
 
   return (
-    <Card data-testid="tdd-panel">
-      <CardContent className="space-y-4 pt-5">
+    <Card data-testid="tdd-panel" className="relative overflow-hidden">
+      <LoopSignal loop={loop} />
+      <CardContent className="relative space-y-4 pt-5">
         <div className="flex flex-wrap items-center gap-2">
           <FlaskConical className="size-4 text-primary" />
           <span className="text-sm font-semibold">TDD loop</span>
@@ -221,8 +249,20 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
         <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
           <div className="rounded-lg bg-surface-2/60 px-3 py-2">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Attempts</p>
-            <p className="tabular text-sm font-semibold" data-testid="tdd-attempts">
-              {attemptsLabel(loop)}
+            <p className="tabular relative h-5 overflow-hidden text-sm font-semibold">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={loop.iterationCount}
+                  className="block"
+                  data-testid="tdd-attempts"
+                  initial={{ y: "100%", opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: "-100%", opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                >
+                  {attemptsLabel(loop)}
+                </motion.span>
+              </AnimatePresence>
             </p>
           </div>
           <div className="rounded-lg bg-surface-2/60 px-3 py-2">

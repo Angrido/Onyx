@@ -6,7 +6,9 @@ import { TddLoopDtoSchema } from "./api/tdd";
 import { TerminalDtoSchema } from "./api/terminals";
 import { RunItemSchema } from "./stream-json/run-items";
 
-export const WS_PROTOCOL_VERSION = 1;
+import { WS_PROTOCOL_VERSION } from "./client";
+
+export { WS_PROTOCOL_VERSION, channels, runIdFromChannel } from "./client";
 
 export const ChannelSchema = z
   .string()
@@ -16,21 +18,6 @@ export const ChannelSchema = z
     "Invalid channel",
   );
 export type Channel = z.infer<typeof ChannelSchema>;
-
-export const channels = {
-  system: "system",
-  run: (runId: string) => `run:${runId}`,
-  task: (taskId: string) => `task:${taskId}`,
-  project: (projectId: string) => `project:${projectId}`,
-  workspace: (workspaceId: string) => `workspace:${workspaceId}`,
-  pty: (terminalId: string) => `pty:${terminalId}`,
-  tdd: (loopId: string) => `tdd:${loopId}`,
-  orchestration: (orchestrationId: string) => `orchestration:${orchestrationId}`,
-} as const;
-
-export function runIdFromChannel(channel: string): string | null {
-  return channel.startsWith("run:") ? channel.slice(4) : null;
-}
 
 const ClientEnvelopeBase = {
   v: z.literal(WS_PROTOCOL_VERSION),

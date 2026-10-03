@@ -1,12 +1,8 @@
 "use client";
 
 import "@xterm/xterm/css/xterm.css";
-import {
-  WS_PROTOCOL_VERSION,
-  channels,
-  type ServerMessage,
-  type TerminalDto,
-} from "@onyx/contracts";
+import type { ServerMessage, TerminalDto } from "@onyx/contracts";
+import { WS_PROTOCOL_VERSION, channels } from "@onyx/contracts/client";
 import { useEffect, useRef } from "react";
 import { useWsClient } from "@/lib/ws/context";
 import { cn } from "@/lib/utils";

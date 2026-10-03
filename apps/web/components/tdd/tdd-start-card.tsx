@@ -1,12 +1,7 @@
 "use client";
 
-import {
-  TestRunnerSchema,
-  type TaskDetailDto,
-  type TddDefaultsDto,
-  type TddLoopDto,
-  type TestRunner,
-} from "@onyx/contracts";
+import type { TaskDetailDto, TddDefaultsDto, TddLoopDto, TestRunner } from "@onyx/contracts";
+import { TEST_RUNNERS, oneOf } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Loader2, Play, ShieldCheck } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -80,7 +75,9 @@ export function TddStartCard({ task, disabled }: { task: TaskDetailDto; disabled
                 value={runner}
                 onChange={(event) =>
                   setRunner(
-                    event.target.value === "" ? "" : TestRunnerSchema.parse(event.target.value),
+                    event.target.value === ""
+                      ? ""
+                      : (oneOf(TEST_RUNNERS, event.target.value) ?? ""),
                   )
                 }
               >

@@ -1,19 +1,17 @@
 "use client";
 
-import {
-  DomainSchema,
-  ModelTierSchema,
-  TaskKindSchema,
-  type CatalogResponse,
-  type CreateRoutingRuleRequest,
-  type Domain,
-  type ModelTier,
-  type ProjectDto,
-  type RoutingRuleDto,
-  type RoutingRuleListResponse,
-  type RuleMatcher,
-  type TaskKind,
+import type {
+  CatalogResponse,
+  CreateRoutingRuleRequest,
+  Domain,
+  ModelTier,
+  ProjectDto,
+  RoutingRuleDto,
+  RoutingRuleListResponse,
+  RuleMatcher,
+  TaskKind,
 } from "@onyx/contracts";
+import { DOMAINS, MODEL_TIERS, TASK_KINDS, oneOf } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -229,10 +227,10 @@ function RuleDialog({
                 id="rule-tier"
                 value={draft.targetTier}
                 onChange={(event) =>
-                  update({ targetTier: ModelTierSchema.parse(event.target.value) })
+                  update({ targetTier: oneOf(MODEL_TIERS, event.target.value) ?? draft.targetTier })
                 }
               >
-                {ModelTierSchema.options.map((tier) => (
+                {MODEL_TIERS.map((tier) => (
                   <option key={tier} value={tier}>
                     {TIER_STYLES[tier].label}
                   </option>
@@ -252,7 +250,7 @@ function RuleDialog({
           <div className="space-y-2">
             <Label>Task kinds</Label>
             <div className="flex flex-wrap gap-1.5">
-              {TaskKindSchema.options.map((kind) => (
+              {TASK_KINDS.map((kind) => (
                 <Chip
                   key={kind}
                   active={draft.taskKinds.includes(kind)}
@@ -266,7 +264,7 @@ function RuleDialog({
           <div className="space-y-2">
             <Label>Workspace domains</Label>
             <div className="flex flex-wrap gap-1.5">
-              {DomainSchema.options.map((domain) => (
+              {DOMAINS.map((domain) => (
                 <Chip
                   key={domain}
                   active={draft.domains.includes(domain)}

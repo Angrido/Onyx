@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { TEST_RUNNERS } from "../client";
 
-export const TestRunnerSchema = z.enum(["VITEST", "JEST"]);
+export const TestRunnerSchema = z.enum(TEST_RUNNERS);
 export type TestRunner = z.infer<typeof TestRunnerSchema>;
 
 export const TddStatusSchema = z.enum([

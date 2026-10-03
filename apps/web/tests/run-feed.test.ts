@@ -2,11 +2,13 @@ import type { RunItem } from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_FEED,
+  activeTool,
   applyDelta,
   applyRunEvent,
   contextSavings,
   feedUsage,
   isTerminal,
+  toolFamily,
 } from "@/lib/run-feed";
 
 const usage = (input: number, output: number) => ({
@@ -180,5 +182,40 @@ describe("guard items", () => {
     expect(state.entries.map((entry) => entry.kind)).toEqual(["routing", "session"]);
     expect(state.routing?.ruleName).toBe("ui-styling");
     expect(state.session?.handoff?.tokens).toBe(120);
+  });
+});
+
+describe("active tool", () => {
+  it("names the tool the agent is waiting on and its family", () => {
+    const running = { ...INITIAL_FEED, status: "RUNNING" as const };
+    const calling = applyRunEvent(running, 1, [
+      {
+        kind: "tool_use",
+        messageId: "m1",
+        toolUseId: "t1",
+        name: "Edit",
+        input: {},
+        inputTruncated: false,
+        parentToolUseId: null,
+      },
+    ]);
+    expect(activeTool(calling)).toBe("Edit");
+    const answered = applyRunEvent(calling, 2, [
+      {
+        kind: "tool_result",
+        toolUseId: "t1",
+        isError: false,
+        content: "ok",
+        truncated: false,
+        parentToolUseId: null,
+      },
+    ]);
+    expect(activeTool(answered)).toBeNull();
+    expect(activeTool({ ...calling, status: "COMPLETED" })).toBeNull();
+    expect(toolFamily("Grep")).toBe("read");
+    expect(toolFamily("Bash")).toBe("shell");
+    expect(toolFamily("mcp__onyx__search_symbols")).toBe("context");
+    expect(toolFamily("Task")).toBe("delegate");
+    expect(toolFamily("Mystery")).toBe("other");
   });
 });

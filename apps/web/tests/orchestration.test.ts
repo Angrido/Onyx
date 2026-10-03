@@ -1,6 +1,7 @@
 import type { ApprovalDto, OrchestrationDto, OrchestrationNode } from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
 import { formatBytes } from "@/lib/format";
+import { isPaletteShortcut } from "@/lib/palette";
 import {
   budgetUsage,
   canResume,
@@ -150,5 +151,14 @@ describe("sizes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(3_276_800)).toBe("3.1 MB");
     expect(formatBytes(5 * 1024 ** 3)).toBe("5.00 GB");
+  });
+});
+
+describe("command palette shortcut", () => {
+  it("opens with Ctrl+K or Cmd+K only", () => {
+    expect(isPaletteShortcut({ key: "k", ctrlKey: true, metaKey: false })).toBe(true);
+    expect(isPaletteShortcut({ key: "K", ctrlKey: false, metaKey: true })).toBe(true);
+    expect(isPaletteShortcut({ key: "k", ctrlKey: false, metaKey: false })).toBe(false);
+    expect(isPaletteShortcut({ key: "j", ctrlKey: true, metaKey: false })).toBe(false);
   });
 });

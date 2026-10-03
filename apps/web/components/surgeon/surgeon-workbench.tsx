@@ -1,12 +1,12 @@
 "use client";
 
-import {
-  channels,
-  type SaveProfileRequest,
-  type ServerMessage,
-  type SurgeonStateDto,
-  type WorkspaceDto,
+import type {
+  SaveProfileRequest,
+  ServerMessage,
+  SurgeonStateDto,
+  WorkspaceDto,
 } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { presetRules, suggestRules, type Suggestion } from "@onyx/ignore-compiler/browser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RotateCcw, Save, ScanSearch } from "lucide-react";

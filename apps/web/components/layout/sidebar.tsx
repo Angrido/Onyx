@@ -1,11 +1,7 @@
 "use client";
 
-import {
-  channels,
-  type ApprovalListResponse,
-  type ServerMessage,
-  type UserDto,
-} from "@onyx/contracts";
+import type { ApprovalListResponse, ServerMessage, UserDto } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -14,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   Route,
+  Search,
   Settings,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -23,6 +20,7 @@ import { useCallback } from "react";
 import { Wordmark } from "@/components/layout/brand";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { openCommandPalette } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { useChannel, useConnectionState } from "@/lib/ws/context";
 
@@ -136,7 +134,19 @@ export function Sidebar({ user }: { user: UserDto }) {
         <div className="px-2">
           <Wordmark />
         </div>
-        <nav className="mt-8 flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          className="mt-6 flex items-center gap-2 rounded-md border border-border bg-surface-1/60 px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          data-testid="open-palette"
+        >
+          <Search className="size-4" />
+          Search
+          <kbd className="ml-auto rounded border border-border-strong bg-surface-2 px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground">
+            Ctrl K
+          </kbd>
+        </button>
+        <nav className="mt-4 flex flex-col gap-1">
           {NAV.map((item) => {
             const active = isActive(pathname, item.href);
             return (

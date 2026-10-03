@@ -1,12 +1,12 @@
 "use client";
 
-import {
-  channels,
-  type OrchestrationDto,
-  type OrchestrationNode,
-  type PublishPlanResult,
-  type ServerMessage,
+import type {
+  OrchestrationDto,
+  OrchestrationNode,
+  PublishPlanResult,
+  ServerMessage,
 } from "@onyx/contracts";
+import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -28,7 +28,7 @@ import {
   Upload,
   Trash2,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -391,28 +391,30 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
       {plan.status === "PLANNING" ? <PlanningActivity plan={plan} /> : null}
 
       {levels.length > 0 ? (
-        <div className="space-y-6">
-          {levels.map((level, index) => (
-            <section key={level[0]?.key ?? index} className="space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="grid size-6 place-items-center rounded-full border border-border-strong bg-surface-2 text-[11px] font-semibold">
-                  {index + 1}
-                </span>
-                <h2 className="text-sm font-semibold tracking-tight">
-                  {index === 0 ? "Starts right away" : `After step ${index}`}
-                </h2>
-                <span className="text-xs text-muted-foreground">
-                  {level.length > 1 ? `${level.length} tasks in parallel` : "1 task"}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {level.map((node) => (
-                  <NodeCard key={node.taskId} node={node} byKey={byKey} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <AnimatePresence initial={false}>
+          <div className="space-y-6">
+            {levels.map((level, index) => (
+              <section key={level[0]?.key ?? index} className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-6 place-items-center rounded-full border border-border-strong bg-surface-2 text-[11px] font-semibold">
+                    {index + 1}
+                  </span>
+                  <h2 className="text-sm font-semibold tracking-tight">
+                    {index === 0 ? "Starts right away" : `After step ${index}`}
+                  </h2>
+                  <span className="text-xs text-muted-foreground">
+                    {level.length > 1 ? `${level.length} tasks in parallel` : "1 task"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {level.map((node) => (
+                    <NodeCard key={node.taskId} node={node} byKey={byKey} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </AnimatePresence>
       ) : null}
     </div>
   );
