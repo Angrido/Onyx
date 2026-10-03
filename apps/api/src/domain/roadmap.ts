@@ -64,7 +64,7 @@ const KIND_ALIASES: Record<string, TaskKind> = {
   INFRA: "CHORE",
 };
 
-function normalizeKind(value: unknown): TaskKind {
+export function normalizeKind(value: unknown): TaskKind {
   const raw = String(value ?? "")
     .trim()
     .toUpperCase()
@@ -128,7 +128,7 @@ const ProposalSchema = z.object({
   items: z.array(z.unknown()).min(1),
 });
 
-function jsonCandidates(text: string): string[] {
+export function jsonCandidates(text: string): string[] {
   const candidates: string[] = [];
   for (const match of text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)) {
     if (match[1]) candidates.push(match[1]);

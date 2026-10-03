@@ -5,7 +5,9 @@ import type { ReadyResponse } from "@onyx/contracts";
 import { connectDatabase, seedDatabase, type PrismaClient } from "@onyx/db";
 import { AdjustableTokenEstimator, LeanAnalyzer } from "@onyx/lean-ctx";
 import type { Logger } from "pino";
+import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
+import { BudgetService } from "./application/budget-service";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
@@ -13,6 +15,7 @@ import { CredentialService } from "./application/credential-service";
 import { GitService } from "./application/git-service";
 import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
+import { OrchestratorService } from "./application/orchestrator-service";
 import { ProjectService } from "./application/project-service";
 import { recoverInterruptedWork } from "./application/recovery";
 import { RunExecutor } from "./application/run-executor";
@@ -71,6 +74,9 @@ export interface Container {
   git: GitService;
   roadmap: RoadmapService;
   tdd: TddService;
+  approvals: ApprovalService;
+  budgets: BudgetService;
+  orchestrator: OrchestratorService;
   auth: AuthService;
   projects: ProjectService;
   workspaces: WorkspaceService;
@@ -193,14 +199,47 @@ export async function createContainer(
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
+  const approvals = new ApprovalService({ prisma, logger, hub });
+  const spending: { budgets: BudgetService | null } = { budgets: null };
   const scheduler = new RunScheduler({
     executor,
     pool,
     hub,
     logger,
     maxConcurrent: config.maxConcurrentAgents,
+    admit: (projectId) => spending.budgets?.admit(projectId) ?? { decision: "go" },
+    reject: async (item, reason) => {
+      const task = await prisma.task.update({
+        where: { id: item.request.taskId },
+        data: { status: "FAILED", resultSummary: reason },
+      });
+      hub.publishTaskStatus({
+        taskId: task.id,
+        projectId: task.projectId,
+        status: "FAILED",
+        runId: null,
+      });
+    },
+    afterRun: () => {
+      void spending.budgets?.refresh().catch(() => undefined);
+    },
   });
   scheduling.scheduler = scheduler;
+  const budgets = new BudgetService({
+    prisma,
+    logger,
+    approvals,
+    onHardLimit: (projectId, reason) => {
+      void scheduler
+        .abortScope(projectId)
+        .then((aborted) => {
+          if (aborted > 0) logger.warn({ projectId, aborted }, reason);
+        })
+        .catch((error: unknown) => logger.error({ err: error }, "Could not stop runs over budget"));
+    },
+    onChange: () => scheduler.poke(),
+  });
+  spending.budgets = budgets;
   const terminals = new TerminalService({
     prisma,
     hub,
@@ -271,6 +310,30 @@ export async function createContainer(
   });
   loops.service = tdd;
   runs.service = runService;
+  const git = new GitService({
+    prisma,
+    logger,
+    github,
+    isWorkspaceBusy: (workspaceId) => scheduler.isWorkspaceBusy(workspaceId),
+  });
+  const orchestrator = new OrchestratorService({
+    prisma,
+    logger,
+    hub,
+    pool,
+    scheduler,
+    tdd,
+    approvals,
+    budgets,
+    git,
+    indexes,
+    surgeon,
+    router,
+    runTokens,
+    credentials,
+    config,
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+  });
 
   const container: Container = {
     config,
@@ -292,16 +355,14 @@ export async function createContainer(
     auth: new AuthService(prisma, config.sessionTtlMs),
     projects,
     github,
-    git: new GitService({
-      prisma,
-      logger,
-      github,
-      isWorkspaceBusy: (workspaceId) => scheduler.isWorkspaceBusy(workspaceId),
-    }),
+    git,
     workspaces: new WorkspaceService(prisma),
     tasks,
     roadmap,
     tdd,
+    approvals,
+    budgets,
+    orchestrator,
     runs: runService,
     telemetry: new TelemetryService(prisma, () => ({
       activeRuns: scheduler.activeCount,
@@ -359,6 +420,8 @@ export async function createContainer(
       await calibration.load();
       logger.info({ seeded, cliVersion }, "Database ready");
       await tdd.recover();
+      await orchestrator.recover();
+      await budgets.refresh();
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,
         autoResumeQueued: config.autoResumeQueued,
@@ -369,6 +432,7 @@ export async function createContainer(
     async stop(): Promise<void> {
       await indexes.shutdown();
       await roadmap.shutdown();
+      await orchestrator.shutdown();
       await tdd.shutdown();
       await terminals.shutdown();
       await credentials.shutdown();

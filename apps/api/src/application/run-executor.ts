@@ -62,6 +62,7 @@ export interface RunRequest {
   prompt: string | null;
   newSession: boolean;
   tdd?: TddRunScope;
+  tierHint?: RoutingEscalation | null;
 }
 
 export interface RunLifecycleHooks {
@@ -102,6 +103,7 @@ interface PreparedRun {
   taskId: string;
   projectId: string;
   projectRoot: string;
+  isolated: boolean;
   workspaceId: string;
   sessionId: string;
   sessionIsNew: boolean;
@@ -123,6 +125,18 @@ interface PreparedContext {
   packText: string | null;
   mcpConfig: McpConfigFile;
   mcpEnabled: boolean;
+}
+
+function subagentsOf(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const agents: Record<string, unknown> = {};
+  for (const [name, definition] of Object.entries(value)) {
+    if (typeof definition !== "object" || definition === null) continue;
+    const record = definition as Record<string, unknown>;
+    if (typeof record["description"] !== "string" || typeof record["prompt"] !== "string") continue;
+    agents[name] = record;
+  }
+  return Object.keys(agents).length > 0 ? agents : null;
 }
 
 function statusItem(
@@ -354,7 +368,7 @@ export class RunExecutor {
       runId: prepared.runId,
     });
     if (exit.sawInit) indexes.scheduleRefresh(prepared.projectId);
-    if (changedFiles.length > 0) {
+    if (changedFiles.length > 0 && !prepared.isolated) {
       try {
         this.deps.onRunFinished?.({
           projectId: prepared.projectId,
@@ -407,9 +421,14 @@ export class RunExecutor {
     const workspace = task.workspace;
     if (!workspace) throw badRequest("Task has no workspace");
 
-    const rootStats = await stat(task.project.rootPath).catch(() => null);
+    const root = task.worktreePath ?? task.project.rootPath;
+    const rootStats = await stat(root).catch(() => null);
     if (!rootStats?.isDirectory())
-      throw badRequest(`Project root ${task.project.rootPath} is not a directory`);
+      throw badRequest(
+        task.worktreePath
+          ? `The task worktree ${root} is missing`
+          : `Project root ${root} is not a directory`,
+      );
 
     const agentConfig = await this.resolveAgentConfig(
       request.agentConfigId ?? workspace.agentConfigId,
@@ -423,7 +442,7 @@ export class RunExecutor {
       title: task.title,
       prompt,
       targetPaths: toStringArray(task.targetPaths),
-      escalation: request.tdd?.escalation ?? null,
+      escalation: request.tdd?.escalation ?? request.tierHint ?? null,
       override: request.modelId
         ? { modelId: request.modelId, source: "run-request" }
         : task.modelOverride
@@ -435,12 +454,19 @@ export class RunExecutor {
     const profile = await prisma.modelProfile.findUnique({ where: { id: modelId } });
     if (!profile || !profile.enabled) throw badRequest(`Model ${modelId} is not enabled`);
 
-    const plan = await compartments.prepare({
-      projectId: task.projectId,
-      workspace,
-      modelId,
-      forceNew: request.newSession,
-    });
+    const plan = task.worktreePath
+      ? await compartments.prepareIsolated({
+          taskId: task.id,
+          workspace,
+          modelId,
+          forceNew: request.newSession,
+        })
+      : await compartments.prepare({
+          projectId: task.projectId,
+          workspace,
+          modelId,
+          forceNew: request.newSession,
+        });
     const session = plan.session;
     const permissionMode = PermissionModeSchema.parse(agentConfig.permissionMode);
 
@@ -468,10 +494,10 @@ export class RunExecutor {
       return { run: created, startedAt: created.startedAt.getTime() };
     });
 
-    const scope = await this.deps.surgeon.runScope(task.projectId, workspace.id);
+    const scope = await this.deps.surgeon.runScope(task.projectId, workspace.id, task.worktreePath);
     const indexed = await this.deps.indexes.context(task.projectId);
     const fence = new WriteFence(
-      task.project.rootPath,
+      root,
       { name: workspace.name, globs: toStringArray(workspace.writeFenceGlobs) },
       task.project.workspaces
         .filter((candidate) => candidate.id !== workspace.id)
@@ -515,13 +541,14 @@ export class RunExecutor {
       }),
       mcpConfig: context.mcpConfig,
       contextPack: context.packText,
+      agents: subagentsOf(agentConfig.subagents),
     });
     const allowedTools = toStringArray(agentConfig.allowedTools);
     const handoffText = plan.item.handoff?.text ?? null;
 
     const spec: RunSpec = {
       runId: run.id,
-      cwd: task.project.rootPath,
+      cwd: root,
       prompt: composeUserMessage(context.packText, prompt, handoffText),
       model: modelId,
       fallbackModels: toStringArray(agentConfig.fallbackModelIds).filter((id) => id !== modelId),
@@ -550,6 +577,8 @@ export class RunExecutor {
         idleMs: agentConfig.idleTimeoutSec * 1_000,
         initMs: INIT_TIMEOUT_MS,
       },
+      agentsFile: files.agentsFile,
+      maxBudgetUsd: task.budgetUsd,
     };
     await prisma.agentRun.update({ where: { id: run.id }, data: { args: buildClaudeArgs(spec) } });
 
@@ -558,7 +587,8 @@ export class RunExecutor {
       runId: run.id,
       taskId: task.id,
       projectId: task.projectId,
-      projectRoot: task.project.rootPath,
+      projectRoot: root,
+      isolated: task.worktreePath !== null,
       workspaceId: workspace.id,
       sessionId: session.id,
       sessionIsNew: plan.decision.action === "start",

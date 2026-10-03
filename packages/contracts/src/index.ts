@@ -19,4 +19,5 @@ export * from "./api/settings";
 export * from "./api/roadmap";
 export * from "./api/git";
 export * from "./api/tdd";
+export * from "./api/orchestration";
 export * from "./ws";

@@ -6,6 +6,7 @@ import {
   type SequencedServerMessage,
   type ServerMessage,
   type ServerMessageOf,
+  type OrchestrationDto,
   type TddLoopDto,
   type TerminalDto,
 } from "@onyx/contracts";
@@ -96,6 +97,18 @@ export function tddStateMessage(loop: TddLoopDto): ServerMessageOf<"tdd.state"> 
     ch: channelNames.tdd(loop.id),
     ts: now(),
     data: { loop },
+  };
+}
+
+export function orchestrationStateMessage(
+  orchestration: OrchestrationDto,
+): ServerMessageOf<"orchestration.state"> {
+  return {
+    v: WS_PROTOCOL_VERSION,
+    type: "orchestration.state",
+    ch: channelNames.orchestration(orchestration.id),
+    ts: now(),
+    data: { orchestration },
   };
 }
 
@@ -225,6 +238,20 @@ export class WsHub implements RunEventPublisher {
 
   publishTddState(loop: TddLoopDto): void {
     this.publishTransient(tddStateMessage(loop));
+  }
+
+  publishOrchestration(orchestration: OrchestrationDto): void {
+    this.publishTransient(orchestrationStateMessage(orchestration));
+  }
+
+  publishApprovals(pending: number): void {
+    this.publishTransient({
+      v: WS_PROTOCOL_VERSION,
+      type: "approvals.changed",
+      ch: channelNames.system,
+      ts: now(),
+      data: { pending },
+    });
   }
 
   hasListeners(channel: string): boolean {

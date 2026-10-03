@@ -13,7 +13,7 @@ import { isActive, isRunnable } from "../domain/task-state";
 import { badRequest, conflict, notFound } from "../errors";
 import type { WsHub } from "../infrastructure/ws-hub";
 import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toTaskDto } from "./mappers";
-import type { RunScheduler } from "./run-scheduler";
+import { runLockKey, type RunScheduler } from "./run-scheduler";
 
 type CreateTaskInput = z.output<typeof CreateTaskRequestSchema>;
 type ListTasksInput = z.output<typeof ListTasksQuerySchema>;
@@ -114,6 +114,8 @@ export class TaskService {
         newSession: input.newSession,
       },
       workspaceId: task.workspaceId,
+      projectId: task.projectId,
+      lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
       priority: task.priority,
       enqueuedAt: Date.now(),
     });

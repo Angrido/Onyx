@@ -9,6 +9,7 @@ export interface RuntimeFiles {
   mcpConfigFile: string;
   primerFile: string | null;
   contextFile: string | null;
+  agentsFile: string | null;
 }
 
 export interface RuntimeFilesInput {
@@ -18,6 +19,7 @@ export interface RuntimeFilesInput {
   primer: string | null;
   mcpConfig?: McpConfigFile;
   contextPack?: string | null;
+  agents?: Record<string, unknown> | null;
 }
 
 export async function writeRuntimeFiles(input: RuntimeFilesInput): Promise<RuntimeFiles> {
@@ -46,5 +48,11 @@ export async function writeRuntimeFiles(input: RuntimeFilesInput): Promise<Runti
     await writeFile(contextFile, `${input.contextPack}\n`, { mode: 0o600 });
   }
 
-  return { directory, settingsFile, mcpConfigFile, primerFile, contextFile };
+  let agentsFile: string | null = null;
+  if (input.agents && Object.keys(input.agents).length > 0) {
+    agentsFile = join(directory, "agents.json");
+    await writeFile(agentsFile, `${JSON.stringify(input.agents, null, 2)}\n`, { mode: 0o600 });
+  }
+
+  return { directory, settingsFile, mcpConfigFile, primerFile, contextFile, agentsFile };
 }

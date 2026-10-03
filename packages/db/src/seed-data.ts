@@ -59,6 +59,14 @@ export const MODEL_PROFILES: readonly ModelProfileSeed[] = [
   },
 ];
 
+export type SubagentSeed = {
+  description: string;
+  prompt: string;
+  tools: string[];
+  model: "haiku" | "sonnet" | "opus" | "inherit";
+  maxTurns: number;
+};
+
 export interface AgentConfigSeed {
   name: string;
   description: string;
@@ -71,6 +79,7 @@ export interface AgentConfigSeed {
   maxTurns: number;
   timeoutSec: number;
   idleTimeoutSec: number;
+  subagents?: Record<string, SubagentSeed>;
 }
 
 const SAFE_GIT_TOOLS = ["Bash(git status *)", "Bash(git diff *)", "Bash(git log *)"];
@@ -87,6 +96,36 @@ const READ_TOOLS = ["Read", "Glob", "Grep"];
 const EDIT_TOOLS = ["Edit", "Write"];
 const TEST_FILE_EDIT_RULES = ["Edit(**/*.test.*)", "Edit(**/*.spec.*)", "Edit(**/__tests__/**)"];
 
+const EXPLORER: SubagentSeed = {
+  description:
+    "Fast read-only search: finds the files, symbols and usages relevant to a question and reports paths with line numbers. Use it before reading many files yourself.",
+  prompt:
+    "You explore the repository without changing it. Answer with file paths, line numbers and short excerpts, ordered by relevance. Never edit files.",
+  tools: READ_TOOLS,
+  model: "haiku",
+  maxTurns: 15,
+};
+
+const TEST_WRITER: SubagentSeed = {
+  description:
+    "Writes focused unit tests for code that was just added or changed, following the project's test runner and conventions.",
+  prompt:
+    "You write focused, deterministic tests for the change you are given. Follow the existing test style, cover the edge cases named in the request and never weaken or delete existing assertions.",
+  tools: [...READ_TOOLS, ...EDIT_TOOLS],
+  model: "sonnet",
+  maxTurns: 25,
+};
+
+const REVIEWER: SubagentSeed = {
+  description:
+    "Reviews the uncommitted diff for bugs, missed edge cases and violations of the project conventions before the work is declared done.",
+  prompt:
+    "You review the current uncommitted changes. Report concrete problems with file and line: wrong behaviour, unhandled edge cases, security issues and inconsistencies with the surrounding code. Do not edit files.",
+  tools: [...READ_TOOLS, ...SAFE_GIT_TOOLS],
+  model: "sonnet",
+  maxTurns: 15,
+};
+
 export const AGENT_CONFIGS: readonly AgentConfigSeed[] = [
   {
     name: "architect",
@@ -100,6 +139,7 @@ export const AGENT_CONFIGS: readonly AgentConfigSeed[] = [
     maxTurns: 60,
     timeoutSec: 3_600,
     idleTimeoutSec: 600,
+    subagents: { explorer: EXPLORER, "test-writer": TEST_WRITER, reviewer: REVIEWER },
   },
   {
     name: "planner",
@@ -126,6 +166,7 @@ export const AGENT_CONFIGS: readonly AgentConfigSeed[] = [
     maxTurns: 40,
     timeoutSec: 1_800,
     idleTimeoutSec: 300,
+    subagents: { explorer: EXPLORER, "test-writer": TEST_WRITER },
   },
   {
     name: "scout",

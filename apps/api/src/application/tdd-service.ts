@@ -55,7 +55,7 @@ import { ptyOutputMessage, tddStateMessage, type WsHub } from "../infrastructure
 import { parsePorcelain } from "./git-service";
 import { toStringArray } from "./mappers";
 import type { ExecutionResult } from "./run-executor";
-import type { RunScheduler } from "./run-scheduler";
+import { runLockKey, type RunScheduler } from "./run-scheduler";
 import type { RouterService } from "./router-service";
 
 type StartInput = z.output<typeof StartTddLoopRequestSchema>;
@@ -113,6 +113,7 @@ interface ActiveLoop {
   taskTitle: string;
   taskPrompt: string;
   holdId: string;
+  lockKey: string;
   release: () => void;
   guard: TestGuard;
   snapshot: ProtectedSnapshot;
@@ -267,12 +268,13 @@ export class TddService {
 
   async defaults(taskId: string): Promise<TddDefaultsDto> {
     const { task, workspace } = await this.loadTask(taskId);
-    const facts = await this.projectFacts(task.project.rootPath);
+    const root = task.worktreePath ?? task.project.rootPath;
+    const facts = await this.projectFacts(root);
     const runner = workspace.testRunner ?? detectRunner(facts);
     return {
       runner,
       baseCommand: runner ? this.baseCommand(runner, workspace.testCommand, facts.binaries) : null,
-      relatedFiles: await this.defaultRelatedFiles(task.project.rootPath, task.targetPaths),
+      relatedFiles: await this.defaultRelatedFiles(root, task.targetPaths),
       typecheckCommand: facts.files.has("tsconfig.json")
         ? defaultTypecheckCommand(facts.binaries)
         : null,
@@ -281,7 +283,7 @@ export class TddService {
         detectPackageManager(facts.files),
         facts.binaries,
       ),
-      protectedFiles: await this.countProtected(task.project.rootPath),
+      protectedFiles: await this.countProtected(root),
       activeLoopId: this.isActiveForTask(taskId),
     };
   }
@@ -311,7 +313,7 @@ export class TddService {
     const { task, workspace } = await this.loadTask(taskId);
     if (isActive(task.status)) throw conflict(`Task is ${task.status.toLowerCase()}`);
     if (this.isActiveForTask(taskId)) throw conflict("A TDD loop is already running for this task");
-    const root = task.project.rootPath;
+    const root = task.worktreePath ?? task.project.rootPath;
     const facts = await this.projectFacts(root);
     const runner = input.runner ?? workspace.testRunner ?? detectRunner(facts);
     if (!runner)
@@ -330,7 +332,8 @@ export class TddService {
       input.relatedFiles ?? (await this.defaultRelatedFiles(root, task.targetPaths))
     ).slice(0, MAX_RELATED_FILES);
 
-    const hold = scheduler.hold(workspace.id);
+    const lockKey = runLockKey({ ...task, workspaceId: workspace.id });
+    const hold = scheduler.hold(lockKey);
     if (!hold.ok)
       throw conflict(
         hold.reason === "busy"
@@ -425,6 +428,7 @@ export class TddService {
         taskTitle: task.title,
         taskPrompt: task.prompt,
         holdId: hold.id,
+        lockKey,
         release: hold.release,
         guard,
         snapshot,
@@ -461,6 +465,11 @@ export class TddService {
     }
   }
 
+  async settled(loopId: string): Promise<TddLoopDto> {
+    await this.active.get(loopId)?.done;
+    return this.get(loopId);
+  }
+
   async abort(loopId: string, actor: string): Promise<TddLoopDto> {
     const loop = this.active.get(loopId);
     if (!loop) {
@@ -493,13 +502,15 @@ export class TddService {
     const { prisma, logger } = this.deps;
     const stale = await prisma.tddLoop.findMany({
       where: { status: { in: ["PENDING", "RUNNING"] } },
-      include: { task: { select: { project: { select: { rootPath: true } } } } },
+      include: {
+        task: { select: { worktreePath: true, project: { select: { rootPath: true } } } },
+      },
     });
     for (const loop of stale) {
       const snapshot = await ProtectedSnapshot.load(join(this.loopDirectory(loop.id), "snapshot"));
       let restored: ProtectedChange[] = [];
       if (snapshot) {
-        const guard = new TestGuard(loop.task.project.rootPath);
+        const guard = new TestGuard(loop.task.worktreePath ?? loop.task.project.rootPath);
         restored = await snapshot.verify((path) => guard.isProtected(path)).catch(() => []);
         if (restored.length > 0) await snapshot.restore(restored).catch(() => undefined);
         await snapshot.discard();
@@ -672,6 +683,8 @@ export class TddService {
               tdd: { loopId: loop.id, guard: loop.guard, escalation },
             },
             workspaceId: loop.workspaceId,
+            projectId: loop.projectId,
+            lockKey: loop.lockKey,
             priority: 100,
             enqueuedAt: Date.now(),
             holdId: loop.holdId,

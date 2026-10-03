@@ -234,6 +234,9 @@ function normalizeResult(raw: unknown): RunItem[] {
       costUsd: event.total_cost_usd ?? null,
       usage: toTokenUsage(event.usage),
       resultText: event.result ?? null,
+      ...(event.structured_output === undefined
+        ? {}
+        : { structuredOutput: event.structured_output }),
       sessionId: event.session_id ?? null,
       modelUsage: toModelUsage(event.modelUsage ?? event.model_usage),
     },

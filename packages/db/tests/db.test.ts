@@ -8,7 +8,7 @@ import {
   TaskKindSchema,
   TaskStatusSchema,
 } from "@onyx/contracts";
-import { connectDatabase, DbEnums, seedDatabase, type PrismaClient } from "../src";
+import { connectDatabase, DbEnums, Prisma, seedDatabase, type PrismaClient } from "../src";
 import { createTestDatabase, type TestDatabase } from "../src/testing";
 
 describe("enum parity between Prisma and contracts", () => {
@@ -72,6 +72,26 @@ describe("database", () => {
       where: { id: "claude-sonnet-5-5" },
     });
     expect(sonnet.inputUsdPerMTok).toBe(1.5);
+  });
+
+  it("adds the native subagents to built-in configs that predate them", async () => {
+    await seedDatabase(prisma);
+    const builder = await prisma.agentConfig.findUniqueOrThrow({ where: { name: "builder" } });
+    expect(Object.keys(builder.subagents as object)).toEqual(["explorer", "test-writer"]);
+    await prisma.agentConfig.update({
+      where: { name: "builder" },
+      data: { subagents: Prisma.DbNull },
+    });
+    await prisma.agentConfig.update({
+      where: { name: "architect" },
+      data: { subagents: { custom: { description: "mine", prompt: "mine" } } },
+    });
+    const report = await seedDatabase(prisma);
+    expect(report.agentConfigs).toBe(1);
+    const restored = await prisma.agentConfig.findUniqueOrThrow({ where: { name: "builder" } });
+    expect(restored.subagents).toMatchObject({ explorer: { model: "haiku" } });
+    const architect = await prisma.agentConfig.findUniqueOrThrow({ where: { name: "architect" } });
+    expect(Object.keys(architect.subagents as object)).toEqual(["custom"]);
   });
 
   it("cascades project deletion to workspaces and tasks", async () => {

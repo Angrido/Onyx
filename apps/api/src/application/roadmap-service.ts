@@ -111,7 +111,7 @@ function toItemDto(item: RoadmapItem): RoadmapItemDto {
   };
 }
 
-function shortAction(item: RunItemOf<"tool_use">): string {
+export function shortAction(item: RunItemOf<"tool_use">): string {
   const input = item.input;
   if (typeof input === "object" && input !== null && !Array.isArray(input)) {
     const record = input as Record<string, unknown>;

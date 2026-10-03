@@ -160,6 +160,16 @@ enum ApprovalStatus {
   EXPIRED
 }
 
+enum OrchestrationStatus {
+  PLANNING
+  AWAITING_APPROVAL
+  RUNNING
+  VERIFYING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 model User {
   id           String        @id @default(cuid())
   username     String        @unique
@@ -204,6 +214,8 @@ model Project {
   budgets        Budget[]
   roadmapRuns    RoadmapGeneration[]
   roadmapItems   RoadmapItem[]
+  orchestrations Orchestration[]
+  approvals      Approval[]
 }
 
 model Workspace {
@@ -334,22 +346,27 @@ model Task {
   branchName    String?
   budgetUsd     Float?
   resultSummary String?
+  planKey       String?
+  mergeState    String?
+  mergeCommit   String?
+  mergedAt      DateTime?
   createdAt     DateTime   @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
   updatedAt     DateTime   @updatedAt
 
-  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  workspace   Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  parent      Task?             @relation("TaskTree", fields: [parentTaskId], references: [id], onDelete: Cascade)
-  children    Task[]            @relation("TaskTree")
-  dependsOn   TaskDependency[]  @relation("Dependent")
-  requiredBy  TaskDependency[]  @relation("Prerequisite")
-  decisions   RoutingDecision[]
-  runs        AgentRun[]
-  tddLoops    TddLoop[]
-  approvals   Approval[]
-  roadmapItem RoadmapItem?
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace     Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  parent        Task?             @relation("TaskTree", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  children      Task[]            @relation("TaskTree")
+  dependsOn     TaskDependency[]  @relation("Dependent")
+  requiredBy    TaskDependency[]  @relation("Prerequisite")
+  decisions     RoutingDecision[]
+  runs          AgentRun[]
+  tddLoops      TddLoop[]
+  approvals     Approval[]
+  roadmapItem   RoadmapItem?
+  orchestration Orchestration?    @relation("OrchestrationRoot")
 
   @@index([projectId, status])
   @@index([parentTaskId])
@@ -651,15 +668,16 @@ model TddIteration {
 }
 
 model Budget {
-  id        String       @id @default(cuid())
-  scope     BudgetScope
-  projectId String?
-  period    BudgetPeriod
-  softUsd   Float?
-  hardUsd   Float
-  enabled   Boolean      @default(true)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id             String       @id @default(cuid())
+  scope          BudgetScope
+  projectId      String?
+  period         BudgetPeriod
+  softUsd        Float?
+  hardUsd        Float
+  enabled        Boolean      @default(true)
+  approvedPeriod String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -669,6 +687,7 @@ model Budget {
 model Approval {
   id        String         @id @default(cuid())
   taskId    String?
+  projectId String?
   kind      ApprovalKind
   status    ApprovalStatus @default(PENDING)
   title     String
@@ -679,9 +698,41 @@ model Approval {
   decidedAt DateTime?
   expiresAt DateTime?
 
-  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
+  @@index([projectId, status])
+}
+
+model Orchestration {
+  id              String              @id @default(cuid())
+  projectId       String
+  rootTaskId      String              @unique
+  status          OrchestrationStatus @default(PLANNING)
+  goal            String
+  summary         String?
+  plan            Json?
+  baseBranch      String?
+  baseCommit      String?
+  workBranch      String?
+  integrationPath String?
+  parallelism     Int                 @default(2)
+  verify          Boolean             @default(true)
+  plannerModelId  String?
+  plannerCostUsd  Float?
+  plannerTurns    Int?
+  message         String?
+  createdAt       DateTime            @default(now())
+  approvedAt      DateTime?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  updatedAt       DateTime            @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rootTask Task    @relation("OrchestrationRoot", fields: [rootTaskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }
 
 model AppSetting {

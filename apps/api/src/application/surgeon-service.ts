@@ -166,7 +166,11 @@ export class SurgeonService {
     );
   }
 
-  async runScope(projectId: string, workspaceId: string | null): Promise<RunScope> {
+  async runScope(
+    projectId: string,
+    workspaceId: string | null,
+    rootOverride: string | null = null,
+  ): Promise<RunScope> {
     const [policy, context, project] = await Promise.all([
       this.effectivePolicy(projectId, workspaceId),
       this.deps.indexes.context(projectId),
@@ -174,14 +178,15 @@ export class SurgeonService {
     ]);
     if (!project) throw notFound("Project");
     const files = context ? [...context.index.files.keys()] : [];
+    const root = rootOverride ?? project.rootPath;
     return {
       policy,
       hash: policyHash(policy),
       compiled: compilePolicy(policy, {
-        projectRoot: project.rootPath,
+        projectRoot: root,
         ...(context ? { files } : {}),
       }),
-      guard: new PathGuard(policy, project.rootPath, files),
+      guard: new PathGuard(policy, root, files),
     };
   }
 

@@ -28,6 +28,9 @@ export interface RunSpec {
   includePartialMessages: boolean;
   env: Readonly<Record<string, string>>;
   timeouts: RunTimeouts;
+  jsonSchema?: string | null;
+  agentsFile?: string | null;
+  maxBudgetUsd?: number | null;
 }
 
 export interface ClaudeBinary {
@@ -81,5 +84,13 @@ export function buildClaudeArgs(spec: RunSpec): string[] {
       : ["--mcp-config", spec.mcpConfigFile, "--strict-mcp-config"]),
     ...optionalFlag("--append-system-prompt-file", spec.appendSystemPromptFile),
     ...(spec.includePartialMessages ? ["--include-partial-messages"] : []),
+    ...optionalFlag("--json-schema", spec.jsonSchema ?? null),
+    ...optionalFlag("--agents", spec.agentsFile ?? null),
+    ...optionalFlag(
+      "--max-budget-usd",
+      spec.maxBudgetUsd === undefined || spec.maxBudgetUsd === null
+        ? null
+        : spec.maxBudgetUsd.toFixed(2),
+    ),
   ];
 }

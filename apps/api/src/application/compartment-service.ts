@@ -204,6 +204,74 @@ export class CompartmentService {
     };
   }
 
+  async prepareIsolated(input: {
+    taskId: string;
+    workspace: Workspace;
+    modelId: string;
+    forceNew: boolean;
+  }): Promise<SessionPlan> {
+    const { prisma } = this.deps;
+    const base = {
+      kind: "session" as const,
+      workspaceName: input.workspace.name,
+      maxSessionTokens: input.workspace.maxSessionTokens,
+    };
+    const previous = input.forceNew
+      ? null
+      : await prisma.agentRun.findFirst({
+          where: {
+            taskId: input.taskId,
+            session: {
+              claudeSessionId: { not: null },
+              modelId: input.modelId,
+              status: { not: "CLOSED" },
+            },
+          },
+          orderBy: { startedAt: "desc" },
+          select: { sessionId: true },
+        });
+    if (previous) {
+      const session = await prisma.session.update({
+        where: { id: previous.sessionId },
+        data: { status: "ACTIVE", lastActivityAt: new Date() },
+      });
+      return {
+        session,
+        decision: { action: "resume", sessionId: session.id },
+        item: {
+          ...base,
+          action: "resumed",
+          sessionId: session.id,
+          reason: null,
+          previousSessionId: session.previousId,
+          handoff: null,
+          contextTokens: session.contextTokens,
+        },
+      };
+    }
+    const session = await prisma.session.create({
+      data: {
+        id: randomUUID(),
+        workspaceId: input.workspace.id,
+        modelId: input.modelId,
+        status: "ACTIVE",
+      },
+    });
+    return {
+      session,
+      decision: { action: "start", reuse: null, rotate: null },
+      item: {
+        ...base,
+        action: "started",
+        sessionId: session.id,
+        reason: null,
+        previousSessionId: null,
+        handoff: null,
+        contextTokens: 0,
+      },
+    };
+  }
+
   async reset(workspaceId: string, handoff: boolean, actor: string): Promise<SessionDto | null> {
     const { prisma } = this.deps;
     const workspace = await prisma.workspace.findUnique({

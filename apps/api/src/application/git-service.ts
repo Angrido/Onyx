@@ -408,6 +408,16 @@ export class GitService {
     return project;
   }
 
+  async commitEnv(): Promise<Record<string, string>> {
+    const identity = await this.effectiveIdentity(await this.storedIdentity());
+    return {
+      GIT_AUTHOR_NAME: identity.name,
+      GIT_AUTHOR_EMAIL: identity.email,
+      GIT_COMMITTER_NAME: identity.name,
+      GIT_COMMITTER_EMAIL: identity.email,
+    };
+  }
+
   private async storedIdentity(): Promise<{ name: string | null; email: string | null }> {
     const row = await this.deps.prisma.appSetting.findUnique({ where: { key: IDENTITY_KEY } });
     const parsed = StoredIdentitySchema.safeParse(row?.value);

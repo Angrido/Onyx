@@ -20,8 +20,20 @@ export async function seedDatabase(prisma: PrismaClient): Promise<SeedReport> {
 
   for (const config of AGENT_CONFIGS) {
     const existing = await prisma.agentConfig.findUnique({ where: { name: config.name } });
-    if (existing) continue;
-    await prisma.agentConfig.create({ data: { ...config, isBuiltin: true } });
+    if (existing) {
+      if (existing.isBuiltin && existing.subagents === null && config.subagents) {
+        await prisma.agentConfig.update({
+          where: { id: existing.id },
+          data: { subagents: { ...config.subagents } },
+        });
+        report.agentConfigs += 1;
+      }
+      continue;
+    }
+    const { subagents, ...fields } = config;
+    await prisma.agentConfig.create({
+      data: { ...fields, ...(subagents ? { subagents: { ...subagents } } : {}), isBuiltin: true },
+    });
     report.agentConfigs += 1;
   }
 

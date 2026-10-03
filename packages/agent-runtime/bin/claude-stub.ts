@@ -247,7 +247,11 @@ interface PermissionDenial {
   tool_input: Record<string, unknown>;
 }
 
-function resultLine(text: string, denials: PermissionDenial[] = []): string {
+function resultLine(
+  text: string,
+  denials: PermissionDenial[] = [],
+  structured: unknown = undefined,
+): string {
   return JSON.stringify({
     type: "result",
     subtype: "success",
@@ -261,6 +265,7 @@ function resultLine(text: string, denials: PermissionDenial[] = []): string {
     modelUsage: {},
     permission_denials: denials,
     result: text,
+    ...(structured === undefined ? {} : { structured_output: structured }),
   });
 }
 
@@ -868,23 +873,40 @@ function applyTddEdit(edit: TddEdit): string {
   }
 }
 
+function editInitLine(): string {
+  return JSON.stringify({
+    type: "system",
+    subtype: "init",
+    cwd: process.cwd(),
+    session_id: sessionId,
+    tools: ["Read", "Edit", "Write", "Bash"],
+    mcp_servers: [],
+    model,
+    permissionMode: flagValue("--permission-mode") ?? "default",
+    apiKeySource: "none",
+    claude_code_version: "0.0.0-stub",
+  });
+}
+
+function isTddEdit(edit: unknown): edit is TddEdit {
+  return isRecord(edit) && (typeof edit.file === "string" || typeof edit.command === "string");
+}
+
 async function runTddScenario(prompt: string): Promise<void> {
-  const hook = readPreToolUseHook();
-  await writeLine(
-    JSON.stringify({
-      type: "system",
-      subtype: "init",
-      cwd: process.cwd(),
-      session_id: sessionId,
-      tools: ["Read", "Edit", "Write", "Bash"],
-      mcp_servers: [],
-      model,
-      permissionMode: flagValue("--permission-mode") ?? "default",
-      apiKeySource: "none",
-      claude_code_version: "0.0.0-stub",
-    }),
-  );
+  await writeLine(editInitLine());
   const step = takeTddStep();
+  const firstFailure = /^### 1\. (.+)$/m.exec(prompt)?.[1] ?? "the failures";
+  await runEditStep(
+    step,
+    step?.text ??
+      (step
+        ? `Fixed the implementation for ${firstFailure}.`
+        : `Looked at ${firstFailure}; no change.`),
+  );
+}
+
+async function runEditStep(step: TddStep | null, summary: string): Promise<void> {
+  const hook = readPreToolUseHook();
   const denials: PermissionDenial[] = [];
   for (const [index, edit] of (step?.edits ?? []).entries()) {
     const attempt = tddAttempt(edit);
@@ -920,14 +942,136 @@ async function runTddScenario(prompt: string): Promise<void> {
     );
   }
   if (step?.hang) return hangForever();
-  const firstFailure = /^### 1\. (.+)$/m.exec(prompt)?.[1] ?? "the failures";
-  const summary =
-    step?.text ??
-    (step
-      ? `Fixed the implementation for ${firstFailure}.`
-      : `Looked at ${firstFailure}; no change.`);
   await writeLine(assistantLine("msg_stub_tdd_done", [{ type: "text", text: summary }]));
   await writeLine(resultLine(summary, denials));
+}
+
+function taskBody(prompt: string): string {
+  const marker = prompt.lastIndexOf("# Task\n\n");
+  const body = marker === -1 ? prompt : prompt.slice(marker + "# Task\n\n".length);
+  const end = body.indexOf("\n## Context");
+  return end === -1 ? body : body.slice(0, end);
+}
+
+interface KeyedStep extends TddStep {
+  delayMs: number;
+  scenario: string | null;
+}
+
+function keyedStep(prompt: string): KeyedStep | null {
+  const file = process.env.CLAUDE_STUB_EDITS;
+  if (!file) return null;
+  try {
+    const map: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (!isRecord(map)) return null;
+    const body = taskBody(prompt);
+    for (const [key, value] of Object.entries(map)) {
+      if (!body.includes(key) || !isRecord(value)) continue;
+      return {
+        edits: Array.isArray(value.edits) ? value.edits.filter(isTddEdit) : [],
+        delayMs: typeof value.delayMs === "number" ? value.delayMs : 0,
+        scenario: typeof value.scenario === "string" ? value.scenario : null,
+        ...(typeof value.text === "string" ? { text: value.text } : {}),
+        ...(value.hang === true ? { hang: true } : {}),
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function runKeyedScenario(step: KeyedStep): Promise<void> {
+  await writeLine(editInitLine());
+  await sleep(step.delayMs);
+  await runEditStep(step, step.text ?? `Applied ${step.edits.length} change(s).`);
+}
+
+function stubPlan(prompt: string): unknown {
+  const planFile = process.env.CLAUDE_STUB_PLAN;
+  if (planFile) {
+    try {
+      return JSON.parse(readFileSync(planFile, "utf8"));
+    } catch {
+      return null;
+    }
+  }
+  const goal = promptSection(prompt, "Feature").trim();
+  const workspaces = [
+    ...promptSection(prompt, "Workspaces").matchAll(/^- (.+?) \((\w+)\): (.+)$/gm),
+  ].map((match) => match[1] ?? "");
+  const parts = workspaces.slice(0, 2).map((workspace, index) => ({
+    key: `part-${index + 1}`,
+    title: `${workspace}: ${goal.slice(0, 60)}`,
+    description: `Implement the ${workspace} side of: ${goal}`,
+    workspace,
+    kind: "FEATURE",
+    tier: "BUILDER",
+    dependsOn: [],
+    targetPaths: [],
+    acceptance: ["The project tests pass"],
+  }));
+  return {
+    summary: `Split the feature by workspace and connect the parts at the end.`,
+    tasks: [
+      ...parts,
+      {
+        key: "wire-up",
+        title: "Connect the parts",
+        description: `Connect the parts of: ${goal}`,
+        workspace: workspaces[0] ?? "",
+        kind: "FEATURE",
+        tier: "BUILDER",
+        dependsOn: parts.map((part) => part.key),
+        targetPaths: [],
+        acceptance: ["The project tests pass"],
+      },
+    ],
+  };
+}
+
+async function runPlanScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  for (const [index, tool] of ["Glob", "Read"].entries()) {
+    const id = `toolu_stub_plan_${index + 1}`;
+    await writeLine(
+      assistantLine(`msg_stub_plan_${index + 1}`, [
+        {
+          type: "tool_use",
+          id,
+          name: tool,
+          input:
+            tool === "Glob"
+              ? { pattern: "**/*.ts" }
+              : { file_path: join(process.cwd(), "README.md") },
+        },
+      ]),
+    );
+    await writeLine(
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ tool_use_id: id, type: "tool_result", content: "(stub)", is_error: false }],
+        },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      }),
+    );
+    await sleep(delayMs);
+  }
+  const plan = stubPlan(prompt);
+  if (plan === null) {
+    await writeLine(assistantLine("msg_stub_plan_done", [{ type: "text", text: "No plan." }]));
+    await writeLine(resultLine("I could not produce a plan."));
+    return;
+  }
+  const text = JSON.stringify(plan);
+  await writeLine(assistantLine("msg_stub_plan_done", [{ type: "text", text }]));
+  await writeLine(
+    resultLine(text, [], process.env.CLAUDE_STUB_PLAN_AS_TEXT === "1" ? undefined : plan),
+  );
 }
 
 function base64Url(bytes: number): string {
@@ -1086,11 +1230,20 @@ async function main(): Promise<void> {
     await runRoadmapScenario(prompt);
     return;
   }
+  if (prompt.includes("ONYX_PLAN_REQUEST")) {
+    await runPlanScenario(prompt);
+    return;
+  }
   if (prompt.includes("Onyx TDD loop")) {
     await runTddScenario(prompt);
     return;
   }
-  const scenario = scenarioFor(prompt);
+  const keyed = keyedStep(prompt);
+  if (keyed && keyed.scenario === null) {
+    await runKeyedScenario(keyed);
+    return;
+  }
+  const scenario = keyed?.scenario ?? scenarioFor(prompt);
   switch (scenario) {
     case "success":
     case "quick":

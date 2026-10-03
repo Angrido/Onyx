@@ -90,6 +90,8 @@ export async function recoverInterruptedWork(
           newSession: false,
         },
         workspaceId: task.workspaceId,
+        projectId: task.projectId,
+        lockKey: task.worktreePath ? `task:${task.id}` : task.workspaceId,
         priority: task.priority,
         enqueuedAt: task.updatedAt.getTime(),
       });

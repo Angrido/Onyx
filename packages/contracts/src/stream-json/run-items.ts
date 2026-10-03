@@ -90,6 +90,7 @@ export const ResultItemSchema = z.object({
   costUsd: z.number().nullable(),
   usage: TokenUsageSchema,
   resultText: z.string().nullable(),
+  structuredOutput: z.unknown().optional(),
   sessionId: z.string().nullable(),
   modelUsage: z.record(z.string(), ModelUsageSchema),
 });

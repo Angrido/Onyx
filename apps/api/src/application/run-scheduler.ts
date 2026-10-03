@@ -7,6 +7,8 @@ import type { ExecutionResult, RunExecutor, RunRequest } from "./run-executor";
 export interface QueuedRun {
   request: RunRequest;
   workspaceId: string;
+  projectId?: string;
+  lockKey?: string;
   priority: number;
   enqueuedAt: number;
   holdId?: string;
@@ -16,8 +18,23 @@ export interface QueuedRun {
 export type SlotReservation =
   { ok: true; release: () => void } | { ok: false; reason: "busy" | "full" | "stopped" };
 
+export function runLockKey(task: {
+  id: string;
+  workspaceId: string;
+  worktreePath: string | null;
+}): string {
+  return task.worktreePath ? `task:${task.id}` : task.workspaceId;
+}
+
+function lockOf(item: QueuedRun): string {
+  return item.lockKey ?? item.workspaceId;
+}
+
 export type WorkspaceHold =
   { ok: true; id: string; release: () => void } | { ok: false; reason: "busy" | "stopped" };
+
+export type Admission =
+  { decision: "go" } | { decision: "hold"; reason: string } | { decision: "deny"; reason: string };
 
 export interface RunSchedulerDeps {
   executor: RunExecutor;
@@ -25,6 +42,9 @@ export interface RunSchedulerDeps {
   hub: WsHub;
   logger: Logger;
   maxConcurrent: number;
+  admit?: (projectId: string | null) => Admission;
+  reject?: (item: QueuedRun, reason: string) => Promise<void>;
+  afterRun?: (taskId: string) => void;
 }
 
 export class RunScheduler {
@@ -32,6 +52,7 @@ export class RunScheduler {
   private readonly busyWorkspaces = new Set<string>();
   private readonly executions = new Map<string, Promise<void>>();
   private readonly runsByTask = new Map<string, string>();
+  private readonly projectsByTask = new Map<string, string | null>();
   private readonly pendingAborts = new Set<string>();
   private readonly holds = new Map<string, string>();
   private nextHoldId = 1;
@@ -172,15 +193,42 @@ export class RunScheduler {
     }
   }
 
+  poke(): void {
+    this.dispatch();
+  }
+
+  async abortScope(projectId: string | null): Promise<number> {
+    let aborted = 0;
+    for (const [taskId, runId] of [...this.runsByTask]) {
+      if (projectId !== null && this.projectsByTask.get(taskId) !== projectId) continue;
+      if (await this.abortRun(runId)) aborted += 1;
+    }
+    return aborted;
+  }
+
   private dispatch(): void {
     if (this.stopped) return;
     let index = 0;
     while (index < this.queue.length && this.inFlight + this.reserved < this.deps.maxConcurrent) {
       const item = this.queue[index];
-      const holder = item ? this.holds.get(item.workspaceId) : undefined;
+      const admission = item && this.deps.admit ? this.deps.admit(item.projectId ?? null) : null;
+      if (item && admission?.decision === "hold") {
+        index += 1;
+        continue;
+      }
+      if (item && admission?.decision === "deny") {
+        this.queue.splice(index, 1);
+        void (this.deps.reject?.(item, admission.reason) ?? Promise.resolve())
+          .catch((error: unknown) =>
+            this.deps.logger.error({ err: error }, "Could not reject a queued run"),
+          )
+          .finally(() => item.onFinished?.(null));
+        continue;
+      }
+      const holder = item ? this.holds.get(lockOf(item)) : undefined;
       if (
         !item ||
-        this.busyWorkspaces.has(item.workspaceId) ||
+        this.busyWorkspaces.has(lockOf(item)) ||
         (holder !== undefined && holder !== item.holdId)
       ) {
         index += 1;
@@ -194,8 +242,10 @@ export class RunScheduler {
   private start(item: QueuedRun): void {
     const { taskId } = item.request;
     this.inFlight += 1;
-    this.busyWorkspaces.add(item.workspaceId);
+    this.busyWorkspaces.add(lockOf(item));
+    this.projectsByTask.set(taskId, item.projectId ?? null);
     let outcome: ExecutionResult | null = null;
+    let handedOver = false;
     const execution = this.deps.executor
       .execute(item.request, {
         onRunCreated: (runId) => {
@@ -209,9 +259,13 @@ export class RunScheduler {
         if (!result) return;
         this.announceFinished(taskId, result.runId, result.status);
         if (result.followUp && !this.stopped) {
+          handedOver = item.onFinished !== undefined;
           this.enqueue({
             request: result.followUp,
             workspaceId: item.workspaceId,
+            ...(item.projectId ? { projectId: item.projectId } : {}),
+            ...(item.lockKey ? { lockKey: item.lockKey } : {}),
+            ...(item.onFinished ? { onFinished: item.onFinished } : {}),
             priority: item.priority,
             enqueuedAt: Date.now(),
           });
@@ -222,12 +276,14 @@ export class RunScheduler {
       })
       .finally(() => {
         this.inFlight -= 1;
-        this.busyWorkspaces.delete(item.workspaceId);
+        this.busyWorkspaces.delete(lockOf(item));
         this.runsByTask.delete(taskId);
+        this.projectsByTask.delete(taskId);
         this.pendingAborts.delete(taskId);
         this.executions.delete(taskId);
         try {
-          item.onFinished?.(outcome);
+          if (!handedOver) item.onFinished?.(outcome);
+          if (outcome) this.deps.afterRun?.(taskId);
         } catch (error) {
           this.deps.logger.error({ err: error, taskId }, "Run completion listener failed");
         }
