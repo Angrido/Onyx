@@ -29,6 +29,15 @@ export interface SessionPlan {
   item: SessionItem;
 }
 
+export interface ContinueAfterClearInput {
+  workspaceId: string;
+  previousSessionId: string;
+  claudeSessionId: string;
+  modelId: string;
+  reason: SessionEndReason;
+  handoff: Handoff | null;
+}
+
 export interface PrepareSessionInput {
   projectId: string;
   workspace: Workspace;
@@ -251,6 +260,34 @@ export class CompartmentService {
     return created ? toSessionDto({ ...created, _count: { runs: 0 } }) : null;
   }
 
+  async continueAfterClear(input: ContinueAfterClearInput): Promise<Session> {
+    const { prisma } = this.deps;
+    return prisma.$transaction(async (tx) => {
+      const endedAt = new Date();
+      await tx.session.updateMany({
+        where: { id: input.previousSessionId, status: { notIn: ["ROTATED", "CLOSED"] } },
+        data: { status: "ROTATED", endReason: input.reason, endedAt },
+      });
+      const created = await tx.session.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: input.workspaceId,
+          claudeSessionId: input.claudeSessionId,
+          modelId: input.modelId,
+          status: "ACTIVE",
+          previousId: await this.chainableId(tx, input.previousSessionId),
+          handoffNote: input.handoff?.text ?? null,
+          handoffTokens: input.handoff?.tokens ?? null,
+        },
+      });
+      await tx.workspace.update({
+        where: { id: input.workspaceId },
+        data: { activeSessionId: created.id },
+      });
+      return created;
+    });
+  }
+
   async sessions(workspaceId: string): Promise<SessionDto[]> {
     const sessions = await this.deps.prisma.session.findMany({
       where: { workspaceId },
@@ -285,6 +322,7 @@ export class CompartmentService {
     workspace: Pick<Workspace, "id" | "name">,
     previousOwn: Pick<Session, "id" | "startedAt"> | null,
     reason: SessionEndReason | null,
+    extraOwn: readonly RunDigest[] = [],
   ): Promise<Handoff | null> {
     const { prisma, estimator } = this.deps;
     const since = previousOwn?.startedAt ?? new Date(Date.now() - FOREIGN_WINDOW_MS);
@@ -311,7 +349,7 @@ export class CompartmentService {
     const draft = composeHandoff({
       workspaceName: workspace.name,
       reason,
-      own: toDigests([...own].reverse()),
+      own: [...toDigests([...own].reverse()), ...extraOwn],
       foreign: toDigests([...foreign].reverse()),
       budgetTokens: HANDOFF_BUDGET_TOKENS,
       estimate: (text) => estimator.estimate(text, "markdown"),

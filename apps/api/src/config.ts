@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 const csv = z
@@ -45,6 +45,8 @@ const EnvSchema = z.object({
   ONYX_MAP_BUDGET_TOKENS: z.coerce.number().int().min(200).max(50_000).default(4_000),
   ONYX_INDEX_WAIT_MS: z.coerce.number().int().min(0).max(600_000).default(30_000),
   ONYX_MCP_SERVER: z.string().optional(),
+  ONYX_STATUSLINE: z.string().optional(),
+  ONYX_TERMINAL_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   ONYX_INTERNAL_API_URL: z.string().url().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
@@ -59,6 +61,11 @@ export interface ContextConfig {
   mapBudgetTokens: number;
   indexWaitMs: number;
   mcpServerPath: string | null;
+}
+
+export interface TerminalConfig {
+  statusLinePath: string | null;
+  idleMs: number;
 }
 
 export interface AppConfig {
@@ -81,6 +88,7 @@ export interface AppConfig {
   claudeBin: string;
   credentials: ClaudeCredentials;
   context: ContextConfig;
+  terminal: TerminalConfig;
   internalApiUrl: string;
 }
 
@@ -122,6 +130,16 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const env = parsed.data;
   const dataDir = resolve(env.ONYX_DATA_DIR);
   const projectsDir = resolve(env.ONYX_PROJECTS_DIR);
+  const mcpServerPath =
+    env.ONYX_MCP_SERVER && env.ONYX_MCP_SERVER.trim().length > 0
+      ? resolve(env.ONYX_MCP_SERVER)
+      : null;
+  const statusLinePath =
+    env.ONYX_STATUSLINE && env.ONYX_STATUSLINE.trim().length > 0
+      ? resolve(env.ONYX_STATUSLINE)
+      : mcpServerPath
+        ? join(dirname(mcpServerPath), "onyx-statusline.js")
+        : null;
   const allowedOrigins = [
     ...env.ONYX_ALLOWED_ORIGINS,
     ...(env.ONYX_PUBLIC_ORIGIN ? [env.ONYX_PUBLIC_ORIGIN] : []),
@@ -154,11 +172,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       packBudgetTokens: env.ONYX_CONTEXT_BUDGET_TOKENS,
       mapBudgetTokens: env.ONYX_MAP_BUDGET_TOKENS,
       indexWaitMs: env.ONYX_INDEX_WAIT_MS,
-      mcpServerPath:
-        env.ONYX_MCP_SERVER && env.ONYX_MCP_SERVER.trim().length > 0
-          ? resolve(env.ONYX_MCP_SERVER)
-          : null,
+      mcpServerPath,
     },
+    terminal: { statusLinePath, idleMs: env.ONYX_TERMINAL_IDLE_MS },
     internalApiUrl: (
       env.ONYX_INTERNAL_API_URL ?? `http://${loopbackHost(env.API_HOST)}:${env.API_PORT}`
     ).replace(/\/+$/, ""),

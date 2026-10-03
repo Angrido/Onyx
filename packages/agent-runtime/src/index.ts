@@ -23,3 +23,5 @@ export { TextTail } from "./ring-buffer";
 export { buildClaudeArgs } from "./run-spec";
 export type { ClaudeBinary, RunSpec, RunTimeouts, SessionDirective } from "./run-spec";
 export { Semaphore, SemaphoreCancelledError } from "./semaphore";
+export { ClaudeTerminal, buildInteractiveArgs } from "./terminal";
+export type { TerminalExit, TerminalHandlers, TerminalOptions, TerminalSpec } from "./terminal";

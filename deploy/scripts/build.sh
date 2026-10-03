@@ -27,6 +27,7 @@ fi
 
 mkdir -p "$OUT/mcp"
 cp packages/mcp-server/dist/onyx-mcp.js "$OUT/mcp/onyx-mcp.js"
+cp packages/mcp-server/dist/onyx-statusline.js "$OUT/mcp/onyx-statusline.js"
 
 mkdir -p "$OUT/deploy"
 cp -r deploy/scripts deploy/systemd deploy/caddy deploy/env deploy/avahi deploy/nftables "$OUT/deploy/"

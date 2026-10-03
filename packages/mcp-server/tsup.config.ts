@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: { "onyx-mcp": "src/main.ts" },
+  entry: { "onyx-mcp": "src/main.ts", "onyx-statusline": "src/statusline.ts" },
   format: ["esm"],
   platform: "node",
   target: "node22",

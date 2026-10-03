@@ -45,6 +45,7 @@ import { toStringArray } from "./mappers";
 import { priceUsage, type RouterService } from "./router-service";
 import type { SurgeonService } from "./surgeon-service";
 import { RunRecorder } from "./run-recorder";
+import type { ForeignChange } from "./terminal-service";
 
 export interface RunRequest {
   taskId: string;
@@ -80,6 +81,7 @@ export interface RunExecutorDeps {
   compartments: CompartmentService;
   runTokens: RunTokenRegistry;
   cliVersion: () => string | null;
+  onRunFinished?: (change: ForeignChange) => void;
   sourceEnv?: NodeJS.ProcessEnv;
 }
 
@@ -343,6 +345,17 @@ export class RunExecutor {
       runId: prepared.runId,
     });
     if (exit.sawInit) indexes.scheduleRefresh(prepared.projectId);
+    if (changedFiles.length > 0) {
+      try {
+        this.deps.onRunFinished?.({
+          projectId: prepared.projectId,
+          workspaceId: prepared.workspaceId,
+          changedFiles,
+        });
+      } catch (error) {
+        logger.warn({ err: error, runId: prepared.runId }, "Run finished listener failed");
+      }
+    }
     logger.info(
       { runId: prepared.runId, status: outcome.runStatus, reason: exit.reason },
       "Run finished",

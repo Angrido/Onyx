@@ -29,6 +29,14 @@ export interface HookMatcher {
 export interface RunHooks {
   PreToolUse: HookMatcher[];
   PostToolUse: HookMatcher[];
+  SessionStart?: HookMatcher[];
+  UserPromptSubmit?: HookMatcher[];
+}
+
+export interface StatusLineSetting {
+  type: "command";
+  command: string;
+  padding: number;
 }
 
 export interface RunSettings {
@@ -37,11 +45,13 @@ export interface RunSettings {
     allow: string[];
   };
   hooks?: RunHooks;
+  statusLine?: StatusLineSetting;
 }
 
 export interface RunSettingsOptions {
   deny?: readonly string[];
   hooks?: RunHooks;
+  statusLine?: StatusLineSetting;
 }
 
 function httpHook(url: string): HttpHook {
@@ -68,6 +78,35 @@ export function guardHooks(internalApiUrl: string): RunHooks {
   };
 }
 
+export const SESSION_START_SOURCES = "startup|resume|clear|compact";
+
+export function terminalHooks(internalApiUrl: string): RunHooks {
+  return {
+    ...guardHooks(internalApiUrl),
+    SessionStart: [
+      {
+        matcher: SESSION_START_SOURCES,
+        hooks: [httpHook(`${internalApiUrl}/internal/hooks/session-start`)],
+      },
+    ],
+    UserPromptSubmit: [
+      { matcher: "", hooks: [httpHook(`${internalApiUrl}/internal/hooks/user-prompt-submit`)] },
+    ],
+  };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.split("'").join(`'\\''`)}'`;
+}
+
+export function statusLineSetting(nodePath: string, scriptPath: string): StatusLineSetting {
+  return {
+    type: "command",
+    command: `${shellQuote(nodePath)} ${shellQuote(scriptPath)}`,
+    padding: 0,
+  };
+}
+
 export function buildRunSettings(options: RunSettingsOptions = {}): RunSettings {
   return {
     permissions: {
@@ -75,5 +114,6 @@ export function buildRunSettings(options: RunSettingsOptions = {}): RunSettings 
       allow: [],
     },
     ...(options.hooks ? { hooks: options.hooks } : {}),
+    ...(options.statusLine ? { statusLine: options.statusLine } : {}),
   };
 }

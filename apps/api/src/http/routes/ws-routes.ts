@@ -6,7 +6,7 @@ import type { Container } from "../../container";
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export function registerWsRoutes(app: FastifyInstance, container: Container): void {
-  const { hub, scheduler, logger } = container;
+  const { hub, scheduler, terminals, logger } = container;
 
   app.get("/ws", { websocket: true }, (socket: WebSocket) => {
     const subscriber = hub.connect(socket);
@@ -60,6 +60,20 @@ export function registerWsRoutes(app: FastifyInstance, container: Container): vo
             },
             (error: unknown) => logger.error({ err: error }, "Abort via WebSocket failed"),
           );
+          return;
+        case "pty.input":
+        case "pty.resize":
+          try {
+            if (message.type === "pty.input")
+              terminals.input(message.data.terminalId, message.data.data);
+            else terminals.resize(message.data.terminalId, message.data.cols, message.data.rows);
+          } catch (error) {
+            hub.sendError(
+              subscriber,
+              "CONFLICT",
+              error instanceof Error ? error.message : "Terminal is not available",
+            );
+          }
           return;
         case "ping":
           hub.sendPong(subscriber);

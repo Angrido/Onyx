@@ -19,6 +19,7 @@ import { RunService } from "./application/run-service";
 import { SurgeonService } from "./application/surgeon-service";
 import { TaskService } from "./application/task-service";
 import { TelemetryService } from "./application/telemetry-service";
+import { TerminalService } from "./application/terminal-service";
 import { WorkspaceService } from "./application/workspace-service";
 import type { AppConfig } from "./config";
 import {
@@ -37,6 +38,7 @@ export interface ContainerOverrides {
   sourceEnv?: NodeJS.ProcessEnv;
   closeGraceMs?: number;
   indexRefreshDelayMs?: number;
+  terminalKillGraceMs?: number;
   classifier?: TaskClassifier | null;
   summarizer?: HandoffSummarizer | null;
 }
@@ -56,6 +58,7 @@ export interface Container {
   runTokens: RunTokenRegistry;
   executor: RunExecutor;
   scheduler: RunScheduler;
+  terminals: TerminalService;
   auth: AuthService;
   projects: ProjectService;
   workspaces: WorkspaceService;
@@ -127,7 +130,10 @@ export async function createContainer(
   });
   const runTokens = new RunTokenRegistry();
   const surgeon = new SurgeonService({ prisma, indexes, calibration, logger });
-  const scheduling: { scheduler: RunScheduler | null } = { scheduler: null };
+  const scheduling: { scheduler: RunScheduler | null; terminals: TerminalService | null } = {
+    scheduler: null,
+    terminals: null,
+  };
   const router = new RouterService({
     prisma,
     indexes,
@@ -155,6 +161,7 @@ export async function createContainer(
     compartments,
     runTokens,
     cliVersion: () => cliVersion,
+    onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
   const scheduler = new RunScheduler({
@@ -165,6 +172,23 @@ export async function createContainer(
     maxConcurrent: config.maxConcurrentAgents,
   });
   scheduling.scheduler = scheduler;
+  const terminals = new TerminalService({
+    prisma,
+    hub,
+    logger,
+    binary,
+    config,
+    surgeon,
+    indexes,
+    compartments,
+    runTokens,
+    reserve: (workspaceId) => scheduler.reserve(workspaceId),
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+    ...(overrides.terminalKillGraceMs === undefined
+      ? {}
+      : { killGraceMs: overrides.terminalKillGraceMs }),
+  });
+  scheduling.terminals = terminals;
   const runService = new RunService(prisma, scheduler);
   runs.service = runService;
 
@@ -183,6 +207,7 @@ export async function createContainer(
     runTokens,
     executor,
     scheduler,
+    terminals,
     auth: new AuthService(prisma, config.sessionTtlMs),
     projects: new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
       indexes
@@ -255,6 +280,7 @@ export async function createContainer(
 
     async stop(): Promise<void> {
       await indexes.shutdown();
+      await terminals.shutdown();
       await scheduler.shutdown();
       await writer.close();
       await prisma.$disconnect();

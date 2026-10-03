@@ -6,6 +6,7 @@ onlyBuiltDependencies:
   - "@prisma/engines"
   - better-sqlite3
   - esbuild
+  - node-pty
   - prisma
   - sharp
   - tree-sitter

@@ -13,6 +13,7 @@ import { registerRouterRoutes } from "./http/routes/router-routes";
 import { registerSurgeonRoutes } from "./http/routes/surgeon-routes";
 import { registerSystemRoutes } from "./http/routes/system-routes";
 import { registerTaskRoutes } from "./http/routes/task-routes";
+import { registerTerminalRoutes } from "./http/routes/terminal-routes";
 import { registerWsRoutes } from "./http/routes/ws-routes";
 import { createOriginPolicy } from "./http/origin-policy";
 import { registerSecurity } from "./http/security";
@@ -46,6 +47,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerContextRoutes(app, container);
   registerSurgeonRoutes(app, container);
   registerRouterRoutes(app, container);
+  registerTerminalRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

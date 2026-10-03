@@ -13,4 +13,5 @@ export * from "./api/catalog";
 export * from "./api/telemetry";
 export * from "./api/context";
 export * from "./api/surgeon";
+export * from "./api/terminals";
 export * from "./ws";

@@ -15,7 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@onyx/contracts": "workspace:*"
+    "@onyx/contracts": "workspace:*",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@onyx/config": "workspace:*",

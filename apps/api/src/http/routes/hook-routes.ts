@@ -1,4 +1,9 @@
-import { HookInputSchema, type GuardItem } from "@onyx/contracts";
+import {
+  HookInputSchema,
+  SessionStartInputSchema,
+  StatusLineInputSchema,
+  type GuardItem,
+} from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
 import { requireGrant } from "../internal-auth";
@@ -11,8 +16,15 @@ interface PreToolUseOutput {
   };
 }
 
+interface SessionStartOutput {
+  hookSpecificOutput?: {
+    hookEventName: "SessionStart";
+    additionalContext: string;
+  };
+}
+
 export function registerHookRoutes(app: FastifyInstance, container: Container): void {
-  const { runTokens, executor, indexes, prisma } = container;
+  const { runTokens, executor, indexes, prisma, terminals } = container;
 
   app.post(
     "/internal/hooks/pre-tool-use",
@@ -50,7 +62,7 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
       await prisma.auditLog
         .create({
           data: {
-            actor: `run:${grant.runId}`,
+            actor: `${terminals.has(grant.runId) ? "terminal" : "run"}:${grant.runId}`,
             action: fenceDecision ? "fence.denied" : "guard.denied",
             target: decision.target,
             meta: { tool: input.tool_name, rule, projectId: grant.projectId },
@@ -77,7 +89,46 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
     async (request): Promise<Record<string, never>> => {
       const { grant } = requireGrant(request, runTokens);
       indexes.scheduleRefresh(grant.projectId);
+      const parsed = HookInputSchema.safeParse(request.body);
+      if (parsed.success)
+        terminals.recordEdit(grant.runId, parsed.data.tool_name, parsed.data.tool_input);
       return {};
+    },
+  );
+
+  app.post(
+    "/internal/hooks/session-start",
+    { config: { public: true } },
+    async (request): Promise<SessionStartOutput> => {
+      const { grant } = requireGrant(request, runTokens);
+      const parsed = SessionStartInputSchema.safeParse(request.body);
+      if (!parsed.success) return {};
+      const context = await terminals.sessionStart(grant.runId, parsed.data);
+      return context
+        ? { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }
+        : {};
+    },
+  );
+
+  app.post(
+    "/internal/hooks/user-prompt-submit",
+    { config: { public: true } },
+    async (request): Promise<Record<string, never>> => {
+      const { grant } = requireGrant(request, runTokens);
+      const body: unknown = request.body;
+      if (typeof body === "object" && body !== null && "prompt" in body)
+        terminals.recordPrompt(grant.runId, body.prompt);
+      return {};
+    },
+  );
+
+  app.post(
+    "/internal/hooks/statusline",
+    { config: { public: true } },
+    async (request): Promise<{ text: string }> => {
+      const { grant } = requireGrant(request, runTokens);
+      const parsed = StatusLineInputSchema.safeParse(request.body ?? {});
+      return { text: await terminals.statusLine(grant.runId, parsed.success ? parsed.data : {}) };
     },
   );
 }

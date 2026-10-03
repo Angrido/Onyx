@@ -6,6 +6,7 @@ import {
   type SequencedServerMessage,
   type ServerMessage,
   type ServerMessageOf,
+  type TerminalDto,
 } from "@onyx/contracts";
 
 export interface WsConnection {
@@ -25,6 +26,8 @@ export type RunReplaySource = (
   afterSeq: number,
   beforeSeq: number | null,
 ) => Promise<StoredRunEvent[]>;
+
+export type SnapshotProvider = (channel: string) => ServerMessage[];
 
 export interface WsHubOptions {
   bufferSize?: number;
@@ -61,10 +64,31 @@ function now(): string {
   return new Date().toISOString();
 }
 
+export function ptyOutputMessage(terminalId: string, data: string): ServerMessageOf<"pty.output"> {
+  return {
+    v: WS_PROTOCOL_VERSION,
+    type: "pty.output",
+    ch: channelNames.pty(terminalId),
+    ts: now(),
+    data: { terminalId, data },
+  };
+}
+
+export function ptyStateMessage(terminal: TerminalDto): ServerMessageOf<"pty.state"> {
+  return {
+    v: WS_PROTOCOL_VERSION,
+    type: "pty.state",
+    ch: channelNames.pty(terminal.id),
+    ts: now(),
+    data: { terminal },
+  };
+}
+
 export class WsHub implements RunEventPublisher {
   private readonly channelStates = new Map<string, ChannelState>();
   private readonly listeners = new Map<string, Set<Subscriber>>();
   private readonly subscribers = new Set<Subscriber>();
+  private readonly snapshotProviders: Array<{ prefix: string; provider: SnapshotProvider }> = [];
   private nextSubscriberId = 1;
   private readonly bufferSize: number;
   private readonly maxChannels: number;
@@ -81,6 +105,10 @@ export class WsHub implements RunEventPublisher {
 
   get connectionCount(): number {
     return this.subscribers.size;
+  }
+
+  registerSnapshot(prefix: string, provider: SnapshotProvider): void {
+    this.snapshotProviders.push({ prefix, provider });
   }
 
   connect(connection: WsConnection): Subscriber {
@@ -103,8 +131,10 @@ export class WsHub implements RunEventPublisher {
     since: Readonly<Record<string, number>> = {},
   ): Promise<void> {
     const replays: Array<{ channel: string; since: number }> = [];
+    const fresh: string[] = [];
     for (const channel of channels) {
       if (subscriber.subscriptions.has(channel)) continue;
+      fresh.push(channel);
       const cursor = since[channel];
       subscriber.subscriptions.set(channel, {
         lastSentSeq: cursor ?? this.channelStates.get(channel)?.lastSeq ?? 0,
@@ -120,6 +150,13 @@ export class WsHub implements RunEventPublisher {
       ts: now(),
       data: { channels: [...channels] },
     });
+    for (const channel of fresh) {
+      if (since[channel] !== undefined) continue;
+      for (const { prefix, provider } of this.snapshotProviders) {
+        if (!channel.startsWith(prefix)) continue;
+        for (const message of provider(channel)) this.send(subscriber, message);
+      }
+    }
     await Promise.all(
       replays.map((replay) => this.replay(subscriber, replay.channel, replay.since)),
     );
@@ -144,33 +181,35 @@ export class WsHub implements RunEventPublisher {
   }
 
   publishRunDelta(runId: string, index: number, text: string): void {
-    const channel = channelNames.run(runId);
-    const message: ServerMessage = {
+    this.publishTransient({
       v: WS_PROTOCOL_VERSION,
       type: "run.delta",
-      ch: channel,
+      ch: channelNames.run(runId),
       ts: now(),
       data: { runId, index, text },
-    };
-    for (const subscriber of this.listeners.get(channel) ?? []) {
-      if (subscriber.subscriptions.get(channel)?.replaying === false)
-        this.send(subscriber, message);
-    }
+    });
   }
 
   publishIndexProgress(data: ServerMessageOf<"index.progress">["data"]): void {
-    const channel = channelNames.project(data.projectId);
-    const message: ServerMessage = {
+    this.publishTransient({
       v: WS_PROTOCOL_VERSION,
       type: "index.progress",
-      ch: channel,
+      ch: channelNames.project(data.projectId),
       ts: now(),
       data,
-    };
-    for (const subscriber of this.listeners.get(channel) ?? []) {
-      if (subscriber.subscriptions.get(channel)?.replaying === false)
-        this.send(subscriber, message);
-    }
+    });
+  }
+
+  publishPtyOutput(terminalId: string, data: string): void {
+    this.publishTransient(ptyOutputMessage(terminalId, data));
+  }
+
+  publishPtyState(terminal: TerminalDto): void {
+    this.publishTransient(ptyStateMessage(terminal));
+  }
+
+  hasListeners(channel: string): boolean {
+    return (this.listeners.get(channel)?.size ?? 0) > 0;
   }
 
   publishTaskStatus(data: ServerMessageOf<"task.status">["data"]): void {
@@ -208,6 +247,13 @@ export class WsHub implements RunEventPublisher {
 
   sendPong(subscriber: Subscriber): void {
     this.send(subscriber, { v: WS_PROTOCOL_VERSION, type: "pong", ts: now() });
+  }
+
+  private publishTransient(message: ServerMessage & { ch: string }): void {
+    for (const subscriber of this.listeners.get(message.ch) ?? []) {
+      if (subscriber.subscriptions.get(message.ch)?.replaying === false)
+        this.send(subscriber, message);
+    }
   }
 
   private async replay(subscriber: Subscriber, channel: string, since: number): Promise<void> {

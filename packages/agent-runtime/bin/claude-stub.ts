@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const argv = process.argv.slice(2);
@@ -350,13 +351,26 @@ interface ToolAttempt {
   input: Record<string, unknown>;
 }
 
-function readPreToolUseHook(): HttpHookSettings | null {
+function readSettings(): Record<string, unknown> | null {
   const file = flagValue("--settings");
   if (!file) return null;
   try {
     const settings: unknown = JSON.parse(readFileSync(file, "utf8"));
-    if (!isRecord(settings) || !isRecord(settings.hooks)) return null;
-    const matchers = settings.hooks.PreToolUse;
+    return isRecord(settings) ? settings : null;
+  } catch {
+    return null;
+  }
+}
+
+function readPreToolUseHook(): HttpHookSettings | null {
+  return readHttpHook("PreToolUse");
+}
+
+function readHttpHook(event: string): HttpHookSettings | null {
+  try {
+    const settings = readSettings();
+    if (!settings || !isRecord(settings.hooks)) return null;
+    const matchers = settings.hooks[event];
     if (!Array.isArray(matchers)) return null;
     for (const matcher of matchers) {
       if (!isRecord(matcher) || !Array.isArray(matcher.hooks)) continue;
@@ -530,7 +544,116 @@ async function runGuardScenario(prompt: string): Promise<void> {
   await writeLine(resultLine(summary, denials));
 }
 
+async function postHook(hook: HttpHookSettings, body: object): Promise<unknown> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  for (const [name, value] of Object.entries(hook.headers))
+    headers[name] = interpolate(value, hook.allowedEnvVars);
+  try {
+    const response = await fetch(hook.url, { method: "POST", headers, body: JSON.stringify(body) });
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function interactiveSessionStart(source: string, id: string): Promise<string | null> {
+  const hook = readHttpHook("SessionStart");
+  if (!hook) return null;
+  const payload = await postHook(hook, {
+    session_id: id,
+    transcript_path: join(process.cwd(), `.stub-${id}.jsonl`),
+    cwd: process.cwd(),
+    hook_event_name: "SessionStart",
+    source,
+    model,
+  });
+  if (!isRecord(payload) || !isRecord(payload.hookSpecificOutput)) return null;
+  const context = payload.hookSpecificOutput.additionalContext;
+  return typeof context === "string" && context.length > 0 ? context : null;
+}
+
+function statusLineCommand(): string | null {
+  const settings = readSettings();
+  if (!settings || !isRecord(settings.statusLine)) return null;
+  const command = settings.statusLine.command;
+  return typeof command === "string" ? command : null;
+}
+
+function runStatusLine(command: string, payload: object): Promise<string> {
+  return new Promise((resolveStatus) => {
+    const child = exec(command, { timeout: 5_000 }, (error, stdout) => {
+      resolveStatus(error ? "" : stdout.trim());
+    });
+    child.stdin?.end(JSON.stringify(payload));
+  });
+}
+
+async function runInteractive(): Promise<void> {
+  const baseTokens = Number(process.env.CLAUDE_STUB_BASE_TOKENS ?? "4000");
+  const perMessage = Number(process.env.CLAUDE_STUB_TOKENS_PER_MESSAGE ?? "1500");
+  let current = sessionId;
+  let contextTokens = baseTokens;
+  const say = (text: string) => process.stdout.write(`${text}\n`);
+  const showContext = (context: string | null) => {
+    if (context) say(`[context] ${context.split("\n")[0] ?? ""} (${context.length} chars)`);
+  };
+  const reportStatus = async () => {
+    const command = statusLineCommand();
+    if (!command) return;
+    const status = await runStatusLine(command, {
+      session_id: current,
+      model: { id: model, display_name: model },
+      cwd: process.cwd(),
+      context_window: {
+        context_window_size: 200_000,
+        current_usage: {
+          input_tokens: contextTokens,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          output_tokens: 120,
+        },
+      },
+    });
+    if (status) say(`[status] ${status}`);
+  };
+  say(`Claude Code stub · ${model} · session ${current}`);
+  showContext(
+    await interactiveSessionStart(argv.includes("--resume") ? "resume" : "startup", current),
+  );
+  await reportStatus();
+  process.stdout.write("> ");
+  const lines = createInterface({ input: process.stdin, terminal: false });
+  for await (const line of lines) {
+    const text = line.trim();
+    if (text === "/exit") process.exit(0);
+    if (text === "/clear") {
+      current = randomUUID();
+      contextTokens = baseTokens;
+      say(`[cleared] session ${current}`);
+      showContext(await interactiveSessionStart("clear", current));
+    } else if (text.startsWith("/compact")) {
+      contextTokens = baseTokens;
+      say(`[compacted] ${text.slice("/compact".length).trim()}`);
+      showContext(await interactiveSessionStart("compact", current));
+    } else if (text.length > 0) {
+      const promptHook = readHttpHook("UserPromptSubmit");
+      if (promptHook)
+        await postHook(promptHook, {
+          session_id: current,
+          hook_event_name: "UserPromptSubmit",
+          cwd: process.cwd(),
+          prompt: text,
+        });
+      contextTokens += perMessage;
+      say(`Stub reply: ${text}`);
+    }
+    await reportStatus();
+    process.stdout.write("> ");
+  }
+}
+
 async function main(): Promise<void> {
+  if (!argv.includes("-p")) return runInteractive();
   const prompt = await readPrompt();
   const scenario = scenarioFor(prompt);
   switch (scenario) {

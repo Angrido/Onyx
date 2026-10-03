@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { RunStatusSchema, TaskStatusSchema } from "./domain";
 import { IndexProgressEventSchema } from "./api/context";
+import { TerminalDtoSchema } from "./api/terminals";
 import { RunItemSchema } from "./stream-json/run-items";
 
 export const WS_PROTOCOL_VERSION = 1;
@@ -17,6 +18,7 @@ export const channels = {
   task: (taskId: string) => `task:${taskId}`,
   project: (projectId: string) => `project:${projectId}`,
   workspace: (workspaceId: string) => `workspace:${workspaceId}`,
+  pty: (terminalId: string) => `pty:${terminalId}`,
 } as const;
 
 export function runIdFromChannel(channel: string): string | null {
@@ -45,6 +47,20 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     ...ClientEnvelopeBase,
     type: z.literal("run.abort"),
     data: z.object({ runId: z.string().min(1) }),
+  }),
+  z.object({
+    ...ClientEnvelopeBase,
+    type: z.literal("pty.input"),
+    data: z.object({ terminalId: z.string().min(1), data: z.string().max(65_536) }),
+  }),
+  z.object({
+    ...ClientEnvelopeBase,
+    type: z.literal("pty.resize"),
+    data: z.object({
+      terminalId: z.string().min(1),
+      cols: z.number().int().min(20).max(500),
+      rows: z.number().int().min(5).max(200),
+    }),
   }),
   z.object({
     ...ClientEnvelopeBase,
@@ -112,6 +128,20 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     seq: z.number().int(),
     ts: z.string(),
     data: SystemRunsDataSchema,
+  }),
+  z.object({
+    v: z.literal(WS_PROTOCOL_VERSION),
+    type: z.literal("pty.output"),
+    ch: ChannelSchema,
+    ts: z.string(),
+    data: z.object({ terminalId: z.string(), data: z.string() }),
+  }),
+  z.object({
+    v: z.literal(WS_PROTOCOL_VERSION),
+    type: z.literal("pty.state"),
+    ch: ChannelSchema,
+    ts: z.string(),
+    data: z.object({ terminal: TerminalDtoSchema }),
   }),
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),

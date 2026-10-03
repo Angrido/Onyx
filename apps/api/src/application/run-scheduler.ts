@@ -11,6 +11,9 @@ export interface QueuedRun {
   enqueuedAt: number;
 }
 
+export type SlotReservation =
+  { ok: true; release: () => void } | { ok: false; reason: "busy" | "full" | "stopped" };
+
 export interface RunSchedulerDeps {
   executor: RunExecutor;
   pool: AgentPool;
@@ -26,6 +29,7 @@ export class RunScheduler {
   private readonly runsByTask = new Map<string, string>();
   private readonly pendingAborts = new Set<string>();
   private inFlight = 0;
+  private reserved = 0;
   private stopped = false;
 
   constructor(private readonly deps: RunSchedulerDeps) {}
@@ -46,8 +50,32 @@ export class RunScheduler {
     return this.runsByTask.get(taskId) ?? null;
   }
 
+  get reservedCount(): number {
+    return this.reserved;
+  }
+
   isWorkspaceBusy(workspaceId: string): boolean {
     return this.busyWorkspaces.has(workspaceId);
+  }
+
+  reserve(workspaceId: string): SlotReservation {
+    if (this.stopped) return { ok: false, reason: "stopped" };
+    if (this.busyWorkspaces.has(workspaceId)) return { ok: false, reason: "busy" };
+    if (this.inFlight + this.reserved >= this.deps.maxConcurrent)
+      return { ok: false, reason: "full" };
+    this.reserved += 1;
+    this.busyWorkspaces.add(workspaceId);
+    let released = false;
+    return {
+      ok: true,
+      release: () => {
+        if (released) return;
+        released = true;
+        this.reserved -= 1;
+        this.busyWorkspaces.delete(workspaceId);
+        this.dispatch();
+      },
+    };
   }
 
   enqueue(item: QueuedRun): number {
@@ -114,7 +142,7 @@ export class RunScheduler {
   private dispatch(): void {
     if (this.stopped) return;
     let index = 0;
-    while (index < this.queue.length && this.inFlight < this.deps.maxConcurrent) {
+    while (index < this.queue.length && this.inFlight + this.reserved < this.deps.maxConcurrent) {
       const item = this.queue[index];
       if (!item || this.busyWorkspaces.has(item.workspaceId)) {
         index += 1;

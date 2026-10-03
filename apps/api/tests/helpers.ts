@@ -32,6 +32,7 @@ export interface TestContextOptions {
   projectFiles?: Record<string, string>;
   classifier?: TaskClassifier | null;
   summarizer?: HandoffSummarizer | null;
+  sourceEnv?: Record<string, string>;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -58,13 +59,17 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     ONYX_ALLOWED_ORIGINS: ORIGIN,
     MAX_CONCURRENT_AGENTS: String(options.maxConcurrent ?? 2),
     RUN_ESCALATION_GRACE_MS: "300",
-    ONYX_CHILD_ENV_PASSTHROUGH: "CLAUDE_STUB_DELAY_MS",
+    ONYX_CHILD_ENV_PASSTHROUGH: [
+      "CLAUDE_STUB_DELAY_MS",
+      ...Object.keys(options.sourceEnv ?? {}),
+    ].join(","),
     ...options.env,
   });
   const container = await createContainer(config, pino({ level: "silent" }), {
     binary: stubBinary(),
-    sourceEnv: { CLAUDE_STUB_DELAY_MS: String(options.stubDelayMs ?? 5) },
+    sourceEnv: { CLAUDE_STUB_DELAY_MS: String(options.stubDelayMs ?? 5), ...options.sourceEnv },
     closeGraceMs: 300,
+    terminalKillGraceMs: 300,
     indexRefreshDelayMs: 50,
     classifier: options.classifier ?? null,
     summarizer: options.summarizer ?? null,
