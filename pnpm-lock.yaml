@@ -53,6 +53,9 @@ importers:
       '@onyx/graphify':
         specifier: workspace:*
         version: link:../../packages/graphify
+      '@onyx/ignore-compiler':
+        specifier: workspace:*
+        version: link:../../packages/ignore-compiler
       '@onyx/lean-ctx':
         specifier: workspace:*
         version: link:../../packages/lean-ctx
@@ -68,6 +71,12 @@ importers:
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
+      gpt-tokenizer:
+        specifier: ^4.0.0
+        version: 4.0.0
+      ignore:
+        specifier: ^7.0.12
+        version: 7.0.12
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
@@ -80,6 +89,9 @@ importers:
       repomix:
         specifier: 1.18.1
         version: 1.18.1(typescript@5.9.3)
+      shell-quote:
+        specifier: ^1.12.0
+        version: 1.12.0
       tree-sitter:
         specifier: ^0.25.1
         version: 0.25.1
@@ -320,6 +332,31 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.20.5)(vite@8.3.2(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
+
+  packages/ignore-compiler:
+    dependencies:
+      ignore:
+        specifier: ^7.0.12
+        version: 7.0.12
+      shell-quote:
+        specifier: ^1.12.0
+        version: 1.12.0
+    devDependencies:
+      '@onyx/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      '@types/shell-quote':
+        specifier: ^1.7.5
+        version: 1.7.5
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -2515,6 +2552,9 @@ packages:
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
 
+  '@types/shell-quote@1.7.5':
+    resolution: {integrity: sha512-+UE8GAGRPbJVQDdxi16dgadcBfQ+KG2vgZhV1+3A1XmHbmwcdwhCUwIdy+d3pAGrbvgRoVSjeI9vOWyq376Yzw==}
+
   '@types/ws@8.18.2':
     resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
@@ -4395,6 +4435,10 @@ packages:
   shebang-regex@3.0.0:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
+
+  shell-quote@1.12.0:
+    resolution: {integrity: sha512-PcByqNyT/38F2kDNi006HAMRJaULuBzq/FOsw3qdZvX/GA9W/jamDaRskgHjubHiftXK5sIFxLNkvrXUwcof6Q==}
+    engines: {node: '>= 0.4'}
 
   side-channel-list@1.0.1:
     resolution: {integrity: sha512-mjn/0bi/oUURjc5Xl7IaWi/OJJJumuoJFQJfDDyO46+hBWsfaVM65TBHq2eoZBhzl9EchxOijpkbRC8SVBQU0w==}
@@ -6803,6 +6847,8 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+  '@types/shell-quote@1.7.5': {}
+
   '@types/ws@8.18.2':
     dependencies:
       '@types/node': 22.20.5
@@ -8878,6 +8924,8 @@ snapshots:
       shebang-regex: 3.0.0
 
   shebang-regex@3.0.0: {}
+
+  shell-quote@1.12.0: {}
 
   side-channel-list@1.0.1:
     dependencies:

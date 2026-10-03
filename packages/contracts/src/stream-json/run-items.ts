@@ -131,6 +131,19 @@ export const ContextItemSchema = z.object({
 });
 export type ContextItem = z.infer<typeof ContextItemSchema>;
 
+export const GuardSourceSchema = z.enum(["hook", "permission"]);
+export type GuardSource = z.infer<typeof GuardSourceSchema>;
+
+export const GuardItemSchema = z.object({
+  kind: z.literal("guard"),
+  source: GuardSourceSchema,
+  tool: z.string(),
+  target: z.string().nullable(),
+  rule: z.string().nullable(),
+  reason: z.string().nullable(),
+});
+export type GuardItem = z.infer<typeof GuardItemSchema>;
+
 export const UnknownItemSchema = z.object({
   kind: z.literal("unknown"),
   type: z.string(),
@@ -150,6 +163,7 @@ export const RunItemSchema = z.discriminatedUnion("kind", [
   StatusItemSchema,
   StderrItemSchema,
   ContextItemSchema,
+  GuardItemSchema,
   UnknownItemSchema,
 ]);
 export type RunItem = z.infer<typeof RunItemSchema>;
@@ -161,6 +175,7 @@ export const OnyxRunItemSchema = z.discriminatedUnion("kind", [
   StatusItemSchema,
   StderrItemSchema,
   ContextItemSchema,
+  GuardItemSchema,
 ]);
 export type OnyxRunItem = z.infer<typeof OnyxRunItemSchema>;
 

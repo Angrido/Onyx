@@ -1,6 +1,13 @@
 import { randomBytes } from "node:crypto";
+import type { ContextPolicy, PathGuard } from "@onyx/ignore-compiler";
 
-export interface RunGrant {
+export interface RunScopeGrant {
+  workspaceId: string | null;
+  policy: ContextPolicy;
+  guard: PathGuard;
+}
+
+export interface RunGrant extends RunScopeGrant {
   runId: string;
   projectId: string;
   calls: number;
@@ -11,10 +18,10 @@ export class RunTokenRegistry {
   private readonly grants = new Map<string, RunGrant>();
   private readonly tokensByRun = new Map<string, string>();
 
-  issue(runId: string, projectId: string): string {
+  issue(runId: string, projectId: string, scope: RunScopeGrant): string {
     this.revoke(runId);
     const token = randomBytes(32).toString("base64url");
-    this.grants.set(token, { runId, projectId, calls: 0, tokens: 0 });
+    this.grants.set(token, { runId, projectId, ...scope, calls: 0, tokens: 0 });
     this.tokensByRun.set(runId, token);
     return token;
   }

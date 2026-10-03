@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
   analyzerVersion,
@@ -27,6 +29,7 @@ export interface IndexedFile {
   contentHash: string;
   rawTokens: number;
   sensitive: boolean;
+  binary: boolean;
   analysis: FileAnalysis | null;
   reused: boolean;
 }
@@ -59,6 +62,7 @@ export interface IndexStats {
   parsedFiles: number;
   reusedFiles: number;
   skippedFiles: number;
+  binaryFiles: number;
   syntaxErrorFiles: number;
   symbols: number;
   internalEdges: number;
@@ -89,11 +93,13 @@ export interface IndexProjectOptions {
   ignorePatterns?: readonly string[];
   domainRules?: readonly WorkspaceRule[];
   securityCheck?: boolean;
+  versionSuffix?: string;
   onProgress?: (progress: IndexProgress) => void;
   signal?: AbortSignal;
 }
 
 const MAX_PARSE_BYTES = 512 * 1024;
+const UNREAD_BYTES_PER_TOKEN = 3.4;
 const MINIFIED_LINE_LENGTH = 400;
 const YIELD_INTERVAL_MS = 15;
 
@@ -138,6 +144,7 @@ function analyzeFile(
     sizeBytes: file.sizeBytes,
     contentHash: hash,
     sensitive,
+    binary: false,
   };
   if (previous && previous.contentHash === hash && previous.analyzerVersion === version) {
     return {
@@ -211,7 +218,10 @@ export function computeMetrics(
 export async function indexProject(options: IndexProjectOptions): Promise<ProjectIndex> {
   const started = performance.now();
   const pacer = new Pacer(options.signal);
-  const version = analyzerVersion();
+  const version =
+    options.versionSuffix === undefined
+      ? analyzerVersion()
+      : `${analyzerVersion()}+${options.versionSuffix}`;
   options.onProgress?.({ phase: "enumerating", done: 0, total: 0 });
 
   const enumeration = await enumerateProject(options.rootDir, {
@@ -233,6 +243,24 @@ export async function indexProject(options: IndexProjectOptions): Promise<Projec
     }
   }
 
+  for (const skipped of enumeration.skipped) {
+    const info = await stat(join(options.rootDir, skipped.relPath)).catch(() => null);
+    if (!info || files.has(skipped.relPath)) continue;
+    const binary = skipped.reason.startsWith("binary");
+    files.set(skipped.relPath, {
+      relPath: skipped.relPath,
+      kind: detectFileKind(skipped.relPath),
+      language: null,
+      sizeBytes: info.size,
+      contentHash: `${skipped.reason}:${info.size}:${Math.round(info.mtimeMs)}`,
+      rawTokens: binary ? 0 : Math.ceil(info.size / UNREAD_BYTES_PER_TOKEN),
+      sensitive: false,
+      binary,
+      analysis: null,
+      reused: false,
+    });
+  }
+
   options.onProgress?.({ phase: "linking", done: 0, total });
   await pacer.tick();
   const edges = linkFiles(files, contents);
@@ -251,6 +279,7 @@ export async function indexProject(options: IndexProjectOptions): Promise<Projec
     parsedFiles: analyses.filter((file) => file.analysis !== null && !file.reused).length,
     reusedFiles: analyses.filter((file) => file.reused).length,
     skippedFiles: enumeration.skipped.length,
+    binaryFiles: analyses.filter((file) => file.binary).length,
     syntaxErrorFiles: analyses.filter((file) => file.analysis?.hasSyntaxErrors).length,
     symbols: analyses.reduce((sum, file) => sum + (file.analysis?.symbols.length ?? 0), 0),
     internalEdges: graph.internalEdgeCount(),

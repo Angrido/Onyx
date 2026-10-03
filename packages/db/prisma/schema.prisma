@@ -413,6 +413,7 @@ model AgentRun {
   ctxBaselineTokens  Int?
   ctxDeliveredTokens Int?
   ctxExpansions      Int       @default(0)
+  guardDenials       Int       @default(0)
   errorMessage       String?
   startedAt          DateTime  @default(now())
   endedAt            DateTime?

@@ -3,9 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { AgentPool, detectCliVersion, type ClaudeBinary } from "@onyx/agent-runtime";
 import type { ReadyResponse } from "@onyx/contracts";
 import { connectDatabase, seedDatabase, type PrismaClient } from "@onyx/db";
-import { LeanAnalyzer } from "@onyx/lean-ctx";
+import { AdjustableTokenEstimator, LeanAnalyzer } from "@onyx/lean-ctx";
 import type { Logger } from "pino";
 import { AuthService } from "./application/auth-service";
+import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { IndexService } from "./application/index-service";
 import { ProjectService } from "./application/project-service";
@@ -13,6 +14,7 @@ import { recoverInterruptedWork } from "./application/recovery";
 import { RunExecutor } from "./application/run-executor";
 import { RunScheduler } from "./application/run-scheduler";
 import { RunService } from "./application/run-service";
+import { SurgeonService } from "./application/surgeon-service";
 import { TaskService } from "./application/task-service";
 import { TelemetryService } from "./application/telemetry-service";
 import { WorkspaceService } from "./application/workspace-service";
@@ -20,6 +22,7 @@ import type { AppConfig } from "./config";
 import { EventWriter } from "./infrastructure/event-writer";
 import { IndexStore } from "./infrastructure/index-store";
 import { RunTokenRegistry } from "./infrastructure/run-tokens";
+import { AnthropicTokenizer, O200kTokenizer } from "./infrastructure/token-meter";
 import { WsHub } from "./infrastructure/ws-hub";
 
 export interface ContainerOverrides {
@@ -37,6 +40,8 @@ export interface Container {
   writer: EventWriter;
   hub: WsHub;
   indexes: IndexService;
+  surgeon: SurgeonService;
+  calibration: CalibrationService;
   runTokens: RunTokenRegistry;
   executor: RunExecutor;
   scheduler: RunScheduler;
@@ -54,6 +59,7 @@ export interface Container {
 }
 
 const MIN_FREE_DISK_RATIO = 0.1;
+const TOKEN_COUNT_MODEL = "claude-haiku-4-5";
 
 export async function createContainer(
   config: AppConfig,
@@ -86,17 +92,30 @@ export async function createContainer(
     runs.service ? runs.service.storedEvents(runId, after, before) : Promise.resolve([]),
   );
 
+  const estimator = new AdjustableTokenEstimator();
+  const offlineTokenizer = new O200kTokenizer();
+  const calibration = new CalibrationService({
+    prisma,
+    estimator,
+    logger,
+    tokenizer: () =>
+      config.credentials.kind === "api-key"
+        ? new AnthropicTokenizer({ apiKey: config.credentials.value, model: TOKEN_COUNT_MODEL })
+        : offlineTokenizer,
+  });
   const indexes = new IndexService({
     prisma,
     store: new IndexStore(prisma),
     hub,
     logger,
-    analyzer: new LeanAnalyzer(),
+    analyzer: new LeanAnalyzer({ estimator }),
+    versionSuffix: () => calibration.fingerprint,
     ...(overrides.indexRefreshDelayMs === undefined
       ? {}
       : { refreshDelayMs: overrides.indexRefreshDelayMs }),
   });
   const runTokens = new RunTokenRegistry();
+  const surgeon = new SurgeonService({ prisma, indexes, calibration, logger });
 
   const executor = new RunExecutor({
     prisma,
@@ -106,6 +125,7 @@ export async function createContainer(
     logger,
     config,
     indexes,
+    surgeon,
     runTokens,
     cliVersion: () => cliVersion,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
@@ -128,6 +148,8 @@ export async function createContainer(
     writer,
     hub,
     indexes,
+    surgeon,
+    calibration,
     runTokens,
     executor,
     scheduler,
@@ -192,6 +214,7 @@ export async function createContainer(
       if (cliVersion === null)
         logger.warn({ command: binary.command }, "Claude Code CLI not found");
       const seeded = await seedDatabase(prisma);
+      await calibration.load();
       logger.info({ seeded, cliVersion }, "Database ready");
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,

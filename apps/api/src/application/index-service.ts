@@ -20,6 +20,7 @@ export interface IndexServiceDeps {
   hub: WsHub;
   logger: Logger;
   analyzer: LeanAnalyzer;
+  versionSuffix?: () => string | undefined;
   refreshDelayMs?: number;
 }
 
@@ -186,6 +187,7 @@ export class IndexService {
       globs: toStringArray(workspace.pathGlobs),
     }));
     let lastPublished = 0;
+    const versionSuffix = this.deps.versionSuffix?.();
     try {
       const previous = previousFiles(await store.load(projectId));
       const index = await indexProject({
@@ -193,6 +195,7 @@ export class IndexService {
         analyzer,
         previous,
         domainRules,
+        ...(versionSuffix === undefined ? {} : { versionSuffix }),
         signal: entry.controller.signal,
         onProgress: (progress) => {
           const now = Date.now();

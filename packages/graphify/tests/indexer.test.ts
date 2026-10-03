@@ -264,3 +264,33 @@ describe("projects nested in another repository", () => {
     }
   });
 });
+
+describe("binary files", () => {
+  it("are indexed as nodes without content", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "onyx-binary-"));
+    try {
+      await writeProject(dir, { "src/app.ts": "export const a = 1;\n" });
+      await writeFile(
+        join(dir, "logo.png"),
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]),
+      );
+      const result = await indexProject({ rootDir: dir, analyzer, securityCheck: false });
+      expect(result.files.get("logo.png")).toMatchObject({
+        binary: true,
+        rawTokens: 0,
+        analysis: null,
+        sizeBytes: 12,
+      });
+      expect(result.stats.binaryFiles).toBe(1);
+      const suffixed = await indexProject({
+        rootDir: dir,
+        analyzer,
+        securityCheck: false,
+        versionSuffix: "cal1",
+      });
+      expect(suffixed.analyzerVersion.endsWith("+cal1")).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

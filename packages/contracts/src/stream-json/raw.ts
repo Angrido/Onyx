@@ -51,6 +51,15 @@ export const RawResultEventSchema = z.looseObject({
   usage: UsageRecordSchema.optional(),
   modelUsage: UsageRecordSchema.optional(),
   model_usage: UsageRecordSchema.optional(),
+  permission_denials: z
+    .array(
+      z.looseObject({
+        tool_name: z.string().optional(),
+        tool_use_id: z.string().optional(),
+        tool_input: z.unknown().optional(),
+      }),
+    )
+    .optional(),
 });
 export type RawResultEvent = z.infer<typeof RawResultEventSchema>;
 

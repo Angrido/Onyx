@@ -33,3 +33,28 @@ export class HeuristicTokenEstimator implements TokenEstimator {
 }
 
 export const defaultEstimator: TokenEstimator = new HeuristicTokenEstimator();
+
+export const FALLBACK_RATIO_KEY = "*";
+
+export class AdjustableTokenEstimator implements TokenEstimator {
+  private ratios: Readonly<Record<string, number>> = CHARS_PER_TOKEN;
+  private fallbackRatio = DEFAULT_CHARS_PER_TOKEN;
+
+  setRatios(overrides: Readonly<Record<string, number>>): void {
+    const ratios: Record<string, number> = { ...CHARS_PER_TOKEN };
+    let fallback = DEFAULT_CHARS_PER_TOKEN;
+    for (const [kind, ratio] of Object.entries(overrides)) {
+      if (!Number.isFinite(ratio) || ratio <= 0) continue;
+      if (kind === FALLBACK_RATIO_KEY) fallback = ratio;
+      else ratios[kind] = ratio;
+    }
+    this.ratios = ratios;
+    this.fallbackRatio = fallback;
+  }
+
+  estimate(text: string, kind: string | null = null): number {
+    if (text.length === 0) return 0;
+    const ratio = (kind === null ? undefined : this.ratios[kind]) ?? this.fallbackRatio;
+    return Math.ceil(text.length / ratio);
+  }
+}

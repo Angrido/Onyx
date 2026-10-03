@@ -2,7 +2,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const argv = process.argv.slice(2);
@@ -333,6 +333,168 @@ async function runMcpScenario(prompt: string): Promise<void> {
   rpc.close();
 }
 
+interface HttpHookSettings {
+  url: string;
+  headers: Record<string, string>;
+  allowedEnvVars: string[];
+}
+
+interface ToolAttempt {
+  tool: string;
+  input: Record<string, unknown>;
+}
+
+function readPreToolUseHook(): HttpHookSettings | null {
+  const file = flagValue("--settings");
+  if (!file) return null;
+  try {
+    const settings: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (!isRecord(settings) || !isRecord(settings.hooks)) return null;
+    const matchers = settings.hooks.PreToolUse;
+    if (!Array.isArray(matchers)) return null;
+    for (const matcher of matchers) {
+      if (!isRecord(matcher) || !Array.isArray(matcher.hooks)) continue;
+      for (const hook of matcher.hooks) {
+        if (!isRecord(hook) || hook.type !== "http" || typeof hook.url !== "string") continue;
+        return {
+          url: hook.url,
+          headers: isRecord(hook.headers) ? (hook.headers as Record<string, string>) : {},
+          allowedEnvVars: Array.isArray(hook.allowedEnvVars)
+            ? hook.allowedEnvVars.filter((name): name is string => typeof name === "string")
+            : [],
+        };
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function interpolate(value: string, allowed: readonly string[]): string {
+  return value.replace(/\$\{?(\w+)\}?/g, (_, name: string) =>
+    allowed.includes(name) ? (process.env[name] ?? "") : "",
+  );
+}
+
+function parseAttempts(prompt: string): ToolAttempt[] {
+  const attempts: ToolAttempt[] = [];
+  for (const match of prompt.matchAll(/\b(read|grep|glob|bash):(\{[^}]*\}|\S+)/g)) {
+    const kind = match[1];
+    const raw = match[2] ?? "";
+    const value = raw.startsWith("{") ? raw.slice(1, -1) : raw;
+    if (kind === "read")
+      attempts.push({ tool: "Read", input: { file_path: resolve(process.cwd(), value) } });
+    if (kind === "grep")
+      attempts.push({
+        tool: "Grep",
+        input: { pattern: "TODO", path: resolve(process.cwd(), value) },
+      });
+    if (kind === "glob") attempts.push({ tool: "Glob", input: { pattern: value } });
+    if (kind === "bash") attempts.push({ tool: "Bash", input: { command: value } });
+  }
+  return attempts;
+}
+
+async function askHook(
+  hook: HttpHookSettings,
+  attempt: ToolAttempt,
+  toolUseId: string,
+): Promise<string | null> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  for (const [name, value] of Object.entries(hook.headers))
+    headers[name] = interpolate(value, hook.allowedEnvVars);
+  try {
+    const response = await fetch(hook.url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        session_id: sessionId,
+        cwd: process.cwd(),
+        hook_event_name: "PreToolUse",
+        tool_name: attempt.tool,
+        tool_input: attempt.input,
+        tool_use_id: toolUseId,
+        permission_mode: flagValue("--permission-mode") ?? "default",
+      }),
+    });
+    if (!response.ok) return null;
+    const payload: unknown = await response.json();
+    if (!isRecord(payload) || !isRecord(payload.hookSpecificOutput)) return null;
+    const output = payload.hookSpecificOutput;
+    return output.permissionDecision === "deny"
+      ? String(output.permissionDecisionReason ?? "denied")
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function simulateTool(attempt: ToolAttempt): string {
+  if (attempt.tool === "Read") {
+    try {
+      return readFileSync(String(attempt.input.file_path), "utf8").slice(0, 400);
+    } catch (error) {
+      return `read failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  return "(stub) tool not executed";
+}
+
+async function runGuardScenario(prompt: string): Promise<void> {
+  const hook = readPreToolUseHook();
+  const attempts = parseAttempts(prompt);
+  await writeLine(
+    JSON.stringify({
+      type: "system",
+      subtype: "init",
+      cwd: process.cwd(),
+      session_id: sessionId,
+      tools: ["Read", "Grep", "Glob", "Bash"],
+      mcp_servers: [],
+      model,
+      permissionMode: flagValue("--permission-mode") ?? "default",
+      apiKeySource: "none",
+      claude_code_version: "0.0.0-stub",
+    }),
+  );
+  let blocked = 0;
+  for (const [index, attempt] of attempts.entries()) {
+    const toolUseId = `toolu_stub_guard_${index + 1}`;
+    await writeLine(
+      assistantLine(`msg_stub_guard_${index + 1}`, [
+        { type: "tool_use", id: toolUseId, name: attempt.tool, input: attempt.input },
+      ]),
+    );
+    const denial = hook ? await askHook(hook, attempt, toolUseId) : null;
+    if (denial !== null) blocked += 1;
+    await writeLine(
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: toolUseId,
+              type: "tool_result",
+              content:
+                denial === null
+                  ? simulateTool(attempt)
+                  : `PreToolUse hook denied this tool call: ${denial}`,
+              is_error: denial !== null,
+            },
+          ],
+        },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      }),
+    );
+  }
+  const summary = `Blocked ${blocked} of ${attempts.length} tool calls.`;
+  await writeLine(assistantLine("msg_stub_guard_done", [{ type: "text", text: summary }]));
+  await writeLine(resultLine(summary));
+}
+
 async function main(): Promise<void> {
   const prompt = await readPrompt();
   const scenario = scenarioFor(prompt);
@@ -377,6 +539,9 @@ async function main(): Promise<void> {
       return hangForever();
     case "mcp":
       await runMcpScenario(prompt);
+      return;
+    case "guard":
+      await runGuardScenario(prompt);
       return;
     default:
       process.stderr.write(`unknown stub scenario: ${scenario}\n`);

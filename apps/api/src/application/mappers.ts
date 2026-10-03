@@ -139,6 +139,7 @@ export function toRunDto(run: RunWithRelations): RunDto {
       deliveredTokens: run.ctxDeliveredTokens,
       expansions: run.ctxExpansions,
     },
+    guardDenials: run.guardDenials,
     startedAt: iso(run.startedAt),
     endedAt: isoOrNull(run.endedAt),
   };

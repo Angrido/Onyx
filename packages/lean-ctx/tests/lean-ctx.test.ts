@@ -204,3 +204,15 @@ describe("excerpt", () => {
     expect(analyzer.excerpt("run.ts", source, 1, ["missing"])).toBeNull();
   });
 });
+
+describe("AdjustableTokenEstimator", () => {
+  it("applies calibrated ratios and a fallback", async () => {
+    const { AdjustableTokenEstimator } = await import("../src");
+    const estimator = new AdjustableTokenEstimator();
+    expect(estimator.estimate("x".repeat(33), "typescript")).toBe(10);
+    estimator.setRatios({ typescript: 4.1, "*": 2, broken: -1 });
+    expect(estimator.estimate("x".repeat(41), "typescript")).toBe(10);
+    expect(estimator.estimate("x".repeat(10), "unknown")).toBe(5);
+    expect(estimator.estimate("x".repeat(10), "broken")).toBe(5);
+  });
+});

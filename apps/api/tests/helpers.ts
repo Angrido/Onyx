@@ -109,10 +109,15 @@ export interface ApiClient {
   get<T>(url: string): Promise<{ status: number; body: T }>;
   post<T>(url: string, payload?: unknown): Promise<{ status: number; body: T }>;
   patch<T>(url: string, payload: unknown): Promise<{ status: number; body: T }>;
+  put<T>(url: string, payload: unknown): Promise<{ status: number; body: T }>;
 }
 
 export function apiClient(app: FastifyInstance, cookie: string): ApiClient {
-  const request = async <T>(method: "GET" | "POST" | "PATCH", url: string, payload?: unknown) => {
+  const request = async <T>(
+    method: "GET" | "POST" | "PATCH" | "PUT",
+    url: string,
+    payload?: unknown,
+  ) => {
     const response = await app.inject({
       method,
       url,
@@ -128,6 +133,7 @@ export function apiClient(app: FastifyInstance, cookie: string): ApiClient {
     get: (url) => request("GET", url),
     post: (url, payload) => request("POST", url, payload ?? {}),
     patch: (url, payload) => request("PATCH", url, payload),
+    put: (url, payload) => request("PUT", url, payload),
   };
 }
 

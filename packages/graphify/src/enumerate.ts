@@ -34,6 +34,30 @@ export interface EnumerateOptions {
 const DEFAULT_MAX_FILE_BYTES = 1024 * 1024;
 const SILENT = -1;
 
+export const HARD_SKIP_PATTERNS: readonly string[] = [
+  ".git/**",
+  ".hg/**",
+  ".svn/**",
+  "**/node_modules/**",
+  "**/bower_components/**",
+  "**/jspm_packages/**",
+  "**/.pnpm-store/**",
+  "**/.yarn/**",
+  "**/.venv/**",
+  "**/venv/**",
+  "**/__pycache__/**",
+  "**/*.py[cod]",
+  "**/.DS_Store",
+  "**/.env",
+  "**/.env.*",
+  "**/*.pem",
+  "**/*.key",
+  "**/*.p12",
+  "**/*.pfx",
+  "**/id_rsa*",
+  "**/id_ed25519*",
+];
+
 const GITIGNORE_SCAN_DEPTH = 8;
 const GITIGNORE_SCAN_SKIP = new Set([
   "node_modules",
@@ -119,7 +143,12 @@ export async function enumerateProject(
       input: { maxFileSize: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES },
       ignore: {
         useGitignore: !nestedInForeignRepository,
-        customPatterns: [...(options.ignorePatterns ?? []), ...localGitignore],
+        useDefaultPatterns: false,
+        customPatterns: [
+          ...HARD_SKIP_PATTERNS,
+          ...(options.ignorePatterns ?? []),
+          ...localGitignore,
+        ],
       },
       security: { enableSecurityCheck: options.securityCheck ?? true },
     },

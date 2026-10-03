@@ -199,3 +199,26 @@ describe("TurnUsageLedger", () => {
     });
   });
 });
+
+describe("permission denials", () => {
+  it("become guard items ahead of the result", () => {
+    const items = normalizeClaudeEvent({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      permission_denials: [
+        { tool_name: "Read", tool_use_id: "toolu_1", tool_input: { file_path: "/srv/p/.env" } },
+        { tool_name: "Bash", tool_use_id: "toolu_2", tool_input: { command: "cat dist/a.js" } },
+      ],
+    });
+    expect(items.map((item) => item.kind)).toEqual(["guard", "guard", "result"]);
+    expect(items[0]).toEqual({
+      kind: "guard",
+      source: "permission",
+      tool: "Read",
+      target: "/srv/p/.env",
+      rule: null,
+      reason: "Denied by the run's permission rules",
+    });
+  });
+});

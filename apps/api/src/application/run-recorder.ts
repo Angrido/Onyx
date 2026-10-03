@@ -29,6 +29,7 @@ export class RunRecorder {
   private lastTurn: TokenUsage | null = null;
   private resultItem: RunItemOf<"result"> | null = null;
   private initItem: RunItemOf<"init"> | null = null;
+  private guards = 0;
 
   constructor(
     private readonly runId: string,
@@ -57,6 +58,10 @@ export class RunRecorder {
     return this.lastTurn === null ? 0 : contextTokensOf(this.lastTurn);
   }
 
+  get guardDenials(): number {
+    return this.guards;
+  }
+
   turnUsages(): TurnUsageRecord[] {
     return [...this.turns.values()];
   }
@@ -78,6 +83,7 @@ export class RunRecorder {
   }
 
   recordOnyx(item: OnyxRunItem): void {
+    this.track([item]);
     this.append(ONYX_EVENT_TYPE, item.kind, item, [item]);
   }
 
@@ -96,6 +102,8 @@ export class RunRecorder {
       } else if (item.kind === "init") {
         this.initItem = item;
         this.onInit(item);
+      } else if (item.kind === "guard") {
+        this.guards += 1;
       }
     }
   }

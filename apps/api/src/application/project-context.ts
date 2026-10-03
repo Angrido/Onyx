@@ -34,6 +34,7 @@ import {
   type LeanSymbol,
   type ProjectMap,
 } from "@onyx/lean-ctx";
+import { EMPTY_POLICY, type ContextPolicy } from "@onyx/ignore-compiler";
 import type { StoredFile, StoredIndex } from "../infrastructure/index-store";
 
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
@@ -45,13 +46,18 @@ export interface PackRequest {
   targetPaths: readonly string[];
   prompt: string;
   budgetTokens: number;
+  policy?: ContextPolicy;
 }
 
 export interface PackResult {
   pack: ContextPack | null;
   targets: string[];
   inferredTargets: string[];
+  excludedTargets: string[];
 }
+
+const EXCLUDED_NOTICE =
+  "This file is outside the agent's context: the project's Onyx context profile excludes it.";
 
 export interface GraphRequest {
   focus: string | null;
@@ -205,7 +211,16 @@ export class ProjectContext {
   }
 
   buildPack(request: PackRequest): PackResult {
-    const files = [...this.index.files.keys()];
+    const policy = request.policy ?? EMPTY_POLICY;
+    const files = [...this.index.files.keys()].filter((path) => !policy.isExcluded(path));
+    const requested = expandTargetPaths(
+      request.targetPaths
+        .map((path) => this.normalizePath(path))
+        .filter((path): path is string => path !== null),
+      [...this.index.files.keys()],
+      this.rank,
+    );
+    const excludedTargets = requested.filter((path) => policy.isExcluded(path));
     const explicit = expandTargetPaths(
       request.targetPaths
         .map((path) => this.normalizePath(path))
@@ -219,10 +234,15 @@ export class ProjectContext {
       symbolFiles: this.exportOwners,
     }).filter((path) => !explicit.includes(path));
     const targets = [...explicit, ...inferred];
+    const allowed = new Map(
+      [...this.packFiles()].filter(
+        ([path]) => !policy.isExcluded(path) && !this.index.files.get(path)?.binary,
+      ),
+    );
     const pack = buildContextPack({
       targets,
       graph: this.index.graph,
-      files: this.packFiles(),
+      files: allowed,
       readSource: (relPath) => this.readSource(relPath),
       rank: this.rank,
       estimator: this.analyzer.estimator,
@@ -232,17 +252,19 @@ export class ProjectContext {
         return content === null ? null : this.analyzer.excerpt(relPath, content, level, names);
       },
     });
-    return { pack, targets, inferredTargets: inferred };
+    return { pack, targets, inferredTargets: inferred, excludedTargets };
   }
 
-  projectMap(budgetTokens: number): ProjectMap {
+  projectMap(budgetTokens: number, policy: ContextPolicy = EMPTY_POLICY): ProjectMap {
     return renderProjectMap(
-      [...this.index.files.values()].map((file) => ({
-        relPath: file.relPath,
-        tokens: file.rawTokens,
-        exports: file.analysis?.exports ?? [],
-        rank: file.centrality,
-      })),
+      [...this.index.files.values()]
+        .filter((file) => !file.binary && !policy.isExcluded(file.relPath))
+        .map((file) => ({
+          relPath: file.relPath,
+          tokens: file.rawTokens,
+          exports: file.analysis?.exports ?? [],
+          rank: file.centrality,
+        })),
       { budgetTokens, estimator: this.analyzer.estimator },
     );
   }
@@ -363,10 +385,11 @@ export class ProjectContext {
     };
   }
 
-  expandSymbol(input: ExpandSymbolInput): McpToolResult {
+  expandSymbol(input: ExpandSymbolInput, policy: ContextPolicy = EMPTY_POLICY): McpToolResult {
     const located = this.locateSymbol(input);
     if (typeof located === "string") return result(located, 0, true);
     const { relPath, symbol, current, alternatives } = located;
+    if (policy.isExcluded(relPath)) return result(EXCLUDED_NOTICE, 0, true);
     if (this.index.files.get(relPath)?.sensitive) return result(SENSITIVE_NOTICE, 0, true);
     const rendered = renderSymbolSource(current.content, symbol.startLine, symbol.endLine);
     const lines = [
@@ -383,10 +406,11 @@ export class ProjectContext {
     return result(text, this.analyzer.estimator.estimate(text, current.analysis?.language ?? null));
   }
 
-  fileSkeleton(input: FileSkeletonInput): McpToolResult {
+  fileSkeleton(input: FileSkeletonInput, policy: ContextPolicy = EMPTY_POLICY): McpToolResult {
     const relPath = this.normalizePath(input.path);
     const stored = relPath === null ? undefined : this.index.files.get(relPath);
     if (!relPath || !stored) return result(`Unknown file: ${input.path}`, 0, true);
+    if (policy.isExcluded(relPath)) return result(EXCLUDED_NOTICE, 0, true);
     const level = input.level ?? 1;
     const current = this.current(relPath);
     const analysis = current?.analysis ?? stored.analysis;
@@ -411,10 +435,11 @@ export class ProjectContext {
     return result(text, this.analyzer.estimator.estimate(text, stored.language));
   }
 
-  deps(input: DepsInput): McpToolResult {
+  deps(input: DepsInput, policy: ContextPolicy = EMPTY_POLICY): McpToolResult {
     const relPath = this.normalizePath(input.path);
     if (!relPath || !this.index.files.has(relPath))
       return result(`Unknown file: ${input.path}`, 0, true);
+    if (policy.isExcluded(relPath)) return result(EXCLUDED_NOTICE, 0, true);
     const direction = input.direction ?? "both";
     const depth = input.depth ?? 1;
     const lines: string[] = [relPath];
@@ -438,9 +463,9 @@ export class ProjectContext {
           distances.set(dependency.relPath, 1);
         }
       }
-      const entries = [...distances].sort(
-        (a, b) => a[1] - b[1] || (this.rank.get(b[0]) ?? 0) - (this.rank.get(a[0]) ?? 0),
-      );
+      const entries = [...distances]
+        .filter(([path]) => !policy.isExcluded(path))
+        .sort((a, b) => a[1] - b[1] || (this.rank.get(b[0]) ?? 0) - (this.rank.get(a[0]) ?? 0));
       lines.push(`${title} (${entries.length}):`);
       for (const [path, distance] of entries) {
         const directory = path.slice(0, path.lastIndexOf("/") + 1);
@@ -465,13 +490,14 @@ export class ProjectContext {
     return result(text, this.analyzer.estimator.estimate(text, "text"));
   }
 
-  searchSymbols(input: SearchSymbolsInput): McpToolResult {
+  searchSymbols(input: SearchSymbolsInput, policy: ContextPolicy = EMPTY_POLICY): McpToolResult {
     const query = input.query.trim().toLowerCase();
     const limit = input.limit ?? 20;
     const scored: { score: number; entry: HandleEntry }[] = [];
     for (const entries of this.handles.values()) {
       for (const entry of entries) {
         if (input.kind && entry.symbol.kind !== input.kind) continue;
+        if (policy.isExcluded(entry.file.relPath)) continue;
         const name = entry.symbol.name.toLowerCase();
         const qualified = entry.symbol.qualifiedName.toLowerCase();
         let score: number;

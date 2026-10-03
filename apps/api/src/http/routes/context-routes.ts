@@ -13,39 +13,32 @@ import {
   type McpToolResult,
 } from "@onyx/contracts";
 import type { ContextLevel } from "@onyx/lean-ctx";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { ContextPolicy } from "@onyx/ignore-compiler";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ProjectContext } from "../../application/project-context";
 import type { Container } from "../../container";
-import { conflict, forbidden, notFound, unauthorized } from "../../errors";
+import { conflict, notFound } from "../../errors";
+import { requireGrant } from "../internal-auth";
 import { idParam } from "../params";
 
 const ToolParamsSchema = z.object({ tool: z.enum(MCP_TOOL_NAMES) });
-const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
-function assertLoopback(request: FastifyRequest): void {
-  const remote = request.socket.remoteAddress ?? "";
-  if (!LOOPBACK_ADDRESSES.has(remote) || request.headers["x-forwarded-for"] !== undefined) {
-    throw forbidden("Internal endpoints accept loopback connections only");
-  }
-}
-
-function bearerToken(header: string | undefined): string {
-  const match = /^Bearer\s+(\S+)$/i.exec(header ?? "");
-  if (!match?.[1]) throw unauthorized("Missing run token");
-  return match[1];
-}
-
-function runTool(context: ProjectContext, tool: McpToolName, body: unknown): McpToolResult {
+function runTool(
+  context: ProjectContext,
+  tool: McpToolName,
+  body: unknown,
+  policy: ContextPolicy,
+): McpToolResult {
   switch (tool) {
     case "expand_symbol":
-      return context.expandSymbol(ExpandSymbolInputSchema.parse(body));
+      return context.expandSymbol(ExpandSymbolInputSchema.parse(body), policy);
     case "file_skeleton":
-      return context.fileSkeleton(FileSkeletonInputSchema.parse(body));
+      return context.fileSkeleton(FileSkeletonInputSchema.parse(body), policy);
     case "deps":
-      return context.deps(DepsInputSchema.parse(body));
+      return context.deps(DepsInputSchema.parse(body), policy);
     case "search_symbols":
-      return context.searchSymbols(SearchSymbolsInputSchema.parse(body));
+      return context.searchSymbols(SearchSymbolsInputSchema.parse(body), policy);
   }
 }
 
@@ -87,16 +80,13 @@ export function registerContextRoutes(app: FastifyInstance, container: Container
     "/internal/mcp/:tool",
     { config: { public: true } },
     async (request): Promise<McpToolResult> => {
-      assertLoopback(request);
-      const token = bearerToken(request.headers.authorization);
-      const grant = runTokens.resolve(token);
-      if (!grant) throw unauthorized("Unknown or expired run token");
+      const { token, grant } = requireGrant(request, runTokens);
       const { tool } = ToolParamsSchema.parse(request.params);
       const context = await indexes.context(grant.projectId);
       if (!context) {
         return { text: "The project index is not available right now.", tokens: 0, isError: true };
       }
-      const result = runTool(context, tool, request.body ?? {});
+      const result = runTool(context, tool, request.body ?? {}, grant.policy);
       runTokens.record(token, result.tokens);
       request.log.info(
         { runId: grant.runId, tool, tokens: result.tokens, isError: result.isError },

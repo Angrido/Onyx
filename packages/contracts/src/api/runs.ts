@@ -29,6 +29,7 @@ export const RunDtoSchema = z.object({
   cliVersion: z.string().nullable(),
   usage: TokenUsageSchema,
   context: RunContextDtoSchema,
+  guardDenials: z.number().int(),
   startedAt: z.string(),
   endedAt: z.string().nullable(),
 });

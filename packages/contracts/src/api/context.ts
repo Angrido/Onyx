@@ -23,6 +23,7 @@ export const IndexStatsSchema = z.object({
   parsedFiles: z.number().int(),
   reusedFiles: z.number().int(),
   skippedFiles: z.number().int(),
+  binaryFiles: z.number().int().default(0),
   syntaxErrorFiles: z.number().int(),
   symbols: z.number().int(),
   internalEdges: z.number().int(),

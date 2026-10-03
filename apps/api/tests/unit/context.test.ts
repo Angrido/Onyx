@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { composePrimer, composeUserMessage } from "../../src/domain/context-primer";
 import { buildMcpConfig, ONYX_MCP_ALLOW_RULE } from "../../src/infrastructure/mcp-config";
+import { ContextPolicy, PathGuard } from "@onyx/ignore-compiler";
 import { RunTokenRegistry } from "../../src/infrastructure/run-tokens";
 
 describe("composePrimer", () => {
@@ -42,8 +43,10 @@ describe("composeUserMessage", () => {
 describe("RunTokenRegistry", () => {
   it("issues one token per run, tracks usage and revokes it", () => {
     const registry = new RunTokenRegistry();
-    const first = registry.issue("run-1", "project-1");
-    const second = registry.issue("run-1", "project-1");
+    const policy = new ContextPolicy([]);
+    const scope = { workspaceId: null, policy, guard: new PathGuard(policy, "/tmp/project") };
+    const first = registry.issue("run-1", "project-1", scope);
+    const second = registry.issue("run-1", "project-1", scope);
     expect(first).not.toBe(second);
     expect(registry.resolve(first)).toBeNull();
     registry.record(second, 120);

@@ -24,6 +24,7 @@ export interface StoredFile {
   sizeBytes: number;
   rawTokens: number;
   sensitive: boolean;
+  binary: boolean;
   domain: Domain | null;
   inDegree: number;
   outDegree: number;
@@ -102,6 +103,7 @@ function toStoredFile(node: FileNode & { symbols: CodeSymbol[] }): StoredFile {
     sizeBytes: node.sizeBytes,
     rawTokens: node.rawTokens,
     sensitive: node.isSensitive,
+    binary: node.isBinary,
     domain: node.domain,
     inDegree: node.inDegree,
     outDegree: node.outDegree,
@@ -185,6 +187,7 @@ export class IndexStore {
             inCycle: metrics?.inCycle ?? false,
             domain: metrics?.domain?.domain ?? null,
             isSensitive: file.sensitive,
+            isBinary: file.binary,
           };
           const previous = existingByPath.get(file.relPath);
           const unchanged =

@@ -200,11 +200,29 @@ function normalizeUser(raw: unknown): RunItem[] {
   return items;
 }
 
+function deniedTarget(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  for (const key of ["file_path", "notebook_path", "path", "pattern", "command"]) {
+    const value = input[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
 function normalizeResult(raw: unknown): RunItem[] {
   const parsed = RawResultEventSchema.safeParse(raw);
   if (!parsed.success) return [{ kind: "unknown", type: "result" }];
   const event = parsed.data;
+  const denials: RunItem[] = (event.permission_denials ?? []).map((denial) => ({
+    kind: "guard",
+    source: "permission",
+    tool: denial.tool_name ?? "unknown",
+    target: deniedTarget(denial.tool_input),
+    rule: null,
+    reason: "Denied by the run's permission rules",
+  }));
   return [
+    ...denials,
     {
       kind: "result",
       subtype: event.subtype,
