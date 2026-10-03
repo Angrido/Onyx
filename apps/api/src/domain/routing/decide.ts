@@ -36,10 +36,16 @@ export interface LastRunView {
   resultSubtype: string | null;
 }
 
+export interface RoutingEscalation {
+  tier: ModelTier;
+  reason: string;
+}
+
 export interface RoutingContext {
   features: RoutingFeatures;
   text: string;
   override: RoutingOverride | null;
+  escalation?: RoutingEscalation | null;
   rules: readonly RuleView[];
   weights: RouterWeights;
   thresholds: RouterThresholds;
@@ -71,7 +77,7 @@ export interface TierModel {
   substituted: boolean;
 }
 
-function raise(tier: ModelTier): ModelTier {
+export function raiseTier(tier: ModelTier): ModelTier {
   const next = TIERS_ASCENDING[TIER_ORDER[tier] + 1] ?? tier;
   return TIER_ORDER[next] > TIER_ORDER[ESCALATION_CEILING] ? ESCALATION_CEILING : next;
 }
@@ -137,9 +143,19 @@ export function planRouting(context: RoutingContext): RoutingPlan {
   }
 
   const base = basePlan(context);
-  const { previous, lastRun } = context;
+  const { previous, lastRun, escalation } = context;
+  if (escalation && TIER_ORDER[escalation.tier] > TIER_ORDER[base.tier]) {
+    return {
+      ...base,
+      strategy: "ESCALATION",
+      tier: escalation.tier,
+      modelId: null,
+      classify: false,
+      rationale: `Escalated to ${escalation.tier}: ${escalation.reason}. Base routing: ${base.rationale}`,
+    };
+  }
   if (previous && shouldEscalate(lastRun)) {
-    const escalated = raise(previous.tier);
+    const escalated = raiseTier(previous.tier);
     if (TIER_ORDER[escalated] > TIER_ORDER[base.tier] && escalated !== previous.tier) {
       return {
         ...base,

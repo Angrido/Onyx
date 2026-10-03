@@ -603,7 +603,14 @@ model TddLoop {
   status         TddStatus  @default(PENDING)
   iterationCount Int        @default(0)
   protectedHash  String?
+  protectedFiles Int        @default(0)
   violations     Int        @default(0)
+  relatedFiles   Json?
+  testTimeoutSec Int        @default(300)
+  costUsd        Float      @default(0)
+  message        String?
+  escalatedAt    DateTime?
+  createdAt      DateTime   @default(now())
   startedAt      DateTime?
   endedAt        DateTime?
   greenAt        DateTime?
@@ -613,6 +620,7 @@ model TddLoop {
   iterations TddIteration[]
 
   @@index([taskId])
+  @@index([status])
 }
 
 model TddIteration {
@@ -630,6 +638,10 @@ model TddIteration {
   rawLogPath       String?
   agentRunId       String?  @unique
   escalated        Boolean  @default(false)
+  regressions      Int      @default(0)
+  revertedFiles    Json?
+  exitCode         Int?
+  timedOut         Boolean  @default(false)
   createdAt        DateTime @default(now())
 
   loop     TddLoop   @relation(fields: [loopId], references: [id], onDelete: Cascade)

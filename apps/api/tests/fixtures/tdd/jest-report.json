@@ -1,0 +1,150 @@
+{
+ "numFailedTestSuites": 2,
+ "numFailedTests": 3,
+ "numPassedTestSuites": 1,
+ "numPassedTests": 1,
+ "numPendingTestSuites": 0,
+ "numPendingTests": 0,
+ "numRuntimeErrorTestSuites": 1,
+ "numTodoTests": 0,
+ "numTotalTestSuites": 3,
+ "numTotalTests": 4,
+ "openHandles": [],
+ "startTime": 1791037468743,
+ "success": false,
+ "testResults": [
+  {
+   "assertionResults": [
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "duration": 4,
+     "failing": false,
+     "failureDetails": [
+      {
+       "matcherResult": {
+        "actual": -1,
+        "expected": 5,
+        "message": "\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m5\u001b[39m\nReceived: \u001b[31m-1\u001b[39m",
+        "name": "toBe",
+        "pass": false
+       }
+      }
+     ],
+     "failureMessages": [
+      "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m5\u001b[39m\nReceived: \u001b[31m-1\u001b[39m\n    at Object.toBe (/work/demo/src/math.test.js:5:23)\n    at Promise.finally.completed (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)\n    at _callCircusTest (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at _runTestInContext (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)\n    at runTestWithContext (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:996:5)"
+     ],
+     "fullName": "math adds two numbers",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryMessages": [],
+     "retryReasons": [],
+     "status": "failed",
+     "title": "adds two numbers",
+     "startAt": 1791037468982
+    },
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "duration": 3,
+     "failing": false,
+     "failureDetails": [
+      {
+       "matcherResult": {
+        "actual": {
+         "value": 4
+        },
+        "expected": {
+         "value": 2,
+         "extra": true
+        },
+        "message": "\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 2\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"extra\": true,\u001b[39m\n\u001b[32m-   \"value\": 2,\u001b[39m\n\u001b[31m+   \"value\": 4,\u001b[39m\n\u001b[2m  }\u001b[22m",
+        "name": "toEqual",
+        "pass": false
+       }
+      }
+     ],
+     "failureMessages": [
+      "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 2\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"extra\": true,\u001b[39m\n\u001b[32m-   \"value\": 2,\u001b[39m\n\u001b[31m+   \"value\": 4,\u001b[39m\n\u001b[2m  }\u001b[22m\n    at Object.toEqual (/work/demo/src/math.test.js:9:35)\n    at Promise.finally.completed (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)"
+     ],
+     "fullName": "math parses objects",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryMessages": [],
+     "retryReasons": [],
+     "status": "failed",
+     "title": "parses objects",
+     "startAt": 1791037468995
+    },
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "duration": 0,
+     "failing": false,
+     "failureDetails": [
+      {}
+     ],
+     "failureMessages": [
+      "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at parse (/work/demo/src/math.js:6:21)\n    at Object.parse (/work/demo/src/math.test.js:13:12)\n    at Promise.finally.completed (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)\n    at _callCircusTest (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at _runTestInContext (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)\n    at runTestWithContext (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:996:5)\n    at _runTestsForDescribeBlockOnce (/work/demo/node_modules/jest-circus/build/jestAdapterInit.js:1008:11)"
+     ],
+     "fullName": "math throws on bad input",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryMessages": [],
+     "retryReasons": [],
+     "status": "failed",
+     "title": "throws on bad input",
+     "startAt": 1791037468999
+    }
+   ],
+   "endTime": 1791037469017,
+   "message": "\u001b[1m\u001b[31m  \u001b[1m\u25cf \u001b[22m\u001b[1mmath \u203a adds two numbers\u001b[39m\u001b[22m\n\n    \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\n    Expected: \u001b[32m5\u001b[39m\n    Received: \u001b[31m-1\u001b[39m\n\n\u001b[2m    \u001b[0m \u001b[90m 3 |\u001b[39m describe(\u001b[32m\"math\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\u001b[22m\n\u001b[2m     \u001b[90m 4 |\u001b[39m   test(\u001b[32m\"adds two numbers\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\u001b[22m\n\u001b[2m    \u001b[31m\u001b[1m>\u001b[22m\u001b[2m\u001b[39m\u001b[90m 5 |\u001b[39m     expect(add(\u001b[35m2\u001b[39m\u001b[33m,\u001b[39m \u001b[35m3\u001b[39m))\u001b[33m.\u001b[39mtoBe(\u001b[35m5\u001b[39m)\u001b[33m;\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m   |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[2m\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 6 |\u001b[39m   })\u001b[33m;\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 7 |\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 8 |\u001b[39m   test(\u001b[32m\"parses objects\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\u001b[0m\u001b[22m\n\n\u001b[2m      \u001b[2mat Object.toBe (\u001b[22m\u001b[2m\u001b[0m\u001b[36msrc/math.test.js\u001b[39m\u001b[0m\u001b[2m:5:23)\u001b[22m\u001b[2m\u001b[22m\n\n\u001b[1m\u001b[31m  \u001b[1m\u25cf \u001b[22m\u001b[1mmath \u203a parses objects\u001b[39m\u001b[22m\n\n    \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n    \u001b[32m- Expected  - 2\u001b[39m\n    \u001b[31m+ Received  + 1\u001b[39m\n\n    \u001b[2m  Object {\u001b[22m\n    \u001b[32m-   \"extra\": true,\u001b[39m\n    \u001b[32m-   \"value\": 2,\u001b[39m\n    \u001b[31m+   \"value\": 4,\u001b[39m\n    \u001b[2m  }\u001b[22m\n\n\u001b[2m    \u001b[0m \u001b[90m  7 |\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m  8 |\u001b[39m   test(\u001b[32m\"parses objects\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\u001b[22m\n\u001b[2m    \u001b[31m\u001b[1m>\u001b[22m\u001b[2m\u001b[39m\u001b[90m  9 |\u001b[39m     expect(parse(\u001b[32m'{\"value\": 2}'\u001b[39m))\u001b[33m.\u001b[39mtoEqual({ value\u001b[33m:\u001b[39m \u001b[35m2\u001b[39m\u001b[33m,\u001b[39m extra\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m })\u001b[33m;\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m    |\u001b[39m                                   \u001b[31m\u001b[1m^\u001b[22m\u001b[2m\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 10 |\u001b[39m   })\u001b[33m;\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 11 |\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 12 |\u001b[39m   test(\u001b[32m\"throws on bad input\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\u001b[0m\u001b[22m\n\n\u001b[2m      \u001b[2mat Object.toEqual (\u001b[22m\u001b[2m\u001b[0m\u001b[36msrc/math.test.js\u001b[39m\u001b[0m\u001b[2m:9:35)\u001b[22m\u001b[2m\u001b[22m\n\n\u001b[1m\u001b[31m  \u001b[1m\u25cf \u001b[22m\u001b[1mmath \u203a throws on bad input\u001b[39m\u001b[22m\n\n    SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n        at JSON.parse (<anonymous>)\n\n\u001b[2m    \u001b[0m \u001b[90m 4 |\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 5 |\u001b[39m \u001b[36mfunction\u001b[39m parse(input) {\u001b[22m\n\u001b[2m    \u001b[31m\u001b[1m>\u001b[22m\u001b[2m\u001b[39m\u001b[90m 6 |\u001b[39m   \u001b[36mconst\u001b[39m data \u001b[33m=\u001b[39m \u001b[33mJSON\u001b[39m\u001b[33m.\u001b[39mparse(input)\u001b[33m;\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m   |\u001b[39m                     \u001b[31m\u001b[1m^\u001b[22m\u001b[2m\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 7 |\u001b[39m   \u001b[36mreturn\u001b[39m { value\u001b[33m:\u001b[39m data\u001b[33m.\u001b[39mvalue \u001b[33m*\u001b[39m \u001b[35m2\u001b[39m }\u001b[33m;\u001b[39m\u001b[22m\n\u001b[2m     \u001b[90m 8 |\u001b[39m }\u001b[22m\n\u001b[2m     \u001b[90m 9 |\u001b[39m\u001b[0m\u001b[22m\n\n\u001b[2m      \u001b[2mat parse (\u001b[22m\u001b[2msrc/math.js\u001b[2m:6:21)\u001b[22m\u001b[2m\u001b[22m\n\u001b[2m      \u001b[2mat Object.parse (\u001b[22m\u001b[2m\u001b[0m\u001b[36msrc/math.test.js\u001b[39m\u001b[0m\u001b[2m:13:12)\u001b[22m\u001b[2m\u001b[22m\n",
+   "name": "/work/demo/src/math.test.js",
+   "startTime": 1791037468897,
+   "status": "failed",
+   "summary": ""
+  },
+  {
+   "assertionResults": [],
+   "endTime": 1791037469208,
+   "message": "  \u001b[1m\u25cf \u001b[22mTest suite failed to run\n\n    \u001b[1m\u001b[31mJest encountered an unexpected token\u001b[39m\u001b[22m\n\n    Jest failed to parse a file. This happens e.g. when your code or its dependencies use non-standard JavaScript syntax, or when Jest is not configured to support such syntax.\n\n    Out of the box Jest supports Babel, which will be used to transform your files into valid JS based on your Babel configuration.\n\n    By default \"node_modules\" folder is ignored by transformers.\n\n    Here's what you can do:\n     \u2022 If you are trying to use TypeScript, see \u001b[4mhttps://jestjs.io/docs/getting-started#using-typescript\u001b[24m\n     \u2022 To have some of your \"node_modules\" files transformed, you can specify a custom \u001b[1m\"transformIgnorePatterns\"\u001b[22m in your config.\n     \u2022 If you need a custom transformation, specify a \u001b[1m\"transform\"\u001b[22m option in your config.\n     \u2022 If you simply want to mock your non-JS modules (e.g. binary assets) you can stub them out with the \u001b[1m\"moduleNameMapper\"\u001b[22m config option.\n\n    You'll find more details and examples of these config options in the docs:\n    \u001b[36mhttps://jestjs.io/docs/configuration\u001b[39m\n    For information about custom transformations, see:\n    \u001b[36mhttps://jestjs.io/docs/code-transformation\u001b[39m\n\n    \u001b[1m\u001b[31mDetails:\u001b[39m\u001b[22m\n\n    SyntaxError: /work/demo/src/broken.js: Unexpected token (1:26)\n\n    \u001b[0m\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 1 |\u001b[39m module\u001b[33m.\u001b[39mexports \u001b[33m=\u001b[39m { value\u001b[33m:\u001b[39m }\u001b[33m;\u001b[39m\n     \u001b[90m   |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n     \u001b[90m 2 |\u001b[39m\u001b[0m\n\n    \u001b[0m\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 1 |\u001b[39m \u001b[36mconst\u001b[39m { value } \u001b[33m=\u001b[39m require(\u001b[32m\"./broken\"\u001b[39m)\u001b[33m;\u001b[39m\n     \u001b[90m   |\u001b[39m                   \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n     \u001b[90m 2 |\u001b[39m test(\u001b[32m\"has a value\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m { expect(value)\u001b[33m.\u001b[39mtoBe(\u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m })\u001b[33m;\u001b[39m\n     \u001b[90m 3 |\u001b[39m\u001b[0m\n\n      \u001b[2mat constructor (\u001b[22mnode_modules/@babel/parser/src/parse-error.ts\u001b[2m:96:45)\u001b[22m\n          at parser.next (<anonymous>)\n          at normalizeFile.next (<anonymous>)\n          at run.next (<anonymous>)\n          at transform.next (<anonymous>)\n      \u001b[2mat Object.require (\u001b[22m\u001b[0m\u001b[36msrc/broken.test.js\u001b[39m\u001b[0m\u001b[2m:1:19)\u001b[22m\n",
+   "name": "/work/demo/src/broken.test.js",
+   "startTime": 1791037469208,
+   "status": "failed",
+   "summary": ""
+  },
+  {
+   "assertionResults": [
+    {
+     "ancestorTitles": [],
+     "duration": 1,
+     "failing": false,
+     "failureDetails": [],
+     "failureMessages": [],
+     "fullName": "works",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 1,
+     "retryMessages": [],
+     "retryReasons": [],
+     "status": "passed",
+     "title": "works",
+     "startAt": 1791037469194
+    }
+   ],
+   "endTime": 1791037469195,
+   "message": "",
+   "name": "/work/demo/src/ok.test.js",
+   "startTime": 1791037469178,
+   "status": "passed",
+   "summary": ""
+  }
+ ],
+ "wasInterrupted": false
+}

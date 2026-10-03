@@ -2,17 +2,22 @@ import type { AgentPool } from "@onyx/agent-runtime";
 import type { RunStatus } from "@onyx/contracts";
 import type { Logger } from "pino";
 import type { WsHub } from "../infrastructure/ws-hub";
-import type { RunExecutor, RunRequest } from "./run-executor";
+import type { ExecutionResult, RunExecutor, RunRequest } from "./run-executor";
 
 export interface QueuedRun {
   request: RunRequest;
   workspaceId: string;
   priority: number;
   enqueuedAt: number;
+  holdId?: string;
+  onFinished?: (result: ExecutionResult | null) => void;
 }
 
 export type SlotReservation =
   { ok: true; release: () => void } | { ok: false; reason: "busy" | "full" | "stopped" };
+
+export type WorkspaceHold =
+  { ok: true; id: string; release: () => void } | { ok: false; reason: "busy" | "stopped" };
 
 export interface RunSchedulerDeps {
   executor: RunExecutor;
@@ -28,6 +33,8 @@ export class RunScheduler {
   private readonly executions = new Map<string, Promise<void>>();
   private readonly runsByTask = new Map<string, string>();
   private readonly pendingAborts = new Set<string>();
+  private readonly holds = new Map<string, string>();
+  private nextHoldId = 1;
   private inFlight = 0;
   private reserved = 0;
   private stopped = false;
@@ -55,12 +62,36 @@ export class RunScheduler {
   }
 
   isWorkspaceBusy(workspaceId: string): boolean {
-    return this.busyWorkspaces.has(workspaceId);
+    return this.busyWorkspaces.has(workspaceId) || this.holds.has(workspaceId);
+  }
+
+  hold(workspaceId: string): WorkspaceHold {
+    if (this.stopped) return { ok: false, reason: "stopped" };
+    if (this.isWorkspaceBusy(workspaceId)) return { ok: false, reason: "busy" };
+    const id = `hold-${this.nextHoldId++}`;
+    this.holds.set(workspaceId, id);
+    let released = false;
+    return {
+      ok: true,
+      id,
+      release: () => {
+        if (released) return;
+        released = true;
+        if (this.holds.get(workspaceId) === id) this.holds.delete(workspaceId);
+        this.dispatch();
+      },
+    };
+  }
+
+  runAndWait(item: Omit<QueuedRun, "onFinished">): Promise<ExecutionResult | null> {
+    return new Promise((resolve) => {
+      this.enqueue({ ...item, onFinished: resolve });
+    });
   }
 
   reserve(workspaceId: string | null): SlotReservation {
     if (this.stopped) return { ok: false, reason: "stopped" };
-    if (workspaceId !== null && this.busyWorkspaces.has(workspaceId))
+    if (workspaceId !== null && this.isWorkspaceBusy(workspaceId))
       return { ok: false, reason: "busy" };
     if (this.inFlight + this.reserved >= this.deps.maxConcurrent)
       return { ok: false, reason: "full" };
@@ -97,7 +128,8 @@ export class RunScheduler {
   removeQueued(taskId: string): boolean {
     const index = this.queue.findIndex((item) => item.request.taskId === taskId);
     if (index === -1) return false;
-    this.queue.splice(index, 1);
+    const [removed] = this.queue.splice(index, 1);
+    removed?.onFinished?.(null);
     return true;
   }
 
@@ -129,7 +161,7 @@ export class RunScheduler {
 
   async shutdown(): Promise<void> {
     this.stopped = true;
-    this.queue.length = 0;
+    for (const item of this.queue.splice(0)) item.onFinished?.(null);
     await this.deps.pool.shutdown();
     await Promise.allSettled([...this.executions.values()]);
   }
@@ -145,7 +177,12 @@ export class RunScheduler {
     let index = 0;
     while (index < this.queue.length && this.inFlight + this.reserved < this.deps.maxConcurrent) {
       const item = this.queue[index];
-      if (!item || this.busyWorkspaces.has(item.workspaceId)) {
+      const holder = item ? this.holds.get(item.workspaceId) : undefined;
+      if (
+        !item ||
+        this.busyWorkspaces.has(item.workspaceId) ||
+        (holder !== undefined && holder !== item.holdId)
+      ) {
         index += 1;
         continue;
       }
@@ -158,6 +195,7 @@ export class RunScheduler {
     const { taskId } = item.request;
     this.inFlight += 1;
     this.busyWorkspaces.add(item.workspaceId);
+    let outcome: ExecutionResult | null = null;
     const execution = this.deps.executor
       .execute(item.request, {
         onRunCreated: (runId) => {
@@ -167,6 +205,7 @@ export class RunScheduler {
         },
       })
       .then((result) => {
+        outcome = result;
         if (!result) return;
         this.announceFinished(taskId, result.runId, result.status);
         if (result.followUp && !this.stopped) {
@@ -187,6 +226,11 @@ export class RunScheduler {
         this.runsByTask.delete(taskId);
         this.pendingAborts.delete(taskId);
         this.executions.delete(taskId);
+        try {
+          item.onFinished?.(outcome);
+        } catch (error) {
+          this.deps.logger.error({ err: error, taskId }, "Run completion listener failed");
+        }
         this.dispatch();
       });
     this.executions.set(taskId, execution);

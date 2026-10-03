@@ -1,0 +1,112 @@
+{
+ "numTotalTestSuites": 4,
+ "numPassedTestSuites": 1,
+ "numFailedTestSuites": 3,
+ "numPendingTestSuites": 0,
+ "numTotalTests": 5,
+ "numPassedTests": 1,
+ "numFailedTests": 4,
+ "numPendingTests": 0,
+ "numTodoTests": 0,
+ "startTime": 1791037420183,
+ "success": false,
+ "testResults": [
+  {
+   "assertionResults": [],
+   "startTime": 1791037420183,
+   "endTime": 1791037420183,
+   "status": "failed",
+   "message": "Transform failed with 1 error:\n\n\u001b[31m[PARSE_ERROR] \u001b[0mUnexpected token\n   \u001b[38;5;246m\u256d\u001b[0m\u001b[38;5;246m\u2500\u001b[0m\u001b[38;5;246m[\u001b[0m src/broken.ts:1:22 \u001b[38;5;246m]\u001b[0m\n   \u001b[38;5;246m\u2502\u001b[0m\n \u001b[38;5;246m1 \u2502\u001b[0m \u001b[38;5;249me\u001b[0m\u001b[38;5;249mx\u001b[0m\u001b[38;5;249mp\u001b[0m\u001b[38;5;249mo\u001b[0m\u001b[38;5;249mr\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249mc\u001b[0m\u001b[38;5;249mo\u001b[0m\u001b[38;5;249mn\u001b[0m\u001b[38;5;249ms\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249mv\u001b[0m\u001b[38;5;249ma\u001b[0m\u001b[38;5;249ml\u001b[0m\u001b[38;5;249mu\u001b[0m\u001b[38;5;249me\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249m=\u001b[0m\u001b[38;5;249m \u001b[0m;\n \u001b[38;5;240m  \u2502\u001b[0m                      \u252c  \n \u001b[38;5;240m  \u2502\u001b[0m                      \u2570\u2500\u2500 \n\u001b[38;5;246m\u2500\u2500\u2500\u256f\u001b[0m\n",
+   "name": "/work/demo/src/broken.test.ts"
+  },
+  {
+   "assertionResults": [
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "fullName": "math adds two numbers",
+     "status": "failed",
+     "title": "adds two numbers",
+     "duration": 6.507511999999991,
+     "failureMessages": [
+      "AssertionError: expected -1 to be 5 // Object.is equality\n    at /work/demo/src/math.test.ts:6:23\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)"
+     ],
+     "meta": {},
+     "tags": [],
+     "benchmarks": []
+    },
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "fullName": "math multiplies",
+     "status": "failed",
+     "title": "multiplies",
+     "duration": 1.0706590000000062,
+     "failureMessages": [
+      "AssertionError: expected 7 to be 12 // Object.is equality\n    at /work/demo/src/math.test.ts:10:28\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)"
+     ],
+     "meta": {},
+     "tags": [],
+     "benchmarks": []
+    },
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "fullName": "math parses objects",
+     "status": "failed",
+     "title": "parses objects",
+     "duration": 2.370541000000003,
+     "failureMessages": [
+      "AssertionError: expected { value: 4 } to deeply equal { value: 2, extra: true }\n    at /work/demo/src/math.test.ts:14:35\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)"
+     ],
+     "meta": {},
+     "tags": [],
+     "benchmarks": []
+    },
+    {
+     "ancestorTitles": [
+      "math"
+     ],
+     "fullName": "math throws on bad input",
+     "status": "failed",
+     "title": "throws on bad input",
+     "duration": 0.8011810000000139,
+     "failureMessages": [
+      "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at parse (/work/demo/src/math.ts:10:21)\n    at /work/demo/src/math.test.ts:18:12\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///work/demo/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26"
+     ],
+     "meta": {},
+     "tags": [],
+     "benchmarks": []
+    }
+   ],
+   "startTime": 1791037420425,
+   "endTime": 1791037420435.8013,
+   "status": "failed",
+   "message": "",
+   "name": "/work/demo/src/math.test.ts"
+  },
+  {
+   "assertionResults": [
+    {
+     "ancestorTitles": [],
+     "fullName": "works",
+     "status": "passed",
+     "title": "works",
+     "duration": 1.5125140000000101,
+     "failureMessages": [],
+     "meta": {},
+     "tags": [],
+     "benchmarks": []
+    }
+   ],
+   "startTime": 1791037420433,
+   "endTime": 1791037420434.5125,
+   "status": "passed",
+   "message": "",
+   "name": "/work/demo/src/ok.test.ts"
+  }
+ ]
+}

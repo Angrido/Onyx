@@ -17,6 +17,7 @@ import { registerSettingsRoutes } from "./http/routes/settings-routes";
 import { registerSurgeonRoutes } from "./http/routes/surgeon-routes";
 import { registerSystemRoutes } from "./http/routes/system-routes";
 import { registerTaskRoutes } from "./http/routes/task-routes";
+import { registerTddRoutes } from "./http/routes/tdd-routes";
 import { registerTerminalRoutes } from "./http/routes/terminal-routes";
 import { registerWsRoutes } from "./http/routes/ws-routes";
 import { createOriginPolicy } from "./http/origin-policy";
@@ -56,6 +57,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerSettingsRoutes(app, container);
   registerRoadmapRoutes(app, container);
   registerGitRoutes(app, container);
+  registerTddRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

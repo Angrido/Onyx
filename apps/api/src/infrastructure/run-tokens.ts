@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
 import type { ContextPolicy, PathGuard, WriteFence } from "@onyx/ignore-compiler";
+import type { TestGuard } from "../domain/tdd/test-guard";
 
 export interface RunScopeGrant {
   workspaceId: string | null;
   policy: ContextPolicy;
   guard: PathGuard;
   fence: WriteFence | null;
+  tests?: TestGuard | null;
 }
 
 export interface RunGrant extends RunScopeGrant {

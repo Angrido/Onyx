@@ -22,6 +22,7 @@ import { RouterService } from "./application/router-service";
 import { RunService } from "./application/run-service";
 import { SurgeonService } from "./application/surgeon-service";
 import { TaskService } from "./application/task-service";
+import { TddService } from "./application/tdd-service";
 import { TelemetryService } from "./application/telemetry-service";
 import { TerminalService } from "./application/terminal-service";
 import { WorkspaceService } from "./application/workspace-service";
@@ -69,6 +70,7 @@ export interface Container {
   github: GitHubService;
   git: GitService;
   roadmap: RoadmapService;
+  tdd: TddService;
   auth: AuthService;
   projects: ProjectService;
   workspaces: WorkspaceService;
@@ -218,8 +220,13 @@ export async function createContainer(
   });
   scheduling.terminals = terminals;
   const runService = new RunService(prisma, scheduler);
-  const tasks = new TaskService(prisma, scheduler, hub, (projectId, targetPaths, prompt) =>
-    router.inferWorkspace(projectId, targetPaths, prompt),
+  const loops: { service: TddService | null } = { service: null };
+  const tasks = new TaskService(
+    prisma,
+    scheduler,
+    hub,
+    (projectId, targetPaths, prompt) => router.inferWorkspace(projectId, targetPaths, prompt),
+    (taskId, actor) => loops.service?.abortForTask(taskId, actor) ?? Promise.resolve(false),
   );
   const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
     indexes
@@ -249,6 +256,20 @@ export async function createContainer(
     reserve: (workspaceId) => scheduler.reserve(workspaceId),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
+  const tdd = new TddService({
+    prisma,
+    logger,
+    hub,
+    scheduler,
+    router,
+    config,
+    estimate: (text) => estimator.estimate(text, "markdown"),
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+    ...(overrides.terminalKillGraceMs === undefined
+      ? {}
+      : { killGraceMs: overrides.terminalKillGraceMs }),
+  });
+  loops.service = tdd;
   runs.service = runService;
 
   const container: Container = {
@@ -280,6 +301,7 @@ export async function createContainer(
     workspaces: new WorkspaceService(prisma),
     tasks,
     roadmap,
+    tdd,
     runs: runService,
     telemetry: new TelemetryService(prisma, () => ({
       activeRuns: scheduler.activeCount,
@@ -336,6 +358,7 @@ export async function createContainer(
       await container.github.cleanup();
       await calibration.load();
       logger.info({ seeded, cliVersion }, "Database ready");
+      await tdd.recover();
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,
         autoResumeQueued: config.autoResumeQueued,
@@ -346,6 +369,7 @@ export async function createContainer(
     async stop(): Promise<void> {
       await indexes.shutdown();
       await roadmap.shutdown();
+      await tdd.shutdown();
       await terminals.shutdown();
       await credentials.shutdown();
       await scheduler.shutdown();

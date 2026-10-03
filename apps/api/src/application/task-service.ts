@@ -29,6 +29,8 @@ export class TaskService {
       targetPaths: readonly string[],
       prompt: string,
     ) => Promise<string | null>,
+    private readonly abortLoop: (taskId: string, actor: string) => Promise<boolean> = () =>
+      Promise.resolve(false),
   ) {}
 
   async list(query: ListTasksInput): Promise<TaskDto[]> {
@@ -118,9 +120,10 @@ export class TaskService {
     return { task: toTaskDto(updated), queuePosition };
   }
 
-  async cancel(id: string): Promise<TaskDto> {
+  async cancel(id: string, actor = "user:unknown"): Promise<TaskDto> {
     const task = await this.prisma.task.findUnique({ where: { id } });
     if (!task) throw notFound("Task");
+    if (task.status === "TDD_LOOP" && (await this.abortLoop(id, actor))) return this.get(id);
     if (task.status === "QUEUED" && this.scheduler.removeQueued(id)) {
       const cancelled = await this.prisma.task.update({
         where: { id },

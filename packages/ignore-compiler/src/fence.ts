@@ -14,6 +14,19 @@ export interface FenceVerdict {
   owner: string | null;
 }
 
+export interface FenceDenial {
+  relPath: string;
+  owner: string;
+  zone: string;
+  toolName: string;
+}
+
+export type FenceReason = (denial: FenceDenial) => string;
+
+function defaultReason(denial: FenceDenial): string {
+  return `${denial.relPath} belongs to the ${denial.owner} workspace. This ${denial.zone} session can read it but not change it with ${denial.toolName === "Bash" ? "shell commands" : denial.toolName}: leave a note for a ${denial.owner} task instead.`;
+}
+
 const ALLOW: GuardDecision = { allowed: true, target: null, rule: null, reason: null };
 
 const EDIT_TOOLS: Readonly<Record<string, readonly string[]>> = {
@@ -58,6 +71,7 @@ export class WriteFence {
     private readonly projectRoot: string,
     private readonly zone: FenceZone,
     others: readonly FenceZone[],
+    private readonly describe: FenceReason = defaultReason,
   ) {
     this.own = zone.globs.length === 0 ? () => false : picomatch([...zone.globs], { dot: true });
     this.others = others
@@ -232,7 +246,12 @@ export class WriteFence {
       allowed: false,
       target: relPath,
       rule: null,
-      reason: `${relPath} belongs to the ${verdict.owner} workspace. This ${this.zone.name} session can read it but not change it with ${toolName === "Bash" ? "shell commands" : toolName}: leave a note for a ${verdict.owner} task instead.`,
+      reason: this.describe({
+        relPath,
+        owner: verdict.owner ?? "another",
+        zone: this.zone.name,
+        toolName,
+      }),
     };
   }
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TestRunnerSchema } from "./tdd";
 import {
   DomainSchema,
   ResetStrategySchema,
@@ -19,6 +20,8 @@ export const WorkspaceDtoSchema = z.object({
   resetStrategy: ResetStrategySchema,
   maxSessionTokens: z.number().int(),
   agentConfigId: z.string().nullable(),
+  testRunner: TestRunnerSchema.nullable(),
+  testCommand: z.string().nullable(),
   activeSessionId: z.string().nullable(),
   color: z.string().nullable(),
   position: z.number().int(),
@@ -46,6 +49,8 @@ export const UpdateWorkspaceRequestSchema = z.object({
   resetStrategy: ResetStrategySchema.optional(),
   maxSessionTokens: z.number().int().min(10_000).max(1_000_000).optional(),
   agentConfigId: z.string().nullable().optional(),
+  testRunner: TestRunnerSchema.nullable().optional(),
+  testCommand: z.string().trim().max(512).nullable().optional(),
   color: z.string().max(32).nullable().optional(),
 });
 export type UpdateWorkspaceRequest = z.input<typeof UpdateWorkspaceRequestSchema>;

@@ -40,15 +40,22 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
         cwd: input.cwd ?? null,
       };
       const readDecision = grant.guard.evaluate(call);
-      const fenceDecision = readDecision.allowed && grant.fence ? grant.fence.evaluate(call) : null;
-      const decision = fenceDecision ?? readDecision;
+      const testDecision = readDecision.allowed && grant.tests ? grant.tests.evaluate(call) : null;
+      const testDenial = testDecision && !testDecision.allowed ? testDecision : null;
+      const fenceDecision =
+        readDecision.allowed && !testDenial && grant.fence ? grant.fence.evaluate(call) : null;
+      const decision = testDenial ?? fenceDecision ?? readDecision;
       if (decision.allowed) return {};
 
-      const rule = fenceDecision
-        ? `write fence (${grant.fence?.name ?? "workspace"})`
-        : decision.rule
-          ? `${decision.rule.action === "INCLUDE" ? "!" : ""}${decision.rule.pattern}`
-          : null;
+      const rule = testDenial
+        ? testDenial.violation === "test-command"
+          ? "TDD loop: test commands"
+          : "TDD loop: protected tests"
+        : fenceDecision
+          ? `write fence (${grant.fence?.name ?? "workspace"})`
+          : decision.rule
+            ? `${decision.rule.action === "INCLUDE" ? "!" : ""}${decision.rule.pattern}`
+            : null;
       const item: GuardItem = {
         kind: "guard",
         source: "hook",
@@ -63,7 +70,7 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
         .create({
           data: {
             actor: `${terminals.has(grant.runId) ? "terminal" : "run"}:${grant.runId}`,
-            action: fenceDecision ? "fence.denied" : "guard.denied",
+            action: testDenial ? "tdd.denied" : fenceDecision ? "fence.denied" : "guard.denied",
             target: decision.target,
             meta: { tool: input.tool_name, rule, projectId: grant.projectId },
           },

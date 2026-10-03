@@ -26,7 +26,8 @@ import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { resolveRunOutcome } from "../domain/run-outcome";
-import { shouldEscalate, TIER_ORDER } from "../domain/routing/decide";
+import { shouldEscalate, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
+import type { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, notFound } from "../errors";
 import type { EventWriter } from "../infrastructure/event-writer";
 import {
@@ -48,12 +49,19 @@ import type { SurgeonService } from "./surgeon-service";
 import { RunRecorder } from "./run-recorder";
 import type { ForeignChange } from "./terminal-service";
 
+export interface TddRunScope {
+  loopId: string;
+  guard: TestGuard;
+  escalation: RoutingEscalation | null;
+}
+
 export interface RunRequest {
   taskId: string;
   modelId: string | null;
   agentConfigId: string | null;
   prompt: string | null;
   newSession: boolean;
+  tdd?: TddRunScope;
 }
 
 export interface RunLifecycleHooks {
@@ -228,12 +236,14 @@ export class RunExecutor {
     const ctxBaselineTokens =
       prepared.context.baselineTokens > 0 ? prepared.context.baselineTokens : null;
     const outcome = resolveRunOutcome(exit, result);
-    const followUp = await this.escalationFollowUp(
-      prepared,
-      outcome.runStatus,
-      result?.subtype ?? null,
-    );
-    const taskStatus: TaskStatus = followUp ? "QUEUED" : outcome.taskStatus;
+    const followUp = prepared.request.tdd
+      ? null
+      : await this.escalationFollowUp(prepared, outcome.runStatus, result?.subtype ?? null);
+    const taskStatus: TaskStatus = followUp
+      ? "QUEUED"
+      : prepared.request.tdd && outcome.taskStatus !== "CANCELLED"
+        ? "TDD_LOOP"
+        : outcome.taskStatus;
     recorder.recordOnyx(
       statusItem(outcome.runStatus, {
         exitCode: exit.exitCode,
@@ -409,10 +419,11 @@ export class RunExecutor {
       projectId: task.projectId,
       workspace: { id: workspace.id, name: workspace.name, domain: workspace.domain },
       taskId: task.id,
-      kind: task.kind,
+      kind: request.tdd ? "TEST_FIX" : task.kind,
       title: task.title,
       prompt,
       targetPaths: toStringArray(task.targetPaths),
+      escalation: request.tdd?.escalation ?? null,
       override: request.modelId
         ? { modelId: request.modelId, source: "run-request" }
         : task.modelOverride
@@ -449,7 +460,10 @@ export class RunExecutor {
       });
       await tx.task.update({
         where: { id: task.id },
-        data: { status: "RUNNING", ...(task.startedAt ? {} : { startedAt: new Date() }) },
+        data: {
+          status: request.tdd ? "TDD_LOOP" : "RUNNING",
+          ...(task.startedAt ? {} : { startedAt: new Date() }),
+        },
       });
       return { run: created, startedAt: created.startedAt.getTime() };
     });
@@ -469,6 +483,7 @@ export class RunExecutor {
       policy: scope.policy,
       guard: scope.guard,
       fence,
+      tests: request.tdd?.guard ?? null,
     });
     const context = await this.prepareContext(run.id, task, prompt, scope.policy, runToken);
     await prisma.agentRun.update({
@@ -483,7 +498,12 @@ export class RunExecutor {
       runtimeDir: config.runtimeDir,
       runId: run.id,
       settings: buildRunSettings({
-        deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny, ...fenceRules.editDeny],
+        deny: [
+          ...scope.compiled.readDeny,
+          ...scope.compiled.editDeny,
+          ...fenceRules.editDeny,
+          ...(request.tdd ? request.tdd.guard.denyRules() : []),
+        ],
         hooks: guardHooks(config.internalApiUrl),
       }),
       primer: composePrimer({
@@ -533,7 +553,7 @@ export class RunExecutor {
     };
     await prisma.agentRun.update({ where: { id: run.id }, data: { args: buildClaudeArgs(spec) } });
 
-    this.publishStatus(task.id, task.projectId, "RUNNING", run.id);
+    this.publishStatus(task.id, task.projectId, request.tdd ? "TDD_LOOP" : "RUNNING", run.id);
     return {
       runId: run.id,
       taskId: task.id,

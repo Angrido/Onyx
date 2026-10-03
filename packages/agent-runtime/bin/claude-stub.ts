@@ -795,6 +795,138 @@ function applyLikelyEdits(prompt: string): void {
   }
 }
 
+interface TddEdit {
+  tool: "Edit" | "Write" | "Bash";
+  file?: string;
+  command?: string;
+  find?: string;
+  replace?: string;
+  content?: string;
+}
+
+interface TddStep {
+  edits: TddEdit[];
+  text?: string;
+}
+
+function takeTddStep(): TddStep | null {
+  const planFile = process.env.CLAUDE_STUB_TDD_PLAN;
+  if (!planFile) return null;
+  try {
+    const plan: unknown = JSON.parse(readFileSync(planFile, "utf8"));
+    if (!Array.isArray(plan) || plan.length === 0) return null;
+    const [first, ...rest] = plan;
+    writeFileSync(planFile, JSON.stringify(rest));
+    if (!isRecord(first) || !Array.isArray(first.edits)) return null;
+    return {
+      edits: first.edits.filter(
+        (edit): edit is TddEdit =>
+          isRecord(edit) && (typeof edit.file === "string" || typeof edit.command === "string"),
+      ),
+      ...(typeof first.text === "string" ? { text: first.text } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function tddAttempt(edit: TddEdit): ToolAttempt {
+  const file = edit.file ?? "";
+  const target = resolve(process.cwd(), file);
+  if (edit.command !== undefined) return { tool: "Bash", input: { command: edit.command } };
+  if (edit.tool === "Bash") {
+    const script = `const fs=require("fs");const p=${JSON.stringify(file)};fs.writeFileSync(p,fs.readFileSync(p,"utf8").split(${JSON.stringify(edit.find ?? "")}).join(${JSON.stringify(edit.replace ?? "")}))`;
+    return { tool: "Bash", input: { command: `node -e '${script.replaceAll("'", "'\\''")}'` } };
+  }
+  if (edit.tool === "Write")
+    return { tool: "Write", input: { file_path: target, content: edit.content ?? "" } };
+  return {
+    tool: "Edit",
+    input: { file_path: target, old_string: edit.find ?? "", new_string: edit.replace ?? "" },
+  };
+}
+
+function applyTddEdit(edit: TddEdit): string {
+  if (edit.command !== undefined) return "(stub) command not executed";
+  const target = resolve(process.cwd(), edit.file ?? "");
+  try {
+    if (edit.tool === "Write") {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, edit.content ?? "");
+      return `File created successfully at: ${target}`;
+    }
+    const before = readFileSync(target, "utf8");
+    const find = edit.find ?? "";
+    if (find.length > 0 && !before.includes(find))
+      return `String to replace not found in ${target}`;
+    writeFileSync(target, before.split(find).join(edit.replace ?? ""));
+    return `The file ${target} has been updated.`;
+  } catch (error) {
+    return `edit failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function runTddScenario(prompt: string): Promise<void> {
+  const hook = readPreToolUseHook();
+  await writeLine(
+    JSON.stringify({
+      type: "system",
+      subtype: "init",
+      cwd: process.cwd(),
+      session_id: sessionId,
+      tools: ["Read", "Edit", "Write", "Bash"],
+      mcp_servers: [],
+      model,
+      permissionMode: flagValue("--permission-mode") ?? "default",
+      apiKeySource: "none",
+      claude_code_version: "0.0.0-stub",
+    }),
+  );
+  const step = takeTddStep();
+  const denials: PermissionDenial[] = [];
+  for (const [index, edit] of (step?.edits ?? []).entries()) {
+    const attempt = tddAttempt(edit);
+    const toolUseId = `toolu_stub_tdd_${index + 1}`;
+    await writeLine(
+      assistantLine(`msg_stub_tdd_${index + 1}`, [
+        { type: "tool_use", id: toolUseId, name: attempt.tool, input: attempt.input },
+      ]),
+    );
+    const denial = hook ? await askHook(hook, attempt, toolUseId) : null;
+    if (denial !== null)
+      denials.push({ tool_name: attempt.tool, tool_use_id: toolUseId, tool_input: attempt.input });
+    await writeLine(
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: toolUseId,
+              type: "tool_result",
+              content:
+                denial === null
+                  ? applyTddEdit(edit)
+                  : `PreToolUse hook denied this tool call: ${denial}`,
+              is_error: denial !== null,
+            },
+          ],
+        },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      }),
+    );
+  }
+  const firstFailure = /^### 1\. (.+)$/m.exec(prompt)?.[1] ?? "the failures";
+  const summary =
+    step?.text ??
+    (step
+      ? `Fixed the implementation for ${firstFailure}.`
+      : `Looked at ${firstFailure}; no change.`);
+  await writeLine(assistantLine("msg_stub_tdd_done", [{ type: "text", text: summary }]));
+  await writeLine(resultLine(summary, denials));
+}
+
 async function runSetupToken(): Promise<void> {
   const say = (text: string) => process.stdout.write(`${text}\r\n`);
   const columns = process.stdout.columns > 0 ? process.stdout.columns : 80;
@@ -872,6 +1004,10 @@ async function main(): Promise<void> {
   }
   if (prompt.includes("ONYX_ROADMAP_REQUEST")) {
     await runRoadmapScenario(prompt);
+    return;
+  }
+  if (prompt.includes("Onyx TDD loop")) {
+    await runTddScenario(prompt);
     return;
   }
   const scenario = scenarioFor(prompt);

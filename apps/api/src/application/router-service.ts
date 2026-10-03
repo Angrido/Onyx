@@ -31,6 +31,7 @@ import {
   TIER_ORDER,
   type LastRunView,
   type PreviousRouting,
+  type RoutingEscalation,
   type RoutingPlan,
 } from "../domain/routing/decide";
 import { extractFeatures, type TargetFact } from "../domain/routing/features";
@@ -68,6 +69,7 @@ export interface RoutingRequest {
   prompt: string;
   targetPaths: readonly string[];
   override: { modelId: string; source: "run-request" | "task-override" } | null;
+  escalation?: RoutingEscalation | null;
   purpose: string;
 }
 
@@ -412,6 +414,7 @@ export class RouterService {
       classifierConfidence: settings.classifierConfidence,
       previous: history?.previous ?? null,
       lastRun: history?.lastRun ?? null,
+      escalation: request.escalation ?? null,
     });
 
     let classifierUsed = false;

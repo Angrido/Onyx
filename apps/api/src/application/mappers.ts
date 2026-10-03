@@ -82,6 +82,8 @@ export function toWorkspaceDto(workspace: Workspace): WorkspaceDto {
     resetStrategy: workspace.resetStrategy,
     maxSessionTokens: workspace.maxSessionTokens,
     agentConfigId: workspace.agentConfigId,
+    testRunner: workspace.testRunner,
+    testCommand: workspace.testCommand,
     activeSessionId: workspace.activeSessionId,
     color: workspace.color,
     position: workspace.position,

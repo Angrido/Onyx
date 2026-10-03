@@ -63,6 +63,10 @@ export class WorkspaceService {
     if (input.maxSessionTokens !== undefined) data.maxSessionTokens = input.maxSessionTokens;
     if (input.agentConfigId !== undefined) data.agentConfigId = input.agentConfigId;
     if (input.color !== undefined) data.color = input.color;
+    if (input.testRunner !== undefined) data.testRunner = input.testRunner;
+    if (input.testCommand !== undefined)
+      data.testCommand =
+        input.testCommand === null || input.testCommand.length === 0 ? null : input.testCommand;
     const workspace = await this.prisma.workspace.update({ where: { id }, data });
     return toWorkspaceDto(workspace);
   }

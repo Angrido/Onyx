@@ -46,7 +46,10 @@ export function registerTaskRoutes(app: FastifyInstance, container: Container): 
   });
 
   app.post("/api/tasks/:id/cancel", async (request): Promise<TaskDto> =>
-    tasks.cancel(idParam(request.params)),
+    tasks.cancel(
+      idParam(request.params),
+      request.user ? `user:${request.user.username}` : "user:unknown",
+    ),
   );
 
   app.get("/api/runs/:id", async (request): Promise<RunDto> => runs.get(idParam(request.params)));

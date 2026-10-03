@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { RunStatusSchema, TaskStatusSchema } from "./domain";
 import { IndexProgressEventSchema } from "./api/context";
+import { TddLoopDtoSchema } from "./api/tdd";
 import { TerminalDtoSchema } from "./api/terminals";
 import { RunItemSchema } from "./stream-json/run-items";
 
@@ -19,6 +20,7 @@ export const channels = {
   project: (projectId: string) => `project:${projectId}`,
   workspace: (workspaceId: string) => `workspace:${workspaceId}`,
   pty: (terminalId: string) => `pty:${terminalId}`,
+  tdd: (loopId: string) => `tdd:${loopId}`,
 } as const;
 
 export function runIdFromChannel(channel: string): string | null {
@@ -142,6 +144,13 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     ch: ChannelSchema,
     ts: z.string(),
     data: z.object({ terminal: TerminalDtoSchema }),
+  }),
+  z.object({
+    v: z.literal(WS_PROTOCOL_VERSION),
+    type: z.literal("tdd.state"),
+    ch: ChannelSchema,
+    ts: z.string(),
+    data: z.object({ loop: TddLoopDtoSchema }),
   }),
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),

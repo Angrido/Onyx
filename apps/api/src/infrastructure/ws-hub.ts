@@ -6,6 +6,7 @@ import {
   type SequencedServerMessage,
   type ServerMessage,
   type ServerMessageOf,
+  type TddLoopDto,
   type TerminalDto,
 } from "@onyx/contracts";
 
@@ -85,6 +86,16 @@ export function ptyStateMessage(terminal: TerminalDto): ServerMessageOf<"pty.sta
     ch: channelNames.pty(terminal.id),
     ts: now(),
     data: { terminal },
+  };
+}
+
+export function tddStateMessage(loop: TddLoopDto): ServerMessageOf<"tdd.state"> {
+  return {
+    v: WS_PROTOCOL_VERSION,
+    type: "tdd.state",
+    ch: channelNames.tdd(loop.id),
+    ts: now(),
+    data: { loop },
   };
 }
 
@@ -210,6 +221,10 @@ export class WsHub implements RunEventPublisher {
 
   publishPtyState(terminal: TerminalDto): void {
     this.publishTransient(ptyStateMessage(terminal));
+  }
+
+  publishTddState(loop: TddLoopDto): void {
+    this.publishTransient(tddStateMessage(loop));
   }
 
   hasListeners(channel: string): boolean {
