@@ -15,22 +15,43 @@ export interface RunGrant extends RunScopeGrant {
   projectId: string;
   calls: number;
   tokens: number;
+  expiresAt: number;
 }
+
+export const RUN_TOKEN_TTL_MS = 12 * 3_600_000;
 
 export class RunTokenRegistry {
   private readonly grants = new Map<string, RunGrant>();
   private readonly tokensByRun = new Map<string, string>();
 
+  constructor(
+    private readonly ttlMs: number = RUN_TOKEN_TTL_MS,
+    private readonly now: () => number = Date.now,
+  ) {}
+
   issue(runId: string, projectId: string, scope: RunScopeGrant): string {
     this.revoke(runId);
     const token = randomBytes(32).toString("base64url");
-    this.grants.set(token, { runId, projectId, ...scope, calls: 0, tokens: 0 });
+    this.grants.set(token, {
+      runId,
+      projectId,
+      ...scope,
+      calls: 0,
+      tokens: 0,
+      expiresAt: this.now() + this.ttlMs,
+    });
     this.tokensByRun.set(runId, token);
     return token;
   }
 
   resolve(token: string): RunGrant | null {
-    return this.grants.get(token) ?? null;
+    const grant = this.grants.get(token);
+    if (!grant) return null;
+    if (grant.expiresAt <= this.now()) {
+      this.revoke(grant.runId);
+      return null;
+    }
+    return grant;
   }
 
   record(token: string, tokens: number): void {

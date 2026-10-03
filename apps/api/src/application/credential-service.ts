@@ -27,6 +27,7 @@ import { z } from "zod";
 import { credentialEnv, type AppConfig, type ClaudeCredentials } from "../config";
 import { conflict, notFound } from "../errors";
 import { ScreenBuffer, findLoginError, findSignInUrl } from "../infrastructure/screen-buffer";
+import { isSealed, type SecretVault } from "../infrastructure/secret-vault";
 import { ptyOutputMessage, type WsHub } from "../infrastructure/ws-hub";
 
 export interface CredentialServiceDeps {
@@ -36,6 +37,7 @@ export interface CredentialServiceDeps {
   binary: ClaudeBinary;
   config: Pick<AppConfig, "credentials" | "claudeBin" | "childEnvPassthrough">;
   cliVersion: () => string | null;
+  vault: SecretVault;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
   testTimeoutMs?: number;
@@ -163,7 +165,11 @@ export class CredentialService {
 
   async save(token: string, actor: string): Promise<ClaudeAccountDto> {
     this.assertNotFromEnv();
-    const value = { kind: kindOfToken(token), value: token, savedAt: new Date().toISOString() };
+    const value = {
+      kind: kindOfToken(token),
+      value: this.deps.vault.seal(token, CREDENTIAL_KEY),
+      savedAt: new Date().toISOString(),
+    };
     await this.deps.prisma.appSetting.upsert({
       where: { key: CREDENTIAL_KEY },
       create: { key: CREDENTIAL_KEY, value },
@@ -427,10 +433,31 @@ export class CredentialService {
     return scout?.id ?? "claude-haiku-4-5";
   }
 
+  async sealStored(): Promise<boolean> {
+    const row = await this.deps.prisma.appSetting.findUnique({ where: { key: CREDENTIAL_KEY } });
+    const parsed = StoredCredentialSchema.safeParse(row?.value);
+    if (!parsed.success || isSealed(parsed.data.value)) return false;
+    await this.deps.prisma.appSetting.update({
+      where: { key: CREDENTIAL_KEY },
+      data: {
+        value: { ...parsed.data, value: this.deps.vault.seal(parsed.data.value, CREDENTIAL_KEY) },
+      },
+    });
+    return true;
+  }
+
   private async stored(): Promise<z.infer<typeof StoredCredentialSchema> | null> {
     const row = await this.deps.prisma.appSetting.findUnique({ where: { key: CREDENTIAL_KEY } });
     const parsed = StoredCredentialSchema.safeParse(row?.value);
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) return null;
+    const value = this.deps.vault.reveal(parsed.data.value, CREDENTIAL_KEY);
+    if (value === null) {
+      this.deps.logger.warn(
+        "The saved Claude credential cannot be decrypted with the current secret key: sign in again",
+      );
+      return null;
+    }
+    return { ...parsed.data, value };
   }
 
   private assertNotFromEnv(): void {

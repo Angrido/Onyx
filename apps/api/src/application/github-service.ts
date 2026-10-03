@@ -17,6 +17,7 @@ import type { z } from "zod";
 import type { AppConfig } from "../config";
 import { AppError, badRequest, conflict, notFound } from "../errors";
 import { cloneRepository, redact } from "../infrastructure/git-clone";
+import { isSealed, type SecretVault } from "../infrastructure/secret-vault";
 import {
   GitHubError,
   type GitHubClient,
@@ -34,6 +35,7 @@ export interface GitHubServiceDeps {
   client: GitHubClient;
   projects: ProjectService;
   config: Pick<AppConfig, "projectsDir" | "allowedProjectRoots" | "github">;
+  vault: SecretVault;
   gitBin?: string;
   sourceEnv?: NodeJS.ProcessEnv;
 }
@@ -160,10 +162,11 @@ export class GitHubService {
     } catch (error) {
       throw toAppError(error);
     }
+    const sealed = this.deps.vault.seal(token, TOKEN_KEY);
     await this.deps.prisma.appSetting.upsert({
       where: { key: TOKEN_KEY },
-      create: { key: TOKEN_KEY, value: token },
-      update: { value: token },
+      create: { key: TOKEN_KEY, value: sealed },
+      update: { value: sealed },
     });
     this.account = { token, at: Date.now(), user };
     this.repoCache.clear();
@@ -389,9 +392,26 @@ export class GitHubService {
     const fromEnv = this.deps.config.github.token;
     if (fromEnv) return { token: fromEnv, source: "env" };
     const row = await this.deps.prisma.appSetting.findUnique({ where: { key: TOKEN_KEY } });
-    return typeof row?.value === "string" && row.value.length > 0
-      ? { token: row.value, source: "settings" }
-      : null;
+    if (typeof row?.value !== "string" || row.value.length === 0) return null;
+    const token = this.deps.vault.reveal(row.value, TOKEN_KEY);
+    if (token === null) {
+      this.deps.logger.warn(
+        "The saved GitHub token cannot be decrypted with the current secret key: connect it again",
+      );
+      return null;
+    }
+    return { token, source: "settings" };
+  }
+
+  async sealStored(): Promise<boolean> {
+    const row = await this.deps.prisma.appSetting.findUnique({ where: { key: TOKEN_KEY } });
+    if (typeof row?.value !== "string" || row.value.length === 0 || isSealed(row.value))
+      return false;
+    await this.deps.prisma.appSetting.update({
+      where: { key: TOKEN_KEY },
+      data: { value: this.deps.vault.seal(row.value, TOKEN_KEY) },
+    });
+    return true;
   }
 
   private async importedProjects(): Promise<Map<string, string>> {

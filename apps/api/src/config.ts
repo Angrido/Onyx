@@ -50,6 +50,16 @@ const EnvSchema = z.object({
   ONYX_INTERNAL_API_URL: z.string().url().optional(),
   ONYX_GITHUB_TOKEN: z.string().optional(),
   ONYX_GITHUB_API_URL: z.string().url().optional(),
+  ONYX_SECRET_KEY_FILE: z.string().optional(),
+  ONYX_SECRET_KEY: z.string().optional(),
+  ONYX_BACKUP_DIR: z.string().optional(),
+  ONYX_BACKUP_KEEP: z.coerce.number().int().min(1).max(365).default(14),
+  ONYX_BACKUP_INTERVAL_HOURS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 30)
+    .default(24),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
 });
@@ -98,6 +108,19 @@ export interface AppConfig {
   terminal: TerminalConfig;
   github: GitHubConfig;
   internalApiUrl: string;
+  secrets: SecretsConfig;
+  backup: BackupConfig;
+}
+
+export interface SecretsConfig {
+  keyFile: string;
+  key: string | null;
+}
+
+export interface BackupConfig {
+  dir: string;
+  keep: number;
+  intervalHours: number;
 }
 
 export class ConfigError extends Error {
@@ -193,6 +216,18 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     internalApiUrl: (
       env.ONYX_INTERNAL_API_URL ?? `http://${loopbackHost(env.API_HOST)}:${env.API_PORT}`
     ).replace(/\/+$/, ""),
+    secrets: {
+      keyFile: resolve(env.ONYX_SECRET_KEY_FILE ?? join(dataDir, "secret.key")),
+      key:
+        env.ONYX_SECRET_KEY && env.ONYX_SECRET_KEY.trim().length > 0
+          ? env.ONYX_SECRET_KEY.trim()
+          : null,
+    },
+    backup: {
+      dir: resolve(env.ONYX_BACKUP_DIR ?? join(dataDir, "backups")),
+      keep: env.ONYX_BACKUP_KEEP,
+      intervalHours: env.ONYX_BACKUP_INTERVAL_HOURS,
+    },
   };
 }
 

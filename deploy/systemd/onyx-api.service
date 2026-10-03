@@ -18,7 +18,10 @@ LimitNOFILE=65536
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/var/lib/onyx /srv/onyx /home/onyx
+ReadWritePaths=/var/lib/onyx /srv/onyx /home/onyx /var/backups/onyx
+UMask=0027
+RestrictSUIDSGID=true
+LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target

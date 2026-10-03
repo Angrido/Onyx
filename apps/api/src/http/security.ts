@@ -45,6 +45,13 @@ export function registerSecurity(app: FastifyInstance, options: SecurityOptions)
     if (request.routeOptions.config.public === true) return;
     if (!request.user) throw unauthorized();
   });
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("x-content-type-options", "nosniff");
+    reply.header("referrer-policy", "same-origin");
+    if (!reply.hasHeader("cache-control")) reply.header("cache-control", "no-store");
+    return payload;
+  });
 }
 
 export function setSessionCookie(

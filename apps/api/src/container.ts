@@ -39,6 +39,7 @@ import { EventWriter } from "./infrastructure/event-writer";
 import { GitHubClient } from "./infrastructure/github-client";
 import { IndexStore } from "./infrastructure/index-store";
 import { RunTokenRegistry } from "./infrastructure/run-tokens";
+import { SecretVault } from "./infrastructure/secret-vault";
 import { AnthropicTokenizer, O200kTokenizer } from "./infrastructure/token-meter";
 import { WsHub } from "./infrastructure/ws-hub";
 
@@ -101,6 +102,9 @@ export async function createContainer(
   await mkdir(config.projectsDir, { recursive: true });
 
   const prisma = await connectDatabase({ url: config.databaseUrl });
+  const vault = await SecretVault.open(config.secrets.keyFile, config.secrets.key);
+  if (vault.created)
+    logger.info({ keyFile: vault.keyFile }, "Created the secret key for stored tokens");
   const binary = overrides.binary ?? { command: config.claudeBin, args: [] };
   let cliVersion: string | null = null;
 
@@ -173,6 +177,7 @@ export async function createContainer(
     binary,
     config,
     cliVersion: () => cliVersion,
+    vault,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
       ? {}
@@ -280,6 +285,7 @@ export async function createContainer(
     client: new GitHubClient({ baseUrl: config.github.apiUrl }),
     projects,
     config,
+    vault,
   });
   const roadmap = new RoadmapService({
     prisma,
@@ -416,6 +422,8 @@ export async function createContainer(
       if (cliVersion === null)
         logger.warn({ command: binary.command }, "Claude Code CLI not found");
       const seeded = await seedDatabase(prisma);
+      const sealed = [await credentials.sealStored(), await container.github.sealStored()];
+      if (sealed.some(Boolean)) logger.info("Encrypted the tokens saved by an older version");
       await container.github.cleanup();
       await calibration.load();
       logger.info({ seeded, cliVersion }, "Database ready");
