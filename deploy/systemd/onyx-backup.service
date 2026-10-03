@@ -1,0 +1,9 @@
+[Unit]
+Description=Onyx SQLite backup
+After=onyx-api.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/onyx/current/deploy/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle

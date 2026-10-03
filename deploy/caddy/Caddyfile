@@ -1,0 +1,22 @@
+:80 {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+
+	handle /ws {
+		reverse_proxy 127.0.0.1:4000
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+}

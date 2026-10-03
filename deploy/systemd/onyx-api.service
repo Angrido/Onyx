@@ -1,0 +1,24 @@
+[Unit]
+Description=Onyx API orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=onyx
+Group=onyx
+WorkingDirectory=/opt/onyx/current/api
+EnvironmentFile=/etc/onyx/onyx.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/onyx /srv/onyx /home/onyx
+
+[Install]
+WantedBy=multi-user.target

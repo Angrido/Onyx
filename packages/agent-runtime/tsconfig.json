@@ -1,0 +1,7 @@
+{
+  "extends": "@onyx/config/tsconfig/node.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "bin", "tests"]
+}

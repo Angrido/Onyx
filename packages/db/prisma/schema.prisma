@@ -1,0 +1,671 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Domain {
+  FRONTEND
+  BACKEND
+  DATABASE
+  INFRA
+  CUSTOM
+}
+
+enum ModelTier {
+  SCOUT
+  BUILDER
+  ARCHITECT
+  APEX
+}
+
+enum ResetStrategy {
+  HARD
+  HANDOFF
+  SOFT
+}
+
+enum TaskKind {
+  ARCHITECTURE
+  FEATURE
+  REFACTOR
+  BUGFIX
+  UI_STYLE
+  TEST_FIX
+  DOCS
+  CHORE
+}
+
+enum TaskStatus {
+  DRAFT
+  PLANNING
+  AWAITING_APPROVAL
+  QUEUED
+  RUNNING
+  TDD_LOOP
+  COMPLETED
+  FAILED
+  CANCELLED
+  INTERRUPTED
+}
+
+enum RunStatus {
+  SPAWNING
+  RUNNING
+  COMPLETED
+  FAILED
+  ABORTED
+  TIMEOUT
+  INTERRUPTED
+}
+
+enum RunMode {
+  HEADLESS
+  INTERACTIVE
+}
+
+enum SessionStatus {
+  ACTIVE
+  IDLE
+  ROTATED
+  CLOSED
+}
+
+enum SessionEndReason {
+  DOMAIN_SWITCH
+  CONTEXT_PRESSURE
+  MODEL_CHANGE
+  MANUAL_RESET
+  COMPLETED
+  ERROR
+  BUDGET_EXCEEDED
+}
+
+enum RoutingStrategy {
+  OVERRIDE
+  RULE
+  HEURISTIC
+  CLASSIFIER
+  ESCALATION
+  DEESCALATION
+}
+
+enum TokenScope {
+  TURN
+  RUN_TOTAL
+  AUX
+}
+
+enum IgnoreAction {
+  EXCLUDE
+  INCLUDE
+}
+
+enum IgnoreSource {
+  MANUAL
+  PRESET
+  HEURISTIC
+  SECURITY
+}
+
+enum EdgeKind {
+  STATIC_IMPORT
+  DYNAMIC_IMPORT
+  REQUIRE
+  REEXPORT
+  TYPE_ONLY
+}
+
+enum TestRunner {
+  VITEST
+  JEST
+}
+
+enum TddStatus {
+  PENDING
+  RUNNING
+  GREEN
+  EXHAUSTED
+  STALLED
+  ABORTED
+  FAILED
+}
+
+enum BudgetScope {
+  GLOBAL
+  PROJECT
+}
+
+enum BudgetPeriod {
+  DAY
+  MONTH
+  LIFETIME
+}
+
+enum ApprovalKind {
+  PLAN
+  MERGE
+  BUDGET
+  ESCALATION
+  PERMISSION
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model User {
+  id           String        @id @default(cuid())
+  username     String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  lastLoginAt  DateTime?
+  sessions     UserSession[]
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  userAgent String?
+  ip        String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model Project {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  rootPath      String   @unique
+  gitRemote     String?
+  defaultBranch String   @default("main")
+  indexedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspaces     Workspace[]
+  tasks          Task[]
+  ignoreProfiles IgnoreProfile[]
+  files          FileNode[]
+  edges          DependencyEdge[]
+  routingRules   RoutingRule[]
+  budgets        Budget[]
+}
+
+model Workspace {
+  id               String        @id @default(cuid())
+  projectId        String
+  name             String
+  domain           Domain
+  pathGlobs        Json
+  writeFenceGlobs  Json
+  primer           String?
+  resetStrategy    ResetStrategy @default(HANDOFF)
+  maxSessionTokens Int           @default(150000)
+  testRunner       TestRunner?
+  testCommand      String?
+  color            String?
+  position         Int           @default(0)
+  agentConfigId    String?
+  ignoreProfileId  String?
+  activeSessionId  String?       @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentConfig   AgentConfig?   @relation(fields: [agentConfigId], references: [id], onDelete: SetNull)
+  ignoreProfile IgnoreProfile? @relation(fields: [ignoreProfileId], references: [id], onDelete: SetNull)
+  activeSession Session?       @relation("ActiveSession", fields: [activeSessionId], references: [id], onDelete: SetNull)
+  sessions      Session[]      @relation("WorkspaceSessions")
+  tasks         Task[]
+  tddLoops      TddLoop[]
+
+  @@unique([projectId, name])
+}
+
+model ModelProfile {
+  id                   String    @id
+  displayName          String
+  alias                String
+  tier                 ModelTier
+  contextWindow        Int
+  inputUsdPerMTok      Float
+  outputUsdPerMTok     Float
+  cacheReadUsdPerMTok  Float?
+  cacheWriteUsdPerMTok Float?
+  enabled              Boolean   @default(true)
+  updatedAt            DateTime  @updatedAt
+}
+
+model AgentConfig {
+  id                 String    @id @default(cuid())
+  name               String    @unique
+  description        String?
+  tier               ModelTier
+  modelId            String
+  fallbackModelIds   Json?
+  effort             String?
+  permissionMode     String    @default("acceptEdits")
+  allowedTools       Json
+  disallowedTools    Json
+  maxTurns           Int       @default(40)
+  timeoutSec         Int       @default(1800)
+  idleTimeoutSec     Int       @default(300)
+  appendSystemPrompt String?
+  subagents          Json?
+  partialMessages    Boolean   @default(false)
+  isBuiltin          Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  workspaces Workspace[]
+  runs       AgentRun[]
+}
+
+model RoutingRule {
+  id         String    @id @default(cuid())
+  projectId  String?
+  name       String
+  priority   Int
+  matcher    Json
+  targetTier ModelTier
+  modelId    String?
+  enabled    Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project   Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  decisions RoutingDecision[]
+
+  @@index([projectId, enabled, priority])
+}
+
+model RoutingDecision {
+  id              String          @id @default(cuid())
+  taskId          String
+  ruleId          String?
+  strategy        RoutingStrategy
+  features        Json
+  score           Float?
+  confidence      Float?
+  tier            ModelTier
+  modelId         String
+  rationale       String
+  previousId      String?         @unique
+  createdAt       DateTime        @default(now())
+
+  task     Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  rule     RoutingRule?     @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  previous RoutingDecision? @relation("DecisionChain", fields: [previousId], references: [id], onDelete: SetNull)
+  next     RoutingDecision? @relation("DecisionChain")
+  runs     AgentRun[]
+
+  @@index([taskId, createdAt])
+}
+
+model Task {
+  id            String     @id @default(cuid())
+  projectId     String
+  workspaceId   String?
+  parentTaskId  String?
+  title         String
+  prompt        String
+  kind          TaskKind
+  status        TaskStatus @default(DRAFT)
+  priority      Int        @default(0)
+  targetPaths   Json?
+  acceptance    Json?
+  modelOverride String?
+  worktreePath  String?
+  branchName    String?
+  budgetUsd     Float?
+  resultSummary String?
+  createdAt     DateTime   @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  updatedAt     DateTime   @updatedAt
+
+  project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace  Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  parent     Task?             @relation("TaskTree", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  children   Task[]            @relation("TaskTree")
+  dependsOn  TaskDependency[]  @relation("Dependent")
+  requiredBy TaskDependency[]  @relation("Prerequisite")
+  decisions  RoutingDecision[]
+  runs       AgentRun[]
+  tddLoops   TddLoop[]
+  approvals  Approval[]
+
+  @@index([projectId, status])
+  @@index([parentTaskId])
+}
+
+model TaskDependency {
+  taskId      String
+  dependsOnId String
+
+  task      Task @relation("Dependent", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("Prerequisite", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, dependsOnId])
+}
+
+model Session {
+  id              String            @id
+  workspaceId     String
+  claudeSessionId String?           @unique
+  modelId         String
+  status          SessionStatus     @default(ACTIVE)
+  endReason       SessionEndReason?
+  previousId      String?           @unique
+  handoffNote     String?
+  primerHash      String?
+  turns           Int               @default(0)
+  contextTokens   Int               @default(0)
+  startedAt       DateTime          @default(now())
+  lastActivityAt  DateTime          @default(now())
+  endedAt         DateTime?
+
+  workspace Workspace  @relation("WorkspaceSessions", fields: [workspaceId], references: [id], onDelete: Cascade)
+  activeIn  Workspace? @relation("ActiveSession")
+  previous  Session?   @relation("SessionChain", fields: [previousId], references: [id], onDelete: SetNull)
+  next      Session?   @relation("SessionChain")
+  runs      AgentRun[]
+  tokenLogs TokenLog[]
+
+  @@index([workspaceId, status])
+}
+
+model AgentRun {
+  id                String    @id @default(cuid())
+  taskId            String
+  sessionId         String
+  agentConfigId     String?
+  routingDecisionId String?
+  mode              RunMode   @default(HEADLESS)
+  modelId           String
+  prompt            String
+  cliVersion        String?
+  pid               Int?
+  args              Json
+  ignoreHash        String?
+  status            RunStatus @default(SPAWNING)
+  exitCode          Int?
+  signal            String?
+  resultSubtype     String?
+  isError           Boolean   @default(false)
+  numTurns          Int?
+  durationMs        Int?
+  durationApiMs     Int?
+  costUsd           Float?
+  errorMessage      String?
+  startedAt         DateTime  @default(now())
+  endedAt           DateTime?
+
+  task            Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  session         Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentConfig     AgentConfig?     @relation(fields: [agentConfigId], references: [id], onDelete: SetNull)
+  routingDecision RoutingDecision? @relation(fields: [routingDecisionId], references: [id], onDelete: SetNull)
+  events          AgentEvent[]
+  tokenLogs       TokenLog[]
+  tddIteration    TddIteration?
+
+  @@index([taskId])
+  @@index([sessionId])
+  @@index([status])
+}
+
+model AgentEvent {
+  id        Int      @id @default(autoincrement())
+  runId     String
+  seq       Int
+  type      String
+  subtype   String?
+  payload   Json
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+  @@index([createdAt])
+}
+
+model TokenLog {
+  id                  String     @id @default(cuid())
+  runId               String?
+  sessionId           String?
+  modelId             String
+  scope               TokenScope
+  purpose             String?
+  inputTokens         Int
+  outputTokens        Int
+  cacheCreationTokens Int        @default(0)
+  cacheReadTokens     Int        @default(0)
+  costUsd             Float?
+  ctxBaselineTokens   Int?
+  ctxDeliveredTokens  Int?
+  counterfactualUsd   Float?
+  createdAt           DateTime   @default(now())
+
+  run     AgentRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  session Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([sessionId])
+  @@index([modelId, createdAt])
+  @@index([scope, createdAt])
+}
+
+model IgnoreProfile {
+  id                   String    @id @default(cuid())
+  projectId            String
+  name                 String
+  preset               String?
+  isActive             Boolean   @default(false)
+  version              Int       @default(1)
+  compiledHash         String?
+  compiledAt           DateTime?
+  estimatedSavedTokens Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rules      IgnoreRule[]
+  workspaces Workspace[]
+
+  @@unique([projectId, name])
+}
+
+model IgnoreRule {
+  id          String       @id @default(cuid())
+  profileId   String
+  position    Int
+  pattern     String
+  action      IgnoreAction @default(EXCLUDE)
+  source      IgnoreSource @default(MANUAL)
+  locked      Boolean      @default(false)
+  reason      String?
+  tokenImpact Int?
+
+  profile IgnoreProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, position])
+}
+
+model FileNode {
+  id          String    @id @default(cuid())
+  projectId   String
+  relPath     String
+  language    String?
+  sizeBytes   Int
+  contentHash String
+  isBinary    Boolean   @default(false)
+  rawTokens   Int
+  leanTokens  Int?
+  skeletonL1  String?
+  skeletonL2  String?
+  domain      Domain?
+  inDegree    Int       @default(0)
+  outDegree   Int       @default(0)
+  centrality  Float?
+  parsedAt    DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  project  Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  symbols  CodeSymbol[]
+  outEdges DependencyEdge[] @relation("EdgeFrom")
+  inEdges  DependencyEdge[] @relation("EdgeTo")
+
+  @@unique([projectId, relPath])
+  @@index([projectId, contentHash])
+}
+
+model CodeSymbol {
+  id            String  @id @default(cuid())
+  fileId        String
+  handle        String
+  name          String
+  qualifiedName String
+  kind          String
+  signature     String
+  startByte     Int
+  endByte       Int
+  startLine     Int
+  endLine       Int
+  bodyTokens    Int
+  exported      Boolean @default(false)
+
+  file FileNode @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, qualifiedName])
+  @@index([handle])
+  @@index([name])
+}
+
+model DependencyEdge {
+  id        String   @id @default(cuid())
+  projectId String
+  fromId    String
+  toId      String?
+  external  String?
+  kind      EdgeKind
+  specifier String
+  symbols   Json?
+
+  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  from    FileNode  @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to      FileNode? @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([fromId])
+  @@index([toId])
+}
+
+model TddLoop {
+  id             String     @id @default(cuid())
+  taskId         String
+  workspaceId    String
+  runner         TestRunner
+  relatedCommand String
+  fullCommand    String
+  gates          Json
+  maxIterations  Int        @default(6)
+  budgetUsd      Float?
+  status         TddStatus  @default(PENDING)
+  iterationCount Int        @default(0)
+  protectedHash  String?
+  violations     Int        @default(0)
+  startedAt      DateTime?
+  endedAt        DateTime?
+  greenAt        DateTime?
+
+  task       Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  workspace  Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  iterations TddIteration[]
+
+  @@index([taskId])
+}
+
+model TddIteration {
+  id               String   @id @default(cuid())
+  loopId           String
+  index            Int
+  scope            String
+  passed           Int
+  failed           Int
+  skipped          Int
+  durationMs       Int
+  failureSignature String?
+  digest           String?
+  digestTokens     Int?
+  rawLogPath       String?
+  agentRunId       String?  @unique
+  escalated        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  loop     TddLoop   @relation(fields: [loopId], references: [id], onDelete: Cascade)
+  agentRun AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+
+  @@unique([loopId, index])
+}
+
+model Budget {
+  id        String       @id @default(cuid())
+  scope     BudgetScope
+  projectId String?
+  period    BudgetPeriod
+  softUsd   Float?
+  hardUsd   Float
+  enabled   Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([scope, enabled])
+}
+
+model Approval {
+  id         String         @id @default(cuid())
+  taskId     String?
+  kind       ApprovalKind
+  status     ApprovalStatus @default(PENDING)
+  title      String
+  payload    Json
+  decidedBy  String?
+  note       String?
+  createdAt  DateTime       @default(now())
+  decidedAt  DateTime?
+  expiresAt  DateTime?
+
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actor     String
+  action    String
+  target    String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

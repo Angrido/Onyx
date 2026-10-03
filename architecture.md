@@ -4,9 +4,9 @@
 
 | Campo | Valore |
 |---|---|
-| Versione documento | 0.1.0 (Draft) |
+| Versione documento | 0.2.0 |
 | Data | 2026-10-03 |
-| Stato | In attesa di approvazione — nessun codice applicativo prodotto |
+| Stato | Fase 1 completata (vedi [§16](#16-roadmap-prossimi-step-sequenziali)); Fase 2 da avviare |
 | Approccio | Architecture-First, Clean Architecture (ports & adapters) |
 | Ambito | Topologia, comunicazione, dati, directory, infrastruttura, rete, roadmap |
 
@@ -102,7 +102,7 @@ I valori sono target da validare con benchmark in Fase 2 e Fase 4, non promesse.
 | Frontend | Next.js 15 (App Router), React 19, TypeScript strict | Build `output: "standalone"` |
 | Styling | Tailwind CSS v4, shadcn/ui | Design token come variabili CSS |
 | Animazioni | Framer Motion (pacchetto `motion`, import `motion/react`) | Firme di movimento per stato agente |
-| Stato client | TanStack Query (stato server), Zustand (stato live/UI) | |
+| Stato client | TanStack Query (stato server), `useReducer` + `useSyncExternalStore` (stato live) | Zustand non è servito in Fase 1; si valuta quando cresce lo stato UI |
 | Terminale | `@xterm/xterm` + addon fit/webgl | Rendering dei PTY headless |
 | Grafo | `react-force-graph-2d` (canvas) | Regge migliaia di nodi |
 | Backend | Node.js 22 LTS, Fastify 5, TypeScript ESM | `fastify-type-provider-zod` |
@@ -1336,6 +1336,7 @@ model AgentRun {
   routingDecisionId String?
   mode              RunMode   @default(HEADLESS)
   modelId           String
+  prompt            String
   cliVersion        String?
   pid               Int?
   args              Json
@@ -1347,6 +1348,7 @@ model AgentRun {
   isError           Boolean   @default(false)
   numTurns          Int?
   durationMs        Int?
+  durationApiMs     Int?
   costUsd           Float?
   errorMessage      String?
   startedAt         DateTime  @default(now())
@@ -1640,7 +1642,7 @@ erDiagram
 ### 7.5 Seed iniziale
 
 - `ModelProfile`: le quattro righe del [§2.5](#25-catalogo-modelli-iniziale) (`APEX` con `enabled = false`).
-- `AgentConfig` builtin: `architect` (Opus 5.5, `plan` per il Planner), `builder` (Sonnet 5.5), `scout` (Haiku 4.5), `test-fixer` (Sonnet 5.5, recinto test).
+- `AgentConfig` builtin: `architect` (Opus 5.5, `acceptEdits`), `planner` (Opus 5.5, `plan`, sola lettura), `builder` (Sonnet 5.5, default), `scout` (Haiku 4.5, `manual`, sola lettura), `test-fixer` (Sonnet 5.5, modifiche ai test negate).
 - `RoutingRule`: le cinque regole seed del [§6.4](#64-model-router).
 - `AppSetting`: pesi e soglie del router, `MAX_CONCURRENT_AGENTS`, retention, preset ignore di default.
 - `User`: creato al primo avvio con una procedura guidata (nessuna password di default).
@@ -2012,27 +2014,39 @@ claude -p "Rispondi solo con OK" --output-format json --max-turns 1
 
 ### 10.5 Variabili d'ambiente (`/etc/onyx/onyx.env`)
 
+Il file di riferimento è `deploy/env/onyx.env.example`; la validazione avviene all'avvio in `apps/api/src/config.ts` (un valore non valido blocca l'avvio con un messaggio esplicito).
+
 ```dotenv
 NODE_ENV=production
 TZ=Europe/Rome
-ONYX_DATA_DIR=/var/lib/onyx
-ONYX_PROJECTS_DIR=/srv/onyx/projects
-DATABASE_URL=file:/var/lib/onyx/onyx.db
+LOG_LEVEL=info
 API_HOST=127.0.0.1
 API_PORT=4000
-WEB_PORT=3000
-ONYX_INTERNAL_URL=http://127.0.0.1:4000
+DATABASE_URL=file:/var/lib/onyx/onyx.db
+ONYX_DATA_DIR=/var/lib/onyx
+ONYX_PROJECTS_DIR=/srv/onyx/projects
 ONYX_PUBLIC_ORIGIN=http://192.168.1.50
-SESSION_SECRET=sostituire-con-64-caratteri-esadecimali-casuali
-RUN_TOKEN_SECRET=sostituire-con-64-caratteri-esadecimali-casuali
+ONYX_ALLOWED_ORIGINS=
+ONYX_INTERNAL_URL=http://127.0.0.1:4000
+COOKIE_SECURE=false
+SESSION_TTL_HOURS=168
 MAX_CONCURRENT_AGENTS=2
+RUN_ESCALATION_GRACE_MS=5000
+AUTO_RESUME_QUEUED=true
 CLAUDE_BIN=/home/onyx/.local/bin/claude
 ANTHROPIC_API_KEY=
 CLAUDE_CODE_OAUTH_TOKEN=
-LOG_LEVEL=info
 ```
 
-Generazione dei segreti: `openssl rand -hex 32`.
+| Variabile | Significato |
+|---|---|
+| `ONYX_PUBLIC_ORIGIN`, `ONYX_ALLOWED_ORIGINS` | Origin ammesse per richieste che modificano stato e per l'upgrade WebSocket. Va elencato ogni nome con cui si apre la dashboard (IP, `onyx.lan`, …) |
+| `ONYX_ALLOWED_PROJECT_ROOTS` | Facoltativa: radici entro cui si possono registrare progetti (default `ONYX_PROJECTS_DIR`) |
+| `ONYX_CHILD_ENV_PASSTHROUGH` | Facoltativa: variabili extra da passare ai processi `claude` oltre all'allowlist |
+| `COOKIE_SECURE` | `true` solo quando la dashboard è servita in HTTPS |
+| `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` | Impostarne **una sola** (ADR-008): con entrambe l'API non parte |
+
+Le sessioni della dashboard sono token opachi casuali salvati come hash SHA-256 in `UserSession`: non servono segreti di firma. Il segreto per i token di run degli hook arriverà con la Fase 3.
 
 ### 10.6 Unit systemd
 
@@ -2048,7 +2062,7 @@ Wants=network-online.target
 Type=simple
 User=onyx
 Group=onyx
-WorkingDirectory=/opt/onyx/current/apps/api
+WorkingDirectory=/opt/onyx/current/api
 EnvironmentFile=/etc/onyx/onyx.env
 ExecStart=/usr/bin/node dist/server.js
 Restart=on-failure
@@ -2077,7 +2091,7 @@ Wants=network-online.target
 Type=simple
 User=onyx
 Group=onyx
-WorkingDirectory=/opt/onyx/current/apps/web/.next/standalone
+WorkingDirectory=/opt/onyx/current/web
 EnvironmentFile=/etc/onyx/onyx.env
 Environment=HOSTNAME=127.0.0.1
 Environment=PORT=3000
@@ -2120,11 +2134,16 @@ Caddy gestisce l'upgrade WebSocket in modo trasparente. Per l'HTTPS in LAN si ag
 
 ### 10.8 Build e rilascio
 
-1. `pnpm install --frozen-lockfile` e `pnpm turbo run build` (eseguibili anche fuori dal container).
-2. Next.js con `output: "standalone"` e `outputFileTracingRoot` alla root del monorepo; copia di `.next/static` e `public` dentro lo standalone.
-3. `prisma migrate deploy` prima del riavvio di `onyx-api`.
-4. Rilascio atomico: `/opt/onyx/releases/<versione>` e symlink `/opt/onyx/current`, con rollback tramite cambio di symlink.
-5. `systemctl restart onyx-api onyx-web`, poi health check su `/api/ready`.
+`deploy/scripts/build.sh <dir>` prepara una release autosufficiente:
+
+| Cartella | Contenuto |
+|---|---|
+| `api/` | `dist/server.js` (bundle tsup con i pacchetti `@onyx/*` inclusi) + `node_modules` di produzione (`pnpm deploy --prod`) |
+| `web/` | Output `standalone` di Next.js con `.next/static` copiato; si avvia con `node apps/web/server.js` |
+| `db/` | Schema, migrazioni e CLI Prisma per `prisma migrate deploy` |
+| `deploy/` | Script, unit systemd, Caddyfile, env di esempio |
+
+`deploy/scripts/release.sh <dir>` (come root) copia la release in `/opt/onyx/releases/<versione>`, applica le migrazioni come utente `onyx`, sposta il symlink `/opt/onyx/current`, installa le unit, riavvia i servizi e interroga `/api/ready`. Il rollback consiste nel riportare il symlink alla release precedente e riavviare.
 
 ### 10.9 Backup e ripristino
 
@@ -2339,7 +2358,7 @@ Il controllo `nft -c` valida la sintassi prima dell'applicazione. In alternativa
 |---|---|---|
 | Planner | `plan` | Sola lettura e pianificazione |
 | Builder / Test-fixer | `acceptEdits` | Modifiche ai file consentite; Bash solo da allowlist |
-| Scout | `default` con soli tool di lettura | Nessuna modifica |
+| Scout | `manual` con soli tool di lettura | Nessuna modifica (nella CLI 2.1.288 `manual` sostituisce `default`) |
 | Sandbox (opt-in) | `bypassPermissions` | Solo in worktree usa-e-getta, con toggle esplicito, audit e budget hard |
 
 ---
@@ -2404,6 +2423,9 @@ Il controllo `nft -c` valida la sintassi prima dell'applicazione. In alternativa
 | ADR-008 | Una sola credenziale attiva (API key oppure OAuth token) | Entrambe impostate | La CLI applica un ordine di precedenza: due credenziali rendono ambiguo il calcolo dei costi |
 | ADR-009 | I test li esegue Onyx; l'agente riceve solo un digest | Agente che lancia i test via Bash | Meno token, risultati deterministici, anti-cheat verificabile |
 | ADR-010 | Cambio di modello solo ai confini di task | Routing per turno | La cache del prompt è legata al modello; un cambio a metà sessione costa più di quanto risparmia |
+| ADR-011 | Stub eseguibile di Claude Code (`claude-stub.ts`) che rigioca fixture `stream-json` | Mock in-process; chiamate reali nei test | Test deterministici e gratuiti del runtime reale (spawn, segnali, process group, timeout); lo stesso stub alimenta la modalità di sviluppo |
+| ADR-012 | Regola ESLint locale `onyx/no-comments` | Revisione manuale | La convenzione "codice senza commenti" diventa verificabile in CI |
+| ADR-013 | Bundle dell'API con tsup che include solo `@onyx/*`; dipendenze di terze parti installate con `pnpm deploy --prod` | Bundle completo | Le dipendenze CommonJS e native (`better-sqlite3`, runtime Prisma) non si possono includere nel bundle in modo affidabile |
 
 ---
 
@@ -2431,6 +2453,22 @@ Ogni fase si chiude con una **Definition of Done** verificabile e con l'aggiorna
 7. Deploy: unit systemd, Caddyfile, script di build e rilascio.
 
 **DoD**: da UI si crea un task su un progetto di prova, lo si esegue con un modello scelto a mano, si vedono in tempo reale messaggi, tool call, token e costo; l'abort funziona e uccide tutto il process group; i test unit, di contratto e di integrazione (con `claude-stub`) sono verdi in CI.
+
+**Esito (completata)**:
+
+- 113 test verdi: `contracts` 14, `db` 11, `agent-runtime` 42, `api` 41, `web` 5. Lint (con `onyx/no-comments`), Prettier, typecheck strict e build di produzione passano.
+- Verifica end-to-end con Playwright sulla UI reale (API + Next.js, agente simulato dallo stub): setup operatore, registrazione progetto con i quattro workspace, task con stream live di messaggi, tool call, token, costo, poi abort di una run bloccata con kill dell'intero process group (nessun processo orfano), nessun errore in console.
+- Release staged con `build.sh` avviata in modo autonomo: migrazioni, `/api/ready` e UI standalone funzionanti.
+- Le fixture `stream-json` sono **sintetiche**, costruite sul formato documentato e verificate contro i flag della CLI 2.1.288. In Fase 0, nel container con credenziali reali, vanno registrate trascrizioni vere in `packages/agent-runtime/fixtures/<versione>/` e aggiunte ai test di contratto.
+
+**Differenze rispetto al piano**:
+
+- `apps/api/src` è organizzato in `application/`, `domain/`, `http/` (route, sicurezza, errori) e `infrastructure/` invece di `routes/` + `plugins/`.
+- `AgentRun` ha in più `prompt` e `durationApiMs`; i seed `AgentConfig` sono cinque (aggiunto `planner`).
+- La modalità di permesso di default della CLI si chiama `manual` (la CLI 2.1.288 non accetta più `default`).
+- Il WebSocket della UI si apre solo nelle pagine autenticate; in sviluppo punta direttamente a `:4000` (`NEXT_PUBLIC_ONYX_WS_URL`), in produzione passa da Caddy su `/ws`.
+- `scripts/dev-setup.sh [stub|real]` prepara database, progetto demo e `.env` per lo sviluppo locale.
+- Turborepo scrive di sua iniziativa un `AGENTS.md` quando rileva un agente AI: è disattivato con `"agentGuidance": false` in `turbo.json`.
 
 ### Fase 2 — Lean-ctx e Graphify
 

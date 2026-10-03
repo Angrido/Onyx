@@ -1,0 +1,9 @@
+*.md
+pnpm-lock.yaml
+**/generated/**
+**/migrations/**
+**/fixtures/**
+**/.next/**
+**/dist/**
+**/.turbo/**
+deploy/caddy/Caddyfile

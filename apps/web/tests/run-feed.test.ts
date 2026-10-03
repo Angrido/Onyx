@@ -1,0 +1,97 @@
+import type { RunItem } from "@onyx/contracts";
+import { describe, expect, it } from "vitest";
+import { INITIAL_FEED, applyDelta, applyRunEvent, feedUsage, isTerminal } from "@/lib/run-feed";
+
+const usage = (input: number, output: number) => ({
+  inputTokens: input,
+  outputTokens: output,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
+});
+
+describe("run feed", () => {
+  it("pairs tool results with their tool calls", () => {
+    let state = applyRunEvent(INITIAL_FEED, 1, [
+      {
+        kind: "tool_use",
+        messageId: "m1",
+        toolUseId: "t1",
+        name: "Read",
+        input: { file_path: "a.ts" },
+        inputTruncated: false,
+        parentToolUseId: null,
+      },
+    ]);
+    state = applyRunEvent(state, 2, [
+      {
+        kind: "tool_result",
+        toolUseId: "t1",
+        isError: false,
+        content: "file body",
+        truncated: false,
+        parentToolUseId: null,
+      },
+    ]);
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({
+      kind: "tool",
+      name: "Read",
+      result: { content: "file body", isError: false },
+    });
+  });
+
+  it("ignores replayed sequence numbers", () => {
+    const item: RunItem = { kind: "prompt", text: "hi" };
+    const once = applyRunEvent(INITIAL_FEED, 1, [item]);
+    const twice = applyRunEvent(once, 1, [item]);
+    expect(twice).toBe(once);
+  });
+
+  it("deduplicates turn usage per message and prefers the result totals", () => {
+    let state = applyRunEvent(INITIAL_FEED, 1, [
+      { kind: "turn_usage", messageId: "m1", model: null, usage: usage(1, 5) },
+    ]);
+    state = applyRunEvent(state, 2, [
+      { kind: "turn_usage", messageId: "m1", model: null, usage: usage(1, 9) },
+      { kind: "turn_usage", messageId: "m2", model: null, usage: usage(2, 1) },
+    ]);
+    expect(feedUsage(state)).toEqual(usage(3, 10));
+
+    state = applyRunEvent(state, 3, [
+      {
+        kind: "result",
+        subtype: "success",
+        isError: false,
+        numTurns: 2,
+        durationMs: 1,
+        durationApiMs: 1,
+        costUsd: 0.1,
+        usage: usage(30, 100),
+        resultText: "done",
+        sessionId: "s",
+        modelUsage: {},
+      },
+    ]);
+    expect(feedUsage(state)).toEqual(usage(30, 100));
+  });
+
+  it("merges consecutive stderr chunks and tracks status", () => {
+    let state = applyRunEvent(INITIAL_FEED, 1, [{ kind: "stderr", text: "a" }]);
+    state = applyRunEvent(state, 2, [{ kind: "stderr", text: "b" }]);
+    state = applyRunEvent(state, 3, [
+      { kind: "status", status: "FAILED", exitCode: 1, signal: null, message: "boom" },
+    ]);
+    expect(state.entries.map((entry) => entry.kind)).toEqual(["stderr", "status"]);
+    expect(state.entries[0]).toMatchObject({ text: "ab" });
+    expect(isTerminal(state.status)).toBe(true);
+  });
+
+  it("accumulates partial text until the assistant message lands", () => {
+    let state = applyDelta(applyDelta(INITIAL_FEED, "Hel"), "lo");
+    expect(state.partialText).toBe("Hello");
+    state = applyRunEvent(state, 1, [
+      { kind: "text", messageId: "m1", text: "Hello", parentToolUseId: null },
+    ]);
+    expect(state.partialText).toBe("");
+  });
+});

@@ -1,0 +1,21 @@
+{
+  "name": "@onyx/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint": "./eslint/index.js",
+    "./prettier": "./prettier/index.json",
+    "./tsconfig/*": "./tsconfig/*"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.0",
+    "@next/eslint-plugin-next": "^15.5.27",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "globals": "^16.5.0",
+    "typescript-eslint": "^8.71.0"
+  },
+  "peerDependencies": {
+    "eslint": "^9.39.0"
+  }
+}

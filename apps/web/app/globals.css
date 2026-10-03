@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+:root {
+  color-scheme: dark;
+  --radius: 0.75rem;
+
+  --surface-0: oklch(0.13 0.006 286);
+  --surface-1: oklch(0.165 0.008 286);
+  --surface-2: oklch(0.2 0.01 286);
+  --surface-3: oklch(0.245 0.012 286);
+
+  --background: var(--surface-0);
+  --foreground: oklch(0.95 0.005 286);
+  --card: var(--surface-1);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-2);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.72 0.17 293);
+  --primary-foreground: oklch(0.14 0.02 293);
+  --secondary: var(--surface-3);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-2);
+  --muted-foreground: oklch(0.68 0.012 286);
+  --accent: var(--surface-3);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.65 0.21 22);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.76 0.16 155);
+  --warning: oklch(0.8 0.15 80);
+  --border: oklch(1 0 0 / 0.08);
+  --border-strong: oklch(1 0 0 / 0.14);
+  --input: oklch(1 0 0 / 0.1);
+  --ring: oklch(0.72 0.17 293 / 0.6);
+
+  --tier-architect: oklch(0.7 0.19 300);
+  --tier-builder: oklch(0.8 0.15 75);
+  --tier-scout: oklch(0.8 0.12 210);
+  --tier-apex: oklch(0.84 0.14 95);
+
+  --font-sans-stack:
+    "Inter", "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono-stack:
+    "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-architect: var(--tier-architect);
+  --color-builder: var(--tier-builder);
+  --color-scout: var(--tier-scout);
+  --color-apex: var(--tier-apex);
+  --font-sans: var(--font-sans-stack);
+  --font-mono: var(--font-mono-stack);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background-image:
+      radial-gradient(60rem 40rem at 10% -10%, oklch(0.72 0.17 293 / 0.08), transparent 60%),
+      radial-gradient(50rem 30rem at 110% 10%, oklch(0.8 0.12 210 / 0.05), transparent 60%);
+    background-attachment: fixed;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::selection {
+    background: oklch(0.72 0.17 293 / 0.35);
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: color-mix(in oklch, var(--surface-1) 78%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-3) transparent;
+  }
+}

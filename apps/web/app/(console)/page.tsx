@@ -1,0 +1,42 @@
+import type { TaskListResponse, TelemetrySummary } from "@onyx/contracts";
+import Link from "next/link";
+import { PageHeader } from "@/components/layout/page-header";
+import { TaskList } from "@/components/tasks/task-list";
+import { KpiTiles } from "@/components/telemetry/kpi-tiles";
+import { Button } from "@/components/ui/button";
+import { serverFetch } from "@/lib/api/server";
+
+export const metadata = { title: "Console" };
+
+export default async function ConsolePage() {
+  const [telemetry, tasks] = await Promise.all([
+    serverFetch<TelemetrySummary>("/api/telemetry/summary"),
+    serverFetch<TaskListResponse>("/api/tasks?limit=20"),
+  ]);
+  return (
+    <>
+      <PageHeader
+        eyebrow="Overview"
+        title="Agent console"
+        description="Live state of every Claude Code agent orchestrated by this Onyx instance."
+        actions={
+          <Button asChild variant="secondary">
+            <Link href="/projects">Open projects</Link>
+          </Button>
+        }
+      />
+      <KpiTiles initial={telemetry} />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold tracking-tight">Recent tasks</h2>
+        <TaskList
+          initial={tasks.items}
+          emptyAction={
+            <Button asChild size="sm">
+              <Link href="/projects">Pick a project</Link>
+            </Button>
+          }
+        />
+      </section>
+    </>
+  );
+}
