@@ -133,3 +133,23 @@ describe("context items", () => {
     expect(contextSavings({ ...context, baselineTokens: 0 })).toBeNull();
   });
 });
+
+describe("guard items", () => {
+  it("counts each blocked tool call once across hook and CLI reports", () => {
+    const hook = {
+      kind: "guard" as const,
+      source: "hook" as const,
+      tool: "Read",
+      toolUseId: "toolu_1",
+      target: "dist/a.js",
+      rule: "dist/",
+      reason: "outside the context",
+    };
+    const reported = { ...hook, source: "permission" as const, target: "/srv/p/dist/a.js" };
+    const anonymous = { ...reported, toolUseId: null };
+    let state = applyRunEvent(INITIAL_FEED, 1, [hook]);
+    state = applyRunEvent(state, 2, [reported, anonymous]);
+    expect(state.guardDenials).toBe(2);
+    expect(state.entries.map((entry) => entry.kind)).toEqual(["guard", "guard"]);
+  });
+});

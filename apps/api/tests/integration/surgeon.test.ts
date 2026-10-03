@@ -210,21 +210,25 @@ describe("context profile", () => {
 describe("runs under a context profile", () => {
   it("blocks reads of excluded files through the PreToolUse hook and records them", async () => {
     const { run, items } = await runTask(
-      "[stub:guard] read:dist/bundle.js read:src/app.ts grep:dist bash:{cat logs/app.log} bash:{head -n 1 .env} read:dist/keep.js",
+      "[stub:guard] read:dist/bundle.js read:src/app.ts grep:dist grep:logs bash:{cat logs/app.log} bash:{head -n 1 .env} read:dist/keep.js",
     );
     expect(run.status).toBe("COMPLETED");
-    const guards = items.filter((item) => item.kind === "guard");
-    expect(guards.map((item) => (item.kind === "guard" ? item.target : null))).toEqual([
+    const guards = items.flatMap((item) => (item.kind === "guard" ? [item] : []));
+    const hooked = guards.filter((item) => item.source === "hook");
+    expect(hooked.map((item) => item.target)).toEqual([
       "dist/bundle.js",
       "dist",
+      "logs",
       "logs/app.log",
       ".env",
     ]);
-    expect(run.guardDenials).toBe(4);
+    const reported = guards.filter((item) => item.source === "permission");
+    expect(reported.map((item) => item.toolUseId)).toEqual(hooked.map((item) => item.toolUseId));
+    expect(run.guardDenials).toBe(5);
 
     const results = items.filter((item) => item.kind === "tool_result");
-    expect(results).toHaveLength(6);
-    expect(results.filter((item) => item.kind === "tool_result" && item.isError)).toHaveLength(4);
+    expect(results).toHaveLength(7);
+    expect(results.filter((item) => item.kind === "tool_result" && item.isError)).toHaveLength(5);
     expect(
       results.some(
         (item) => item.kind === "tool_result" && item.content.includes("export const app"),
@@ -257,7 +261,7 @@ describe("runs under a context profile", () => {
     const audits = await context.container.prisma.auditLog.count({
       where: { action: "guard.denied" },
     });
-    expect(audits).toBe(4);
+    expect(audits).toBe(5);
   }, 60_000);
 
   it("keeps excluded files out of the context pack", async () => {

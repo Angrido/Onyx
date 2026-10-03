@@ -216,6 +216,7 @@ describe("permission denials", () => {
       kind: "guard",
       source: "permission",
       tool: "Read",
+      toolUseId: "toolu_1",
       target: "/srv/p/.env",
       rule: null,
       reason: "Denied by the run's permission rules",

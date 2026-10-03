@@ -7,7 +7,7 @@ import {
   type ServerMessage,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Network, RefreshCw, ScanSearch } from "lucide-react";
+import { AlertTriangle, Network, RefreshCw, ScanSearch, Scissors } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback } from "react";
@@ -138,6 +138,12 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
             <Link href={`/projects/${projectId}/graph`}>
               <Network />
               Graph
+            </Link>
+          </Button>
+          <Button asChild variant="secondary" size="sm">
+            <Link href={`/projects/${projectId}/surgeon`}>
+              <Scissors />
+              Context Surgeon
             </Link>
           </Button>
         </div>

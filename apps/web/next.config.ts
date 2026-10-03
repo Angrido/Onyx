@@ -20,7 +20,7 @@ function localNetworkHosts(): string[] {
 const config: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: join(process.cwd(), "../.."),
-  transpilePackages: ["@onyx/contracts"],
+  transpilePackages: ["@onyx/contracts", "@onyx/ignore-compiler"],
   poweredByHeader: false,
   reactStrictMode: true,
   allowedDevOrigins: localNetworkHosts(),

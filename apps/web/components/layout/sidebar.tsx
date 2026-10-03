@@ -38,55 +38,89 @@ export function Sidebar({ user }: { user: UserDto }) {
   }
 
   return (
-    <aside className="glass sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-border px-3 py-5">
-      <div className="px-2">
+    <>
+      <header className="glass sticky top-0 z-30 flex items-center gap-3 border-b border-border px-4 py-2.5 md:hidden">
         <Wordmark />
-      </div>
-      <nav className="mt-8 flex flex-col gap-1">
-        {NAV.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
+        <nav className="ml-auto flex items-center gap-1">
+          {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
+              aria-label={item.label}
               className={cn(
-                "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                "rounded-md p-2 transition-colors",
+                isActive(pathname, item.href)
+                  ? "bg-surface-2 text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {active ? (
-                <motion.span
-                  layoutId="nav-active"
-                  className="absolute inset-0 rounded-md border border-border-strong bg-surface-2"
-                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                />
-              ) : null}
-              <item.icon className="relative size-4" />
-              <span className="relative">{item.label}</span>
+              <item.icon className="size-4" />
             </Link>
-          );
-        })}
-      </nav>
-      <div className="mt-auto space-y-3 px-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className={cn("size-2 rounded-full", connection.dot)} />
-          {connection.label}
+          ))}
+        </nav>
+        <span
+          className={cn("size-2 shrink-0 rounded-full", connection.dot)}
+          title={connection.label}
+        />
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
+          aria-label="Sign out"
+        >
+          <LogOut className="size-4" />
+        </button>
+      </header>
+      <aside className="glass sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border px-3 py-5 md:flex">
+        <div className="px-2">
+          <Wordmark />
         </div>
-        <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-3 py-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{user.username}</p>
-            <p className="text-[11px] text-muted-foreground">Operator</p>
+        <nav className="mt-8 flex flex-col gap-1">
+          {NAV.map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {active ? (
+                  <motion.span
+                    layoutId="nav-active"
+                    className="absolute inset-0 rounded-md border border-border-strong bg-surface-2"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  />
+                ) : null}
+                <item.icon className="relative size-4" />
+                <span className="relative">{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="mt-auto space-y-3 px-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className={cn("size-2 rounded-full", connection.dot)} />
+            {connection.label}
           </div>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
-            aria-label="Sign out"
-          >
-            <LogOut className="size-4" />
-          </button>
+          <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{user.username}</p>
+              <p className="text-[11px] text-muted-foreground">Operator</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
+              aria-label="Sign out"
+            >
+              <LogOut className="size-4" />
+            </button>
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }

@@ -30,6 +30,25 @@ export function rule(
   };
 }
 
+export function isDirectoryPattern(pattern: string): boolean {
+  return pattern.endsWith("/") && !pattern.endsWith("**/");
+}
+
+export function contentsPattern(pattern: string): string {
+  const core = pattern.replace(/\/+$/, "");
+  return core.startsWith("/") || core.includes("/") ? `${core}/**` : `**/${core}/**`;
+}
+
+export function canonicalPattern(pattern: string): string {
+  const expanded = isDirectoryPattern(pattern) ? contentsPattern(pattern) : pattern;
+  const body = expanded.replace(/^\/+/, "");
+  return expanded.startsWith("/") && body.replace(/\/+$/, "").includes("/") ? body : expanded;
+}
+
+export function ruleKey(policyRule: Pick<PolicyRule, "action" | "pattern">): string {
+  return `${policyRule.action}:${canonicalPattern(policyRule.pattern)}`;
+}
+
 export function toGitignoreLine(policyRule: PolicyRule): string {
   return policyRule.action === "INCLUDE" ? `!${policyRule.pattern}` : policyRule.pattern;
 }

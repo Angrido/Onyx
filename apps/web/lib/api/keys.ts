@@ -15,4 +15,9 @@ export const queryKeys = {
   allGraphs: (projectId: string) => ["graph", projectId] as const,
   fileContext: (projectId: string, path: string, level: number) =>
     ["file-context", projectId, path, level] as const,
+  surgeon: (projectId: string, workspaceId: string | null) =>
+    ["surgeon", projectId, workspaceId] as const,
+  allSurgeon: (projectId: string) => ["surgeon", projectId] as const,
+  surgeonCompiled: (projectId: string, workspaceId: string | null, version: string) =>
+    ["surgeon", projectId, workspaceId, "compiled", version] as const,
 };

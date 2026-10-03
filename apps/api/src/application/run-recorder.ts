@@ -30,6 +30,7 @@ export class RunRecorder {
   private resultItem: RunItemOf<"result"> | null = null;
   private initItem: RunItemOf<"init"> | null = null;
   private guards = 0;
+  private readonly deniedToolUses = new Set<string>();
 
   constructor(
     private readonly runId: string,
@@ -103,6 +104,8 @@ export class RunRecorder {
         this.initItem = item;
         this.onInit(item);
       } else if (item.kind === "guard") {
+        if (item.toolUseId !== null && this.deniedToolUses.has(item.toolUseId)) continue;
+        if (item.toolUseId !== null) this.deniedToolUses.add(item.toolUseId);
         this.guards += 1;
       }
     }

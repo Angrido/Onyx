@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGGRESSIVE_PRESET,
+  canonicalPattern,
   compilePolicy,
   ContextPolicy,
   parseIgnoreFile,
@@ -9,6 +10,7 @@ import {
   presetRules,
   renderIgnoreFile,
   rule,
+  ruleKey,
   SECURITY_RULES,
   suggestRules,
   type FileStat,
@@ -193,5 +195,28 @@ describe("compilePolicy", () => {
     const compiled = compilePolicy(new ContextPolicy(rules), { projectRoot: root, maxRules: 5 });
     expect(compiled.readDeny).toHaveLength(5);
     expect(compiled.truncated).toBe(true);
+  });
+});
+
+describe("canonical rule keys", () => {
+  it("treats directory rules and their contents form as the same rule", () => {
+    expect(canonicalPattern("dist/")).toBe("**/dist/**");
+    expect(canonicalPattern("/dist/")).toBe("dist/**");
+    expect(canonicalPattern("dist/**")).toBe("dist/**");
+    expect(canonicalPattern("/README.md")).toBe("/README.md");
+    expect(ruleKey(rule("**/dist/**"))).toBe(ruleKey(rule("dist/")));
+  });
+
+  it("does not suggest a preset the profile already holds in rewritten form", () => {
+    const stats = ["dist/a.js", "dist/keep.js"].map((relPath) => ({
+      relPath,
+      sizeBytes: 100,
+      rawTokens: 30,
+      binary: false,
+      centrality: 0,
+    }));
+    const existing = [rule("**/dist/**"), rule("/dist/keep.js", { action: "INCLUDE" })];
+    const suggested = suggestRules(stats, existing, [rule("dist/", { source: "PRESET" })]);
+    expect(suggested.map((item) => item.rule.pattern)).toEqual([]);
   });
 });

@@ -29,7 +29,7 @@ import {
 import type { Logger } from "pino";
 import type { z } from "zod";
 import { badRequest, notFound } from "../errors";
-import type { CalibrationService } from "./calibration-service";
+import { stableSample, type CalibrationService } from "./calibration-service";
 import type { IndexService } from "./index-service";
 import type { ProjectContext } from "./project-context";
 
@@ -83,18 +83,6 @@ function dedupe(rules: readonly PolicyRule[]): PolicyRule[] {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  });
-}
-
-function stableSample<T extends { relPath: string }>(items: readonly T[]): T[] {
-  return [...items].sort((a, b) => {
-    const left = a.relPath
-      .split("")
-      .reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) | 0, 7);
-    const right = b.relPath
-      .split("")
-      .reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) | 0, 7);
-    return left - right || a.relPath.localeCompare(b.relPath);
   });
 }
 

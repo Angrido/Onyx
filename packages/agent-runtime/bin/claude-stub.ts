@@ -240,7 +240,13 @@ function assistantLine(messageId: string, content: unknown[]): string {
   });
 }
 
-function resultLine(text: string): string {
+interface PermissionDenial {
+  tool_name: string;
+  tool_use_id: string;
+  tool_input: Record<string, unknown>;
+}
+
+function resultLine(text: string, denials: PermissionDenial[] = []): string {
   return JSON.stringify({
     type: "result",
     subtype: "success",
@@ -252,7 +258,7 @@ function resultLine(text: string): string {
     total_cost_usd: 0.004,
     usage: STUB_USAGE,
     modelUsage: {},
-    permission_denials: [],
+    permission_denials: denials,
     result: text,
   });
 }
@@ -458,7 +464,7 @@ async function runGuardScenario(prompt: string): Promise<void> {
       claude_code_version: "0.0.0-stub",
     }),
   );
-  let blocked = 0;
+  const denials: PermissionDenial[] = [];
   for (const [index, attempt] of attempts.entries()) {
     const toolUseId = `toolu_stub_guard_${index + 1}`;
     await writeLine(
@@ -467,7 +473,8 @@ async function runGuardScenario(prompt: string): Promise<void> {
       ]),
     );
     const denial = hook ? await askHook(hook, attempt, toolUseId) : null;
-    if (denial !== null) blocked += 1;
+    if (denial !== null)
+      denials.push({ tool_name: attempt.tool, tool_use_id: toolUseId, tool_input: attempt.input });
     await writeLine(
       JSON.stringify({
         type: "user",
@@ -490,9 +497,9 @@ async function runGuardScenario(prompt: string): Promise<void> {
       }),
     );
   }
-  const summary = `Blocked ${blocked} of ${attempts.length} tool calls.`;
+  const summary = `Blocked ${denials.length} of ${attempts.length} tool calls.`;
   await writeLine(assistantLine("msg_stub_guard_done", [{ type: "text", text: summary }]));
-  await writeLine(resultLine(summary));
+  await writeLine(resultLine(summary, denials));
 }
 
 async function main(): Promise<void> {

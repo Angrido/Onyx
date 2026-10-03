@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@onyx/contracts": "workspace:*",
+    "@onyx/ignore-compiler": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
+    "@tanstack/react-virtual": "^3.14.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.51.0",

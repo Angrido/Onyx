@@ -1,5 +1,5 @@
 import { ContextPolicy } from "./policy";
-import { rule, type PolicyRule } from "./rules";
+import { rule, ruleKey, type PolicyRule } from "./rules";
 
 export interface FileStat {
   relPath: string;
@@ -97,7 +97,7 @@ export function suggestRules(
 ): Suggestion[] {
   const threshold = centralityThreshold(stats, options.centralityShare);
   const current = new ContextPolicy(existing);
-  const seen = new Set(existing.map((candidate) => `${candidate.action}:${candidate.pattern}`));
+  const seen = new Set(existing.map(ruleKey));
   const candidates: PolicyRule[] = [...base];
 
   const assets = new Map<string, number>();
@@ -137,7 +137,7 @@ export function suggestRules(
 
   const suggestions: Suggestion[] = [];
   for (const candidate of candidates) {
-    const key = `${candidate.action}:${candidate.pattern}`;
+    const key = ruleKey(candidate);
     if (seen.has(key)) continue;
     seen.add(key);
     const { redundant, ...measured } = measureRule(candidate, stats, threshold, current);

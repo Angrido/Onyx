@@ -33,6 +33,9 @@ describe("languages", () => {
     expect(detectFileKind("README.md")).toBe("markdown");
     expect(detectFileKind("deploy/Dockerfile")).toBe("dockerfile");
     expect(detectFileKind(".env")).toBeNull();
+    expect(detectFileKind("pnpm-lock.yaml")).toBe("lockfile");
+    expect(detectFileKind("benchmarks/jsx/yarn.lock")).toBe("lockfile");
+    expect(detectFileKind("package-lock.json")).toBe("json");
   });
 });
 

@@ -48,6 +48,17 @@ const OTHER_FILE_KINDS: Readonly<Record<string, string>> = {
   ".txt": "text",
 };
 
+const LOCKFILE_NAMES: ReadonlySet<string> = new Set([
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "Cargo.lock",
+  "poetry.lock",
+  "uv.lock",
+  "Gemfile.lock",
+  "mix.lock",
+]);
+
 function extensionOf(relPath: string): string {
   const name = relPath.slice(relPath.lastIndexOf("/") + 1).toLowerCase();
   const dot = name.lastIndexOf(".");
@@ -59,6 +70,7 @@ export function detectLanguage(relPath: string): LanguageId | null {
 }
 
 export function detectFileKind(relPath: string): string | null {
+  if (LOCKFILE_NAMES.has(relPath.slice(relPath.lastIndexOf("/") + 1))) return "lockfile";
   const extension = extensionOf(relPath);
   const language = PARSEABLE_EXTENSIONS[extension];
   if (language) return language;

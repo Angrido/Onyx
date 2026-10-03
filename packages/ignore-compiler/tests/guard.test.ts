@@ -47,6 +47,16 @@ describe("PathGuard on file tools", () => {
     expect(call("Glob", { pattern: "**/*" }).allowed).toBe(true);
     expect(call("Glob", { pattern: "fixtures/*.json" }).allowed).toBe(true);
   });
+
+  it("denies searches of directories whose known files are all excluded", () => {
+    const decision = call("Grep", { pattern: "ERROR", path: "logs" });
+    expect(decision).toMatchObject({ allowed: false, target: "logs" });
+    expect(decision.rule?.pattern).toBe("*.log");
+    expect(guard.evaluateCommand("grep -rn ERROR logs", ROOT).allowed).toBe(false);
+    expect(call("Grep", { pattern: "x", path: `${ROOT}/fixtures` }).allowed).toBe(true);
+    expect(call("Grep", { pattern: "x", path: `${ROOT}/src` }).allowed).toBe(true);
+    expect(call("Grep", { pattern: "x", path: `${ROOT}/missing` }).allowed).toBe(true);
+  });
 });
 
 describe("PathGuard on shell commands", () => {

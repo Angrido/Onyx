@@ -217,6 +217,7 @@ function normalizeResult(raw: unknown): RunItem[] {
     kind: "guard",
     source: "permission",
     tool: denial.tool_name ?? "unknown",
+    toolUseId: denial.tool_use_id ?? null,
     target: deniedTarget(denial.tool_input),
     rule: null,
     reason: "Denied by the run's permission rules",

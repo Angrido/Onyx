@@ -1,6 +1,6 @@
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { parse, type ParseEntry } from "shell-quote";
-import type { ContextPolicy } from "./policy";
+import type { ContextPolicy, Explanation } from "./policy";
 import type { PolicyRule } from "./rules";
 
 export interface ToolCall {
@@ -120,6 +120,7 @@ export class PathGuard {
   private readonly readers = new Set([...READ_COMMANDS, ...SCRIPTED_COMMANDS, ...SEARCH_COMMANDS]);
 
   private readonly knownFiles: ReadonlySet<string>;
+  private readonly coveredDirectories = new Map<string, Explanation | null>();
 
   constructor(
     private readonly policy: ContextPolicy,
@@ -274,6 +275,24 @@ export class PathGuard {
     return matched > 0 && first ? first : ALLOW;
   }
 
+  private coveredDirectory(relPath: string): Explanation | null {
+    const cached = this.coveredDirectories.get(relPath);
+    if (cached !== undefined) return cached;
+    const prefix = `${relPath}/`;
+    let first: Explanation | null = null;
+    for (const file of this.files) {
+      if (!file.startsWith(prefix)) continue;
+      const explanation = this.policy.explain(file, false);
+      if (!explanation.excluded) {
+        first = null;
+        break;
+      }
+      first ??= explanation;
+    }
+    this.coveredDirectories.set(relPath, first);
+    return first;
+  }
+
   private check(
     rawPath: string,
     cwd: string,
@@ -299,7 +318,9 @@ export class PathGuard {
       ? fileExplanation
       : directoryExplanation?.excluded
         ? directoryExplanation
-        : null;
+        : knownFile
+          ? null
+          : this.coveredDirectory(relPath);
     if (!hit) return ALLOW;
     const pattern = hit.rule
       ? hit.rule.action === "INCLUDE"

@@ -79,6 +79,7 @@ export function createConfig({ webAppDir = "apps/web" } = {}) {
         ...reactHooks.configs.recommended.rules,
         ...nextPlugin.configs.recommended.rules,
         ...nextPlugin.configs["core-web-vitals"].rules,
+        "react-hooks/incompatible-library": "off",
       },
     },
     {

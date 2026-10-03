@@ -36,6 +36,7 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
         kind: "guard",
         source: "hook",
         tool: input.tool_name,
+        toolUseId: input.tool_use_id ?? null,
         target: decision.target,
         rule,
         reason: decision.reason,

@@ -15,6 +15,7 @@ export const CHARS_PER_TOKEN: Readonly<Record<string, number>> = {
   html: 3.0,
   sql: 3.5,
   prisma: 3.4,
+  lockfile: 2.15,
 };
 
 const DEFAULT_CHARS_PER_TOKEN = 3.4;

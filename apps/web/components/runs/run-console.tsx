@@ -2,7 +2,7 @@
 
 import { channels, type RunDto, type RunEventsResponse, type ServerMessage } from "@onyx/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Square } from "lucide-react";
+import { Loader2, ShieldX, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -148,6 +148,12 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             <div className="flex flex-wrap items-center gap-2">
               <ModelBadge modelId={model} />
               <RunStatusBadge status={status} />
+              {Math.max(feed.guardDenials, run.guardDenials) > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
+                  <ShieldX className="size-3" />
+                  {Math.max(feed.guardDenials, run.guardDenials)} blocked
+                </span>
+              ) : null}
             </div>
             <p className="mt-1.5 truncate font-mono text-[11px] text-muted-foreground">
               run {run.id}

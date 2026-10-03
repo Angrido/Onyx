@@ -13,6 +13,7 @@ import {
   FolderSearch,
   Layers3,
   Loader2,
+  ShieldX,
   Sparkles,
   SquareTerminal,
   User,
@@ -292,6 +293,38 @@ function Bubble({
   );
 }
 
+function GuardEntry({
+  entry,
+  cwd,
+}: {
+  entry: Extract<FeedEntry, { kind: "guard" }>;
+  cwd: string | null;
+}) {
+  const { item } = entry;
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/8 px-3 py-2 text-xs"
+      title={item.reason ?? undefined}
+      data-testid="guard-entry"
+    >
+      <ShieldX className="size-3.5 shrink-0 text-warning" />
+      <span className="font-medium text-warning">Blocked</span>
+      <span className="font-medium">{toolLabel(item.tool)}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+        {item.target ? relativeTo(item.target, cwd) : "—"}
+      </span>
+      {item.rule ? (
+        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          {item.rule}
+        </span>
+      ) : null}
+      <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+        {item.source === "hook" ? "context guard" : "permission rule"}
+      </span>
+    </div>
+  );
+}
+
 export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | null }) {
   switch (entry.kind) {
     case "prompt":
@@ -405,5 +438,7 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
       );
     case "context":
       return <ContextView item={entry.item} />;
+    case "guard":
+      return <GuardEntry entry={entry} cwd={cwd} />;
   }
 }

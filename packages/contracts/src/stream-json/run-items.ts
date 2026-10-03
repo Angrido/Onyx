@@ -138,6 +138,7 @@ export const GuardItemSchema = z.object({
   kind: z.literal("guard"),
   source: GuardSourceSchema,
   tool: z.string(),
+  toolUseId: z.string().nullable().default(null),
   target: z.string().nullable(),
   rule: z.string().nullable(),
   reason: z.string().nullable(),

@@ -10,9 +10,9 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
   const { user } = await serverFetch<MeResponse>("/api/auth/me");
   return (
     <WsProvider>
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar user={user} />
-        <main className="min-w-0 flex-1 px-8 py-8">
+        <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
           <div className="mx-auto max-w-6xl space-y-8">{children}</div>
         </main>
       </div>

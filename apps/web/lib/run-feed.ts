@@ -4,6 +4,7 @@ import {
   addUsage,
   contextTokensOf,
   type ContextItem,
+  type GuardItem,
   type RunItem,
   type RunItemOf,
   type RunStatus,
@@ -43,7 +44,8 @@ export type FeedEntry =
   | { kind: "stderr"; key: string; text: string }
   | { kind: "result"; key: string; item: RunItemOf<"result"> }
   | { kind: "system"; key: string; subtype: string }
-  | { kind: "context"; key: string; item: ContextItem };
+  | { kind: "context"; key: string; item: ContextItem }
+  | { kind: "guard"; key: string; item: GuardItem };
 
 export interface FeedState {
   entries: FeedEntry[];
@@ -55,6 +57,7 @@ export interface FeedState {
   lastTurn: TokenUsage | null;
   result: RunItemOf<"result"> | null;
   context: ContextItem | null;
+  guardDenials: number;
   partialText: string;
 }
 
@@ -68,6 +71,7 @@ export const INITIAL_FEED: FeedState = {
   lastTurn: null,
   result: null,
   context: null,
+  guardDenials: 0,
   partialText: "",
 };
 
@@ -152,6 +156,14 @@ function appendItem(state: FeedState, entries: FeedEntry[], item: RunItem, key: 
     case "context":
       entries.push({ kind: "context", key, item });
       return { ...state, context: item };
+    case "guard": {
+      const duplicate =
+        item.toolUseId !== null &&
+        entries.some((entry) => entry.kind === "guard" && entry.item.toolUseId === item.toolUseId);
+      if (duplicate) return state;
+      entries.push({ kind: "guard", key, item });
+      return { ...state, guardDenials: state.guardDenials + 1 };
+    }
     case "unknown":
       return state;
   }
