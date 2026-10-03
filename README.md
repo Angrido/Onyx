@@ -13,7 +13,8 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2 | Lean-ctx (scheletri AST con tree-sitter), Graphify (grafo delle importazioni), server MCP `onyx`, vista Graph | **Completata** (manca solo la prova con un modello reale, vedi `architecture.md` §16) |
 | 3 | Context Surgeon: profili di contesto, regole di permesso compilate, hook di guardia, calibrazione dei token | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 4 | Model Router, compartimenti di sessione con handoff, recinti di scrittura, terminali interattivi con `/clear` e `/compact` | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
-| 5–7 | TDD Auto-Loop, orchestrazione multi-agente, hardening | Da fare |
+| 5 | TDD Auto-Loop: test Vitest/Jest in PTY, digest dei fallimenti, anti-cheat, gate, escalation su stallo | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
+| 6–7 | Orchestrazione multi-agente, hardening | Da fare |
 
 ## Requisiti
 
@@ -113,6 +114,17 @@ Ogni workspace è un compartimento con la sua catena di sessioni Claude:
 - un task con workspace "Auto" va al workspace che possiede i suoi file.
 
 Dalla pagina del workspace si apre un **terminale interattivo** di Claude Code (xterm.js) nello stesso compartimento: Onyx inietta `/compact` quando il contesto supera il limite e `/clear` con la nota di handoff dopo un cambio di dominio; i pulsanti fanno lo stesso a richiesta. La catena delle sessioni mostra perché ognuna è finita e la nota con cui è partita la successiva.
+
+## TDD Auto-Loop (Fase 5)
+
+Dalla pagina di un task, **Start TDD loop** fa lavorare l'agente finché i test non sono verdi, senza toccare i test:
+
+1. Onyx esegue i test correlati ai file del task (`vitest related` / `jest --findRelatedTests`), poi l'intera suite, poi i gate (`tsc --noEmit` se c'è un `tsconfig.json`, lint se attivato). L'output a colori scorre nel terminale della pagina.
+2. Se qualcosa fallisce, l'agente riceve solo un **digest** compatto (≤ 4.000 token): test, messaggio, diff atteso/ricevuto, frame del progetto e ±3 righe di codice. Riprende la stessa sessione del workspace.
+3. I file di test, gli snapshot, i mock e le configurazioni di Vitest/Jest sono in sola lettura: le regole di permesso e l'hook di guardia bloccano modifiche e comandi di test; se l'agente li cambia comunque (per esempio con uno script), Onyx li ripristina dalla copia fatta all'avvio e registra la violazione.
+4. Dopo 2 tentativi senza progressi il modello sale di tier (Sonnet → Opus); se gli stessi fallimenti tornano 3 volte di fila dopo l'escalation il loop si ferma come *Stalled*. Ci sono anche un limite di tentativi (default 6), un budget in dollari e un timeout per ogni esecuzione dei test.
+
+Il runner viene rilevato da `package.json` e dai file di configurazione; nella pagina del workspace si possono fissare il runner e il comando che lo lancia (es. `pnpm --filter web exec vitest`). Durante il loop il workspace è riservato: altre run, terminali e pubblicazioni aspettano.
 
 ## Accesso dalla rete
 

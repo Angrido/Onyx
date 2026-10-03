@@ -8,6 +8,8 @@ export const queryKeys = {
   allTasks: ["tasks"] as const,
   task: (id: string) => ["task", id] as const,
   run: (id: string) => ["run", id] as const,
+  tddLoops: (taskId: string) => ["tdd", taskId] as const,
+  tddDefaults: (taskId: string) => ["tdd", taskId, "defaults"] as const,
   sessions: (workspaceId: string) => ["sessions", workspaceId] as const,
   workspace: (workspaceId: string) => ["workspace", workspaceId] as const,
   terminals: (workspaceId: string) => ["terminals", workspaceId] as const,

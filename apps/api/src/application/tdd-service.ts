@@ -878,12 +878,17 @@ export class TddService {
           onExit: (exit) => {
             clearTimeout(timer);
             loop.session = null;
-            resolve({
-              exitCode: timedOut ? null : exit.exitCode,
-              output,
-              durationMs: Date.now() - started,
-              timedOut,
-            });
+            const durationMs = Date.now() - started;
+            if (!timedOut && !loop.aborted) {
+              const seconds = (durationMs / 1_000).toFixed(1);
+              this.write(
+                loop,
+                exit.exitCode === 0
+                  ? `${GREEN}✓ ${label} passed${RESET} · ${seconds} s\r\n`
+                  : `${YELLOW}✗ ${label} exited with ${exit.exitCode}${RESET} · ${seconds} s\r\n`,
+              );
+            }
+            resolve({ exitCode: timedOut ? null : exit.exitCode, output, durationMs, timedOut });
           },
         },
         {

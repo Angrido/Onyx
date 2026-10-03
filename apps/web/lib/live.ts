@@ -19,6 +19,7 @@ export function useLiveTask(taskId: string): void {
   const queryClient = useQueryClient();
   const onMessage = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tddLoops(taskId) });
   }, [queryClient, taskId]);
   useChannel(channels.task(taskId), onMessage);
 }

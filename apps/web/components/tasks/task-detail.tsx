@@ -6,6 +6,7 @@ import type {
   RunTaskResponse,
   TaskDetailDto,
   TaskDto,
+  TddLoopListResponse,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitBranch, History, Loader2, Play, RotateCcw, Route, Square } from "lucide-react";
@@ -15,6 +16,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { RunConsole } from "@/components/runs/run-console";
+import { TddLoopPanel } from "@/components/tdd/tdd-loop-panel";
+import { TddStartCard } from "@/components/tdd/tdd-start-card";
 import { ModelSelect } from "@/components/tasks/model-select";
 import {
   ModelBadge,
@@ -32,6 +35,7 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { formatDuration, formatUsd, shortId } from "@/lib/format";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 import { useLiveTask } from "@/lib/live";
+import { isLoopActive } from "@/lib/tdd";
 import { cn } from "@/lib/utils";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING", "TDD_LOOP", "PLANNING"]);
@@ -288,6 +292,12 @@ export function TaskDetail({
     queryFn: () => api.get<TaskDetailDto>(`/api/tasks/${initial.id}`),
     initialData: initial,
   });
+  const { data: loops = [] } = useQuery({
+    queryKey: queryKeys.tddLoops(initial.id),
+    queryFn: () =>
+      api.get<TddLoopListResponse>(`/api/tasks/${initial.id}/tdd`).then((page) => page.items),
+  });
+  const loopRunning = loops.some(isLoopActive);
   const [pinnedRun, setPinnedRun] = useState<string | null>(null);
   const latestRun = task.runs[0] ?? null;
   const selectedRun = task.runs.find((run) => run.id === pinnedRun) ?? latestRun;
@@ -337,6 +347,7 @@ export function TaskDetail({
               ) : null}
             </CardContent>
           </Card>
+          {loops.length > 0 ? <TddLoopPanel taskId={task.id} loops={loops} /> : null}
           {selectedRun ? (
             <RunConsole key={selectedRun.id} run={selectedRun} className="h-[70vh]" />
           ) : (
@@ -347,6 +358,9 @@ export function TaskDetail({
         </div>
         <div className="space-y-6">
           <RunControls task={task} catalog={catalog} />
+          {loopRunning ? null : (
+            <TddStartCard task={task} disabled={ACTIVE_STATUSES.has(task.status)} />
+          )}
           <RoutingCard task={task} run={selectedRun} />
           <RunHistory
             runs={task.runs}

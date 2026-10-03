@@ -1,6 +1,12 @@
 "use client";
 
-import { ResetStrategySchema, type ResetStrategy, type WorkspaceDto } from "@onyx/contracts";
+import {
+  ResetStrategySchema,
+  TestRunnerSchema,
+  type ResetStrategy,
+  type TestRunner,
+  type WorkspaceDto,
+} from "@onyx/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Save, Settings2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -22,6 +28,8 @@ export function WorkspaceSettings({
   const [strategy, setStrategy] = useState<ResetStrategy>(workspace.resetStrategy);
   const [maxTokens, setMaxTokens] = useState(String(workspace.maxSessionTokens));
   const [fence, setFence] = useState(workspace.writeFenceGlobs.join("\n"));
+  const [runner, setRunner] = useState<TestRunner | "">(workspace.testRunner ?? "");
+  const [testCommand, setTestCommand] = useState(workspace.testCommand ?? "");
 
   const save = useMutation({
     mutationFn: () =>
@@ -29,6 +37,8 @@ export function WorkspaceSettings({
         resetStrategy: strategy,
         maxSessionTokens: Number.parseInt(maxTokens, 10),
         writeFenceGlobs: splitList(fence),
+        testRunner: runner === "" ? null : runner,
+        testCommand: testCommand.trim().length > 0 ? testCommand.trim() : null,
       }),
     onSuccess: (updated) => {
       toast.success(`${updated.name} saved`);
@@ -98,6 +108,39 @@ export function WorkspaceSettings({
               onChange={(event) => setFence(event.target.value)}
             />
           </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+            <Field label="Test runner" htmlFor="ws-runner" hint="Used by the TDD loop.">
+              <Select
+                id="ws-runner"
+                value={runner}
+                onChange={(event) =>
+                  setRunner(
+                    event.target.value === "" ? "" : TestRunnerSchema.parse(event.target.value),
+                  )
+                }
+              >
+                <option value="">Detect</option>
+                {TestRunnerSchema.options.map((option) => (
+                  <option key={option} value={option}>
+                    {option === "VITEST" ? "Vitest" : "Jest"}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Runner command"
+              htmlFor="ws-test-command"
+              hint="How to call the runner, without arguments. Empty uses node_modules/.bin."
+            >
+              <Input
+                id="ws-test-command"
+                className="font-mono text-xs"
+                placeholder="pnpm --filter web exec vitest"
+                value={testCommand}
+                onChange={(event) => setTestCommand(event.target.value)}
+              />
+            </Field>
+          </div>
           <Button type="submit" size="sm" disabled={save.isPending}>
             {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
             Save
