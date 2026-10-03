@@ -4,9 +4,9 @@
 
 | Campo | Valore |
 |---|---|
-| Versione documento | 0.2.0 |
+| Versione documento | 0.3.0 |
 | Data | 2026-10-03 |
-| Stato | Fase 1 completata (vedi [§16](#16-roadmap-prossimi-step-sequenziali)); Fase 2 da avviare |
+| Stato | Fasi 1 e 2 completate (vedi [§16](#16-roadmap-prossimi-step-sequenziali)); Fase 3 da avviare |
 | Approccio | Architecture-First, Clean Architecture (ports & adapters) |
 | Ambito | Topologia, comunicazione, dati, directory, infrastruttura, rete, roadmap |
 
@@ -108,7 +108,7 @@ I valori sono target da validare con benchmark in Fase 2 e Fase 4, non promesse.
 | Backend | Node.js 22 LTS, Fastify 5, TypeScript ESM | `fastify-type-provider-zod` |
 | Realtime | `@fastify/websocket` | Canali con replay per `seq` |
 | Database | SQLite (WAL) + Prisma ORM 7 | Driver adapter `@prisma/adapter-better-sqlite3` |
-| AST | `tree-sitter` (binding nativo) + grammatiche `tree-sitter-typescript`, `tree-sitter-javascript`, `tree-sitter-python` | Query `.scm` per linguaggio |
+| AST | `tree-sitter` (binding nativo) + grammatiche `tree-sitter-typescript`, `tree-sitter-javascript`, `tree-sitter-python` | Query degli import come moduli TypeScript, visitor per le dichiarazioni (ADR-015) |
 | Grafo/Packing | `repomix` | Packing compresso, alberatura, conteggi |
 | Processi | `child_process.spawn` (agenti), `node-pty` (terminali e test runner) | |
 | Agente | Claude Code CLI (installer nativo) | Modalità `-p` con `stream-json` |
@@ -126,6 +126,7 @@ Queste note non cambiano i requisiti, ma vanno considerate prima della Fase 1.
 - **Framer Motion**: il progetto è stato rinominato in **Motion**; il pacchetto attuale è `motion` con import da `motion/react`. Le API (`motion.div`, `AnimatePresence`, `layout`) restano le stesse.
 - **Prisma 7**: il datasource URL si sposta in `prisma.config.ts`, il generator consigliato è `prisma-client` con `output` esplicito, e SQLite richiede il driver adapter `@prisma/adapter-better-sqlite3`. `enum` e `Json` sono supportati su SQLite (da Prisma 6.2).
 - **Claude Code**: non esiste un supporto nativo a file `.claudeignore`/`.claudesignore`. Il meccanismo ufficiale per escludere file sono le regole `permissions.deny` nei settings. Il `.claudesignore` di Onyx è quindi una **sorgente di verità** che il Context Surgeon **compila** in regole di permesso e in hook di guardia (vedi [§6.1](#61-context-surgeon)).
+- **tree-sitter**: i binding nativi `tree-sitter` 0.25 caricano senza problemi `tree-sitter-typescript` 0.23 (che dichiara ancora `peerDependency` `^0.21`), `tree-sitter-javascript` 0.25 e `tree-sitter-python` 0.25 su Node 22; il conflitto di peer è dichiarato accettato in `pnpm-workspace.yaml`. I binding nativi sono preferiti al WASM per velocità di parse.
 - **Comandi slash in headless**: `/clear` e `/compact` funzionano solo nell'interfaccia terminale, non in `-p`. Il reset del contesto in headless è quindi **strutturale** (nuova sessione); l'iniezione letterale di `/clear` avviene solo nei terminali PTY interattivi (vedi [§6.5](#65-session-compartmentalization)).
 
 ### 2.5 Catalogo modelli iniziale
@@ -255,7 +256,7 @@ Regola di dipendenza: `Transport → Application → Domain`, e `Infrastructure`
 | C4 | `onyx-web` (server) → `onyx-api` | HTTP loopback | JSON | Cookie inoltrato | Fetch dai Server Components |
 | C5 | `onyx-api` → `claude` | stdin/stdout/stderr | NDJSON `stream-json` | Ambiente filtrato | Uno per run |
 | C6 | `claude` → `onyx-mcp` | stdio | JSON-RPC (MCP) | — | Avviato da `--mcp-config` |
-| C7 | `onyx-mcp` → `onyx-api` | HTTP loopback | JSON | Token di run firmato (HMAC) | `/internal/mcp/*` |
+| C7 | `onyx-mcp` → `onyx-api` | HTTP loopback | JSON | Token di run casuale (256 bit) valido finché la run è attiva, solo da loopback | `POST /internal/mcp/:tool` |
 | C8 | `claude` → `onyx-api` | Hook di tipo `http` | JSON (payload hook) | Header `Authorization` con token di run | `/internal/hooks/*` |
 | C9 | `onyx-api` → test runner / shell | PTY (`node-pty`) | Byte stream + report JSON su file | — | Streaming verso xterm.js |
 | C10 | `onyx-api` → SQLite | Prisma + better-sqlite3 | SQL | Permessi file | WAL, singolo writer |
@@ -268,18 +269,19 @@ Tutte sotto `/api`, validate con zod e documentate con OpenAPI generato.
 | Risorsa | Endpoint principali |
 |---|---|
 | Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` |
-| Progetti | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projects/:id/index` |
+| Progetti | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `GET/POST /projects/:id/index` |
 | Workspace | `GET/POST /projects/:id/workspaces`, `PATCH /workspaces/:id`, `POST /workspaces/:id/reset` |
 | Task | `GET/POST /tasks`, `GET /tasks/:id`, `POST /tasks/:id/run`, `POST /tasks/:id/cancel`, `POST /tasks/:id/plan` |
 | Run | `GET /runs/:id`, `GET /runs/:id/events?after=seq`, `POST /runs/:id/abort` |
 | Sessioni | `GET /workspaces/:id/sessions`, `POST /sessions/:id/rotate` |
 | Context Surgeon | `GET /projects/:id/tree`, `GET/PUT /ignore-profiles/:id`, `POST /ignore-profiles/:id/suggest`, `POST /ignore-profiles/:id/compile` |
-| Grafo | `GET /projects/:id/graph?focus=path&depth=n` |
+| Grafo e contesto | `GET /projects/:id/graph?focus=path&depth=n&limit=n`, `GET /projects/:id/context?path=…&level=0..3` |
 | Router | `GET/POST/PATCH /routing-rules`, `POST /router/preview`, `GET /routing-decisions` |
 | TDD | `POST /tdd-loops`, `GET /tdd-loops/:id`, `POST /tdd-loops/:id/abort` |
 | Telemetria | `GET /telemetry/summary`, `GET /telemetry/timeseries`, `GET /budgets`, `PUT /budgets/:id` |
 | Approvazioni | `GET /approvals`, `POST /approvals/:id` |
 | Sistema | `GET /health`, `GET /ready`, `GET /settings`, `PUT /settings` |
+| Interno (solo loopback, fuori da `/api`) | `POST /internal/mcp/:tool` con token di run; `/internal/hooks/*` dalla Fase 3 |
 
 ### 4.3 Protocollo WebSocket
 
@@ -319,7 +321,7 @@ Una sola connessione per tab su `/ws`. Il client si abbona a canali; il server i
 | `session.rotated` | `workspace:*` | Reset del contesto, con motivo e nota di handoff |
 | `tdd.iteration` | `tdd:*` | Esito dell'iterazione (passati, falliti, firma) |
 | `pty.output` | `pty:*` | Chunk di output del terminale |
-| `index.progress` | `system` | Avanzamento indicizzazione Lean-ctx/Graphify |
+| `index.progress` | `project:*` | Stato e avanzamento dell'indicizzazione Lean-ctx/Graphify (fase, file, statistiche finali) |
 | `approval.request` | `system` | Richiesta di approvazione (piano, merge, budget) |
 | `budget.alert` | `system` | Soglia budget raggiunta o superata |
 
@@ -346,12 +348,12 @@ sequenceDiagram
   A->>C: resolveSession(workspace, decision)
   C-->>A: Sessione ripresa oppure nuova con handoff
   A->>L: buildContextPack(targetPaths, livelli)
-  L-->>A: Primer + stima token baseline/lean
+  L-->>A: Mappa L0 per il primer + pacchetto di contesto (token baseline e consegnati)
   A->>P: spawn(RunSpec)
   P->>CL: claude -p --output-format stream-json ...
   P->>CL: messaggio utente su stdin (stream-json)
-  CL->>M: tools/call onyx_expand_symbol
-  M->>A: GET /internal/mcp/symbols/...
+  CL->>M: tools/call expand_symbol
+  M->>A: POST /internal/mcp/expand_symbol (token di run)
   A-->>M: corpo del simbolo
   M-->>CL: risultato tool
   CL-->>P: eventi NDJSON (system, assistant, user)
@@ -434,8 +436,9 @@ Directory `/var/lib/onyx/runtime/<runId>/`, permessi `700`, eliminata dopo la re
 | File | Contenuto |
 |---|---|
 | `settings.json` | Regole di permesso compilate, hook HTTP verso `/internal/hooks/*` |
-| `mcp.json` | Configurazione del server `onyx-mcp` con il token di run |
-| `primer.md` | Primer di dominio + mappa L0 del progetto + eventuale nota di handoff |
+| `mcp.json` | Server MCP `onyx` (stdio, `node onyx-mcp.js`) con `ONYX_API_URL` e il token di run |
+| `primer.md` | Primer del workspace + prompt dell'agente + mappa L0 del progetto + guida ai tool `onyx` |
+| `context-pack.md` | Copia del pacchetto di contesto inviato in testa al primo messaggio (diagnostica) |
 | `stderr.log` | Ultimi 64 KiB di stderr (ring buffer) per diagnostica |
 
 Esempio di `settings.json` compilato per una run del workspace Frontend (il recinto di scrittura nega le modifiche a `apps/api/**`):
@@ -642,45 +645,49 @@ public/assets/**/*.mp4
 | L2 — Contratti | L1 + interfacce, type alias, enum, prima riga dei docstring, props dei componenti | Dipendenze a distanza 1 con forte accoppiamento di tipi |
 | L3 — Sorgente | File completo | Solo i file target del task |
 
-**Algoritmo**
+**Algoritmo** (implementato in `packages/lean-ctx`)
 
-1. **Parse**: pool di parser tree-sitter riutilizzabili, una grammatica per linguaggio (v1: TypeScript, TSX, JavaScript, Python).
-2. **Query**: file `.scm` per linguaggio catturano dichiarazioni (`function_declaration`, `method_definition`, `arrow_function` assegnate, `class_declaration`, `interface_declaration`, `type_alias_declaration`, `enum_declaration`, `export_statement`, `import_statement`; in Python `function_definition`, `class_definition`, `import_from_statement`).
-3. **Stripping**: per ogni nodo funzione si conserva l'intervallo di byte dalla firma all'inizio del corpo e il corpo viene sostituito da un placeholder compatto con l'handle del simbolo. Decoratori, modificatori e annotazioni di tipo restano intatti.
-4. **Indicizzazione**: ogni simbolo finisce in `CodeSymbol` (nome qualificato, tipo, firma, intervalli, token del corpo).
-5. **Cache**: chiave `sha256(contenuto) + versione grammatica + versione query`; i file invariati non vengono riparsati.
-6. **Incrementale**: l'hook `PostToolUse` su `Edit|Write|MultiEdit` e un watcher (`chokidar`) riparsano solo i file toccati.
+1. **Parse**: `ParserPool` con un parser nativo `tree-sitter` per linguaggio (TypeScript, TSX, JavaScript/JSX, Python), riusato tra i file. Gli offset dei nodi sono in unità UTF-16 e coincidono con gli indici delle stringhe JavaScript.
+2. **Import** (query tree-sitter): `import` ed `export … from`, `import()` con stringa letterale, `require()`, `import x = require()`; in Python `import` e `from … import`, con i blocchi `if TYPE_CHECKING` marcati come solo-tipo. Le query sono moduli TypeScript (`src/queries/*.ts`) invece di file `.scm`: finiscono nel bundle dell'API senza asset da copiare.
+3. **Dichiarazioni**: un visitor tipizzato per linguaggio (servono annidamento e nomi qualificati, che le query da sole non danno) registra funzioni, classi e metodi, interfacce, type alias, enum, variabili e namespace. Gli overload confluiscono nel simbolo con corpo; i nomi ripetuti (es. getter e setter Python) diventano unici con il suffisso `~2`.
+4. **Piano di scheletro**: per ogni livello si calcolano le sostituzioni (corpi, valori lunghi, commenti, prima riga dei docstring a L2) e si rendono solo le istruzioni di primo livello significative; side effect e `if __name__ == "__main__"` spariscono. Il prologo `"use client"` resta.
+5. **Handle**: `sha256(percorso + nome qualificato)` in base36 a 8 caratteri. Il placeholder è `{ …#k3j9x0a2 }` per i blocchi e `…#k3j9x0a2` per espressioni e corpi Python; `…` senza handle indica un valore eliso.
+6. **Indice e cache**: `FileNode` conserva hash, scheletri L1/L2, import, export, token stimati e `analyzerVersion` (revisione dell'estrattore più le versioni delle grammatiche); un file con lo stesso hash e la stessa versione non viene riparsato. I simboli vanno in `CodeSymbol`.
+7. **Incrementale**: dopo ogni run l'API ri-indicizza il progetto in background riusando i file invariati; i tool MCP riparsano al volo un file cambiato dopo l'ultima indicizzazione. Il riparse per singolo file tramite hook `PostToolUse` arriva con gli hook della Fase 3.
 
-**Selezione dei livelli per task**
+**Selezione dei livelli per task** (implementata in `packages/graphify/src/context-pack.ts`)
 
-```mermaid
-flowchart LR
-  T["targetPaths del task"] --> L3["L3: file target"]
-  T --> G["Graphify: vicinato a distanza ≤ 2"]
-  G --> D1["distanza 1 → L1/L2"]
-  G --> D2["distanza 2 → L0"]
-  X["Resto del progetto non escluso"] --> L0["L0 compresso nel primer"]
-```
+| Ruolo | Contenuto | Note |
+|---|---|---|
+| Target: `task.targetPaths` (le cartelle diventano i loro file più centrali) più file e simboli citati nel prompt | L3 | Un target oltre il 60% del budget scende a L2 |
+| Dipendenze dirette | Estratto dei soli simboli importati, più i tipi dello stesso file che quei simboli citano; L2 se l'import è solo-tipo o riguarda tipi, altrimenti L1 | Gli import da file *barrel* (`index.ts` che riesportano) sono seguiti fino al modulo che dichiara il simbolo |
+| Dipendenti diretti (fino a 8, per centralità) | Righe in cui usano i simboli del target, con numero di riga | Uno scheletro L1 del dipendente mostrava poco: i punti di chiamata stanno nei corpi |
+| Distanza 2 (fino a 12) | Riga L0 | — |
+
+Il budget di default è 24.000 token (`ONYX_CONTEXT_BUDGET_TOKENS`): i target entrano sempre, i vicini scendono di livello o restano fuori quando il budget finisce. I file segnalati dal controllo dei segreti non vanno mai oltre la riga L0.
 
 **Consegna all'agente**
 
-- **Primer** (`--append-system-prompt-file`): primer di dominio e mappa L0. È stabile per tutta la sessione, così resta nel prefisso del prompt in cache; a ogni `--resume` viene ripassato identico, e `Session.primerHash` lo verifica.
-- **Pacchetto di contesto del task**: L1/L2 delle dipendenze, nel primo messaggio utente della run (via stdin).
-- **Espansione on-demand** tramite il server MCP `onyx-mcp`:
+- **Primer** (`--append-system-prompt-file`): primer del workspace, prompt dell'agente, mappa L0 del progetto entro `ONYX_MAP_BUDGET_TOKENS` (default 4.000; i file meno centrali sono riassunti come `dir/ (+N more)`) e una breve guida ai tool `onyx`. Se la mappa cambia tra due run della stessa sessione, il primer cambia e il prefisso in cache si invalida una volta.
+- **Pacchetto di contesto**: in testa al primo messaggio utente, seguito da `# Task` e dal prompt. In UI la run mostra la voce "Onyx context" con i livelli scelti, i token consegnati e la baseline.
+- **Espansione on-demand** tramite il server MCP `onyx` (`packages/mcp-server`, bundle unico `onyx-mcp.js` avviato con `node`). La CLI espone i tool come `mcp__onyx__<tool>` e la regola `mcp__onyx` viene aggiunta ad `allowedTools`.
 
 | Tool MCP | Input | Output |
 |---|---|---|
-| `onyx_expand_symbol` | `handle` oppure `path` + `qualifiedName` | Corpo completo del simbolo con numeri di riga |
-| `onyx_file_skeleton` | `path`, `level` | Scheletro L0–L2 di un file |
-| `onyx_deps` | `path`, `direction` (`in`/`out`), `depth` | Vicinato nel grafo con livelli suggeriti |
-| `onyx_search_symbols` | `query`, `kind?` | Simboli corrispondenti con handle |
-| `onyx_test_digest` | `loopId` | Ultimo digest dei fallimenti del TDD loop |
+| `expand_symbol` | `handle` oppure `path` + `qualifiedName` | Corpo del simbolo con numeri di riga (al massimo 400 righe) |
+| `file_skeleton` | `path`, `level` 0–2 | Scheletro del file; il livello 0 elenca export e handle dei simboli |
+| `deps` | `path`, `direction` (`in`/`out`/`both`), `depth` 1–3 | Vicinato nel grafo, barrel risolti, pacchetti esterni |
+| `search_symbols` | `query`, `kind?`, `limit?` | Dichiarazioni con handle, percorso, riga e firma |
+| `test_digest` | `loopId` | Ultimo digest dei fallimenti del TDD loop (Fase 5) |
+
+Il server MCP chiama `POST /internal/mcp/:tool` sull'API. La rotta accetta solo connessioni da loopback senza `X-Forwarded-For`, con un token di run casuale a 256 bit scritto in `mcp.json` e valido finché la run è attiva; ogni chiamata aggiorna il conteggio delle espansioni della run.
 
 **Misura del risparmio**
 
-- `ctxBaselineTokens`: token del contesto naive (file target + dipendenze dirette in L3).
-- `ctxDeliveredTokens`: token effettivamente consegnati (primer + pacchetto + espansioni MCP).
-- Stimatore offline (`HeuristicTokenEstimator`, caratteri per token calibrati per linguaggio), ricalibrato periodicamente su un campione con l'endpoint `count_tokens` dell'API Anthropic, quando c'è una API key. I token **reali** consumati arrivano sempre dalla CLI; la stima serve solo per baseline e controfattuali, e in UI è etichettata come tale.
+- `ctxBaselineTokens`: token del contesto naive, cioè file target più dipendenze dirette (barrel risolti) in L3.
+- `ctxDeliveredTokens`: mappa L0 + pacchetto + output dei tool MCP chiamati; `ctxExpansions` conta le chiamate.
+- La stima è offline (`HeuristicTokenEstimator`, caratteri per token per linguaggio). I token **reali** consumati arrivano sempre dalla CLI; la stima serve per baseline e controfattuali, e in UI è indicata come tale. La ricalibrazione con l'endpoint `count_tokens` dell'API Anthropic resta da fare (serve una API key).
+- `pnpm --filter @onyx/graphify bench <cartella…>` ripete la misura su qualsiasi repository (risultati nel [§16](#fase-2--lean-ctx-e-graphify)).
 
 ### 6.3 Graphify (repomix + grafo delle importazioni)
 
@@ -688,13 +695,13 @@ flowchart LR
 
 | Componente | Strumento | Prodotto |
 |---|---|---|
-| Enumerazione e alberatura | `repomix` con i pattern `--ignore` compilati dal Surgeon | Struttura delle directory, conteggi per file |
-| Snapshot compresso | `repomix --compress` (estrazione delle strutture chiave via tree-sitter) | Vista d'insieme per i task `ARCHITECTURE` su Opus |
-| Controllo segreti | Security check integrato in repomix | Segnalazioni al Surgeon (regole `SECURITY` bloccate) |
-| Archi di importazione | Query tree-sitter su import/export/require/`import()` dinamici | `DependencyEdge` |
-| Risoluzione dei moduli | Resolver interno: percorsi relativi, `tsconfig` `paths`/`baseUrl`, campo `exports` dei pacchetti del workspace | Archi interni o nodi esterni (pacchetti npm) |
+| Enumerazione | `searchFiles` e `collectFiles` di repomix: `.gitignore`, `.ignore`, `.repomixignore`, pattern di default, limite di 1 MiB per file, rilevamento dei binari | Elenco dei file con contenuto |
+| Controllo segreti | `runSecurityCheck` di repomix (secretlint) | File marcati `isSensitive`: il loro contenuto non arriva mai all'agente |
+| Archi di importazione | Import estratti da Lean-ctx (un solo parse per file, condiviso) | `DependencyEdge` |
+| Risoluzione dei moduli | Resolver interno: percorsi relativi (anche `.js` scritto per un sorgente `.ts`), `paths` e `baseUrl` di `tsconfig`/`jsconfig` con `extends`, campi `exports`/`main`/`types` dei pacchetti del workspace (con ripiego da `dist/` a `src/`), radici Python (`src/`, cartelle con `pyproject.toml`) | Archi interni o moduli esterni |
+| Snapshot compresso | Non usato | `repomix --compress` duplicherebbe gli scheletri L1 di Lean-ctx |
 
-repomix non produce un grafo delle importazioni: Graphify lo costruisce componendo l'enumerazione di repomix con le query tree-sitter di Lean-ctx (un solo parse per file, condiviso).
+repomix non produce un grafo delle importazioni: Graphify lo costruisce componendo l'enumerazione di repomix con le query tree-sitter di Lean-ctx. Un progetto senza `.git` proprio, annidato in un altro repository, non eredita i `.gitignore` di quel repository: valgono solo quelli interni al progetto. L'indicizzazione gira nel processo dell'API cedendo l'event loop ogni 15 ms; i file oltre 512 KiB o minificati restano a L0.
 
 **Metriche calcolate**
 
@@ -702,11 +709,11 @@ repomix non produce un grafo delle importazioni: Graphify lo costruisce componen
 |---|---|
 | In-degree / out-degree | Centralità grezza; avvisi del Surgeon |
 | Centralità (PageRank) | Priorità di inclusione nel contesto |
-| **Blast radius** (dipendenti transitivi dei file toccati) | Feature primaria del Model Router |
+| **Blast radius** (dipendenti transitivi dei file toccati; precalcolato per progetti fino a 4.000 file) | Feature primaria del Model Router |
 | Componenti fortemente connesse | Rilevamento dei cicli; suggerimenti di refactor |
-| Cluster per dominio | Proposta automatica dei `pathGlobs` dei workspace |
+| Dominio per file (glob dei workspace, poi euristiche sui percorsi) | Colori del grafo; proposta automatica dei `pathGlobs` dei workspace |
 
-**UI**: grafo force-directed su canvas con focus su un file, profondità regolabile, colorazione per dominio e per centralità, evidenziazione del blast radius del task selezionato.
+**UI** (`/projects/:id/graph`): grafo force-directed su canvas (`react-force-graph-2d`) con focus su un file e profondità regolabile, colore per dominio, dimensione per PageRank, cicli evidenziati, blast radius del file selezionato, pannello laterale con firme, contratti o sorgente e lista di import e importatori. I file senza collegamenti sono nascosti per default.
 
 ### 6.4 Model Router
 
@@ -1126,14 +1133,16 @@ model UserSession {
 }
 
 model Project {
-  id            String   @id @default(cuid())
-  name          String   @unique
-  rootPath      String   @unique
+  id            String    @id @default(cuid())
+  name          String    @unique
+  rootPath      String    @unique
   gitRemote     String?
-  defaultBranch String   @default("main")
+  defaultBranch String    @default("main")
   indexedAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  indexStats    Json?
+  indexError    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   workspaces     Workspace[]
   tasks          Task[]
@@ -1233,18 +1242,18 @@ model RoutingRule {
 }
 
 model RoutingDecision {
-  id              String          @id @default(cuid())
-  taskId          String
-  ruleId          String?
-  strategy        RoutingStrategy
-  features        Json
-  score           Float?
-  confidence      Float?
-  tier            ModelTier
-  modelId         String
-  rationale       String
-  previousId      String?         @unique
-  createdAt       DateTime        @default(now())
+  id         String          @id @default(cuid())
+  taskId     String
+  ruleId     String?
+  strategy   RoutingStrategy
+  features   Json
+  score      Float?
+  confidence Float?
+  tier       ModelTier
+  modelId    String
+  rationale  String
+  previousId String?         @unique
+  createdAt  DateTime        @default(now())
 
   task     Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   rule     RoutingRule?     @relation(fields: [ruleId], references: [id], onDelete: SetNull)
@@ -1329,30 +1338,33 @@ model Session {
 }
 
 model AgentRun {
-  id                String    @id @default(cuid())
-  taskId            String
-  sessionId         String
-  agentConfigId     String?
-  routingDecisionId String?
-  mode              RunMode   @default(HEADLESS)
-  modelId           String
-  prompt            String
-  cliVersion        String?
-  pid               Int?
-  args              Json
-  ignoreHash        String?
-  status            RunStatus @default(SPAWNING)
-  exitCode          Int?
-  signal            String?
-  resultSubtype     String?
-  isError           Boolean   @default(false)
-  numTurns          Int?
-  durationMs        Int?
-  durationApiMs     Int?
-  costUsd           Float?
-  errorMessage      String?
-  startedAt         DateTime  @default(now())
-  endedAt           DateTime?
+  id                 String    @id @default(cuid())
+  taskId             String
+  sessionId          String
+  agentConfigId      String?
+  routingDecisionId  String?
+  mode               RunMode   @default(HEADLESS)
+  modelId            String
+  prompt             String
+  cliVersion         String?
+  pid                Int?
+  args               Json
+  ignoreHash         String?
+  status             RunStatus @default(SPAWNING)
+  exitCode           Int?
+  signal             String?
+  resultSubtype      String?
+  isError            Boolean   @default(false)
+  numTurns           Int?
+  durationMs         Int?
+  durationApiMs      Int?
+  costUsd            Float?
+  ctxBaselineTokens  Int?
+  ctxDeliveredTokens Int?
+  ctxExpansions      Int       @default(0)
+  errorMessage       String?
+  startedAt          DateTime  @default(now())
+  endedAt            DateTime?
 
   task            Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   session         Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -1445,23 +1457,31 @@ model IgnoreRule {
 }
 
 model FileNode {
-  id          String    @id @default(cuid())
-  projectId   String
-  relPath     String
-  language    String?
-  sizeBytes   Int
-  contentHash String
-  isBinary    Boolean   @default(false)
-  rawTokens   Int
-  leanTokens  Int?
-  skeletonL1  String?
-  skeletonL2  String?
-  domain      Domain?
-  inDegree    Int       @default(0)
-  outDegree   Int       @default(0)
-  centrality  Float?
-  parsedAt    DateTime?
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  projectId       String
+  relPath         String
+  language        String?
+  sizeBytes       Int
+  contentHash     String
+  isBinary        Boolean   @default(false)
+  isSensitive     Boolean   @default(false)
+  hasSyntaxErrors Boolean   @default(false)
+  analyzerVersion String?
+  rawTokens       Int
+  l1Tokens        Int?
+  l2Tokens        Int?
+  skeletonL1      String?
+  skeletonL2      String?
+  imports         Json?
+  exports         Json?
+  domain          Domain?
+  inDegree        Int       @default(0)
+  outDegree       Int       @default(0)
+  centrality      Float?
+  blastRadius     Int?
+  inCycle         Boolean   @default(false)
+  parsedAt        DateTime?
+  updatedAt       DateTime  @updatedAt
 
   project  Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   symbols  CodeSymbol[]
@@ -1480,8 +1500,8 @@ model CodeSymbol {
   qualifiedName String
   kind          String
   signature     String
-  startByte     Int
-  endByte       Int
+  startOffset   Int
+  endOffset     Int
   startLine     Int
   endLine       Int
   bodyTokens    Int
@@ -1578,17 +1598,17 @@ model Budget {
 }
 
 model Approval {
-  id         String         @id @default(cuid())
-  taskId     String?
-  kind       ApprovalKind
-  status     ApprovalStatus @default(PENDING)
-  title      String
-  payload    Json
-  decidedBy  String?
-  note       String?
-  createdAt  DateTime       @default(now())
-  decidedAt  DateTime?
-  expiresAt  DateTime?
+  id        String         @id @default(cuid())
+  taskId    String?
+  kind      ApprovalKind
+  status    ApprovalStatus @default(PENDING)
+  title     String
+  payload   Json
+  decidedBy String?
+  note      String?
+  createdAt DateTime       @default(now())
+  decidedAt DateTime?
+  expiresAt DateTime?
 
   task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
@@ -1791,30 +1811,39 @@ onyx/
 │   │       └── claude-stub.ts
 │   ├── lean-ctx/
 │   │   ├── src/
-│   │   │   ├── parser-pool/
-│   │   │   ├── skeleton/
-│   │   │   ├── symbols/
-│   │   │   ├── levels/
-│   │   │   └── estimator/
-│   │   ├── queries/
-│   │   │   ├── typescript.scm
-│   │   │   ├── tsx.scm
-│   │   │   ├── javascript.scm
-│   │   │   └── python.scm
+│   │   │   ├── analyzer.ts
+│   │   │   ├── parser-pool.ts
+│   │   │   ├── grammars.ts
+│   │   │   ├── skeleton-plan.ts
+│   │   │   ├── levels.ts
+│   │   │   ├── handles.ts
+│   │   │   ├── estimator.ts
+│   │   │   ├── extract/
+│   │   │   └── queries/
 │   │   └── tests/
 │   │       └── golden/
 │   ├── graphify/
-│   │   └── src/
-│   │       ├── repomix/
-│   │       ├── imports/
-│   │       ├── resolver/
-│   │       └── metrics/
+│   │   ├── src/
+│   │   │   ├── enumerate.ts
+│   │   │   ├── manifests.ts
+│   │   │   ├── resolver.ts
+│   │   │   ├── graph.ts
+│   │   │   ├── barrels.ts
+│   │   │   ├── metrics.ts
+│   │   │   ├── domains.ts
+│   │   │   ├── targets.ts
+│   │   │   ├── context-pack.ts
+│   │   │   └── indexer.ts
+│   │   └── bench/
+│   │       └── context-benchmark.ts
 │   ├── ignore-compiler/
 │   │   └── src/
 │   ├── mcp-server/
-│   │   └── src/
-│   │       ├── server.ts
-│   │       └── tools/
+│   │   ├── src/
+│   │   │   ├── main.ts
+│   │   │   ├── server.ts
+│   │   │   └── client.ts
+│   │   └── tsup.config.ts
 │   └── config/
 │       ├── eslint/
 │       ├── tsconfig/
@@ -1851,10 +1880,10 @@ onyx/
 | `packages/contracts` | Schemi zod e tipi condivisi: DTO REST, eventi WS, eventi `stream-json` | — |
 | `packages/db` | Schema Prisma, migrazioni, seed, client configurato (pragma, adapter) | `contracts` |
 | `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool di processi, adapter SDK, `claude-stub` | `contracts` |
-| `packages/lean-ctx` | Parser pool tree-sitter, scheletri L0–L3, indice dei simboli, stimatore token | `contracts` |
-| `packages/graphify` | Integrazione repomix, estrazione import, resolver, metriche del grafo | `lean-ctx` |
+| `packages/lean-ctx` | Parser pool tree-sitter, scheletri L0–L3, estratti per simbolo, indice dei simboli, stimatore token | — |
+| `packages/graphify` | Integrazione repomix, resolver, grafo, metriche, pacchetto di contesto, benchmark | `lean-ctx` |
 | `packages/ignore-compiler` | `.claudesignore` → regole di permesso, pattern repomix, esclusioni | `contracts` |
-| `packages/mcp-server` | Server MCP stdio `onyx-mcp` (client HTTP verso `/internal/mcp`) | `contracts` |
+| `packages/mcp-server` | Server MCP stdio `onyx`, impacchettato in `dist/onyx-mcp.js` (client HTTP verso `/internal/mcp`) | `contracts` |
 | `packages/config` | Preset ESLint, TSConfig, Prettier | — |
 | `apps/api` | Composition root, route, use case, adapter infrastrutturali | tutti i pacchetti |
 | `apps/web` | UI | `contracts` |
@@ -1863,7 +1892,7 @@ onyx/
 
 | Percorso | Proprietario | Permessi | Contenuto |
 |---|---|---|---|
-| `/opt/onyx` | `root:onyx` | `750` | `releases/<versione>/` con le build di `apps/*` e `packages/*`, più il symlink `current` |
+| `/opt/onyx` | `root:onyx` | `750` | `releases/<versione>/` con `api/`, `web/`, `db/`, `mcp/onyx-mcp.js` e `deploy/`, più il symlink `current` |
 | `/etc/onyx/onyx.env` | `root:onyx` | `640` | Variabili d'ambiente e segreti |
 | `/var/lib/onyx/onyx.db` | `onyx:onyx` | `600` | Database SQLite (più `-wal` e `-shm`) |
 | `/var/lib/onyx/runtime/` | `onyx:onyx` | `700` | File di runtime per run |
@@ -2033,6 +2062,11 @@ MAX_CONCURRENT_AGENTS=2
 RUN_ESCALATION_GRACE_MS=5000
 AUTO_RESUME_QUEUED=true
 CLAUDE_BIN=/home/onyx/.local/bin/claude
+ONYX_MCP_SERVER=/opt/onyx/current/mcp/onyx-mcp.js
+ONYX_CONTEXT_ENABLED=true
+ONYX_CONTEXT_BUDGET_TOKENS=24000
+ONYX_MAP_BUDGET_TOKENS=4000
+ONYX_INDEX_WAIT_MS=30000
 ANTHROPIC_API_KEY=
 CLAUDE_CODE_OAUTH_TOKEN=
 ```
@@ -2043,9 +2077,14 @@ CLAUDE_CODE_OAUTH_TOKEN=
 | `ONYX_ALLOWED_PROJECT_ROOTS` | Facoltativa: radici entro cui si possono registrare progetti (default `ONYX_PROJECTS_DIR`) |
 | `ONYX_CHILD_ENV_PASSTHROUGH` | Facoltativa: variabili extra da passare ai processi `claude` oltre all'allowlist |
 | `COOKIE_SECURE` | `true` solo quando la dashboard è servita in HTTPS |
+| `ONYX_MCP_SERVER` | Percorso di `onyx-mcp.js`; se manca o non è leggibile, le run partono senza tool MCP (pacchetto e mappa restano) |
+| `ONYX_CONTEXT_ENABLED` | `false` disattiva mappa, pacchetto e MCP |
+| `ONYX_CONTEXT_BUDGET_TOKENS` / `ONYX_MAP_BUDGET_TOKENS` | Budget stimati del pacchetto di contesto e della mappa L0 |
+| `ONYX_INDEX_WAIT_MS` | Quanto una run attende un progetto mai indicizzato prima di partire senza contesto |
+| `ONYX_INTERNAL_API_URL` | Facoltativa: URL con cui il server MCP raggiunge l'API (default `http://127.0.0.1:<API_PORT>`) |
 | `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` | Impostarne **una sola** (ADR-008): con entrambe l'API non parte |
 
-Le sessioni della dashboard sono token opachi casuali salvati come hash SHA-256 in `UserSession`: non servono segreti di firma. Il segreto per i token di run degli hook arriverà con la Fase 3.
+Le sessioni della dashboard sono token opachi casuali salvati come hash SHA-256 in `UserSession`: non servono segreti di firma. I token di run del server MCP sono casuali e restano solo in memoria: un riavvio dell'API li invalida insieme alle run attive. Gli hook della Fase 3 useranno lo stesso registro.
 
 ### 10.6 Unit systemd
 
@@ -2458,6 +2497,9 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-012 | Regola ESLint locale `onyx/no-comments` | Revisione manuale | La convenzione "codice senza commenti" diventa verificabile in CI |
 | ADR-013 | Bundle dell'API con tsup che include solo `@onyx/*`; dipendenze di terze parti installate con `pnpm deploy --prod` | Bundle completo | Le dipendenze CommonJS e native (`better-sqlite3`, runtime Prisma) non si possono includere nel bundle in modo affidabile |
 | ADR-014 | Origine ammessa se coincide con l'host di rete locale usato dal browser; mDNS per `onyx.local` | Lista fissa di origin da configurare | La lista fissa bloccava l'accesso da qualsiasi indirizzo non previsto; la regola sullo stesso host funziona con ogni IP o nome LAN e continua a respingere siti esterni e DNS rebinding |
+| ADR-015 | Binding nativi `tree-sitter`, query come moduli TypeScript, visitor tipizzato per le dichiarazioni | WASM (`web-tree-sitter`); file `.scm` caricati a runtime; solo query | Parse più veloce; niente asset da copiare nel bundle; annidamento e nomi qualificati sono più chiari in un visitor che in pattern di query |
+| ADR-016 | Server MCP `onyx` con tool senza prefisso (`expand_symbol`…) che chiama l'API su loopback con un token per run | Tool `onyx_expand_symbol`; accesso diretto al database dal server MCP | La CLI aggiunge già `mcp__onyx__`; un solo writer sul database (ADR-004); il token scade con la run e la rotta rifiuta connessioni non locali |
+| ADR-017 | Pacchetto di contesto per ruolo: estratti dei simboli importati per le dipendenze, righe d'uso per i dipendenti, barrel risolti | Scheletri completi dei vicini | Sugli stessi task il pacchetto con scheletri completi risparmiava il 27–78%; estratti e righe d'uso portano il risparmio al 46–81% e danno all'agente i punti di chiamata invece di firme che già conosce |
 
 ---
 
@@ -2504,9 +2546,36 @@ Ogni fase si chiude con una **Definition of Done** verificabile e con l'aggiorna
 
 ### Fase 2 — Lean-ctx e Graphify
 
-Parser pool tree-sitter, query `.scm` per TS/TSX/JS/Python, scheletri L0–L3, indice dei simboli, cache per hash, integrazione repomix, grafo delle importazioni con resolver, metriche, server `onyx-mcp` con i tool del [§6.2](#62-lean-ctx-motore-ast-con-tree-sitter), vista Graph.
+Parser pool tree-sitter, query per TS/TSX/JS/Python, scheletri L0–L3, indice dei simboli, cache per hash, integrazione repomix, grafo delle importazioni con resolver, metriche, server MCP `onyx` con i tool del [§6.2](#62-lean-ctx-motore-ast-con-tree-sitter), vista Graph.
 
-**DoD**: benchmark su almeno due repository reali con riduzione misurata dei token di contesto rispetto alla baseline; test golden verdi; l'agente usa `onyx_expand_symbol` in una run reale.
+**DoD**: benchmark su almeno due repository reali con riduzione misurata dei token di contesto rispetto alla baseline; test golden verdi; l'agente usa `expand_symbol` in una run reale.
+
+**Esito (completata, con un punto aperto)**:
+
+- Nuovi pacchetti `lean-ctx` (29 test, golden compresi), `graphify` (45 test), `mcp-server` (6 test, compreso il bundle avviato su stdio). Totale del monorepo: 232 test verdi; lint, Prettier, typecheck strict e build passano.
+- L'API indicizza ogni progetto alla registrazione, su richiesta e dopo ogni run; espone stato, grafo e scheletri; ogni run riceve mappa L0, pacchetto di contesto e server MCP, e registra token consegnati, baseline ed espansioni.
+- Benchmark (`pnpm --filter @onyx/graphify bench`, stima euristica dei token, 25 file target per repository scelti in modo deterministico tra i file con almeno un import interno, test esclusi; baseline = target + dipendenze dirette complete; budget 24.000):
+
+| Repository | Files | Symbols | Imports | Index | L1 vs parsed code | Tasks | Naive context | Onyx pack | Saving (total) | Saving (median) | Saving on neighbours |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| hono | 560 | 1869 | 1051 | 1.7 s | −92.3% | 25 | 497,519 | 94,931 | −80.9% | −79.0% | −86.5% |
+| httpx | 114 | 1244 | 122 | 0.6 s | −77.1% | 18 | 360,759 | 114,605 | −68.2% | −70.5% | −78.4% |
+| fastify | 392 | 1341 | 456 | 1.2 s | −93.0% | 25 | 364,490 | 168,134 | −53.9% | −49.0% | −63.1% |
+| Onyx (questo repository) | 270 | 1424 | 511 | 0.5 s | −75.9% | 25 | 128,634 | 69,379 | −46.1% | −27.4% | −61.4% |
+
+  "Saving on neighbours" esclude il file target, identico nei due casi. Il pacchetto contiene anche righe d'uso dei dipendenti e la mappa a distanza 2, che la baseline non ha. Nei casi peggiori (file molto piccoli usati ovunque, come `card.tsx`) il pacchetto costa qualche centinaio di token in più della baseline proprio per queste righe d'uso.
+- Verifica end-to-end con Playwright dall'IP di rete (`http://192.0.2.2:3000`): registrazione di una copia di questo repository (270 file indicizzati in 1,1 s), grafo con focus, pannello con firme e contratti, task con file target, run con voce "Onyx context" (−52% rispetto alla baseline) e chiamata `mcp__onyx__expand_symbol` che restituisce il sorgente numerato; nessun errore in console.
+- **Punto aperto del DoD**: "l'agente usa `expand_symbol` in una run reale" è verificato con lo stub, che legge `mcp.json`, avvia il vero `onyx-mcp.js` e chiama il tool attraverso l'API (test di integrazione `apps/api/tests/integration/context.test.ts`). Una run con un modello vero richiede le credenziali della Fase 0 e non è stata eseguita per non consumare token: è il primo controllo da fare nel container.
+
+**Differenze rispetto al piano**:
+
+- Le query tree-sitter sono moduli TypeScript (ADR-015) e coprono solo gli import; le dichiarazioni le estrae un visitor.
+- I tool MCP si chiamano `expand_symbol`, `file_skeleton`, `deps`, `search_symbols` sotto il server `onyx` (ADR-016).
+- I dipendenti entrano come righe d'uso e le dipendenze come estratti dei simboli importati (ADR-017); i barrel sono risolti fino al modulo che dichiara.
+- Nuova migrazione `20261003120000_lean_ctx_index`: `FileNode` ha `l1Tokens`/`l2Tokens` (prima `leanTokens`), `imports`, `exports`, `isSensitive`, `hasSyntaxErrors`, `analyzerVersion`, `blastRadius`, `inCycle`; `CodeSymbol` usa `startOffset`/`endOffset` (offset UTF-16, prima `startByte`/`endByte`); `Project` ha `indexStats` e `indexError`; `AgentRun` ha `ctxBaselineTokens`, `ctxDeliveredTokens`, `ctxExpansions`; `Task.targetPaths` è esposto da API e UI.
+- `index.progress` viaggia sul canale `project:<id>` invece che su `system`.
+- Il riparse per file con l'hook `PostToolUse` è rimandato alla Fase 3 insieme agli altri hook; nel frattempo l'indice si aggiorna dopo ogni run e i tool MCP riparsano i file cambiati.
+- La ricalibrazione dello stimatore con `count_tokens` è rimandata a quando ci sarà una API key.
 
 ### Fase 3 — Context Surgeon
 

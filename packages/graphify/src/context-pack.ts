@@ -57,7 +57,10 @@ export const DEFAULT_PACK_BUDGET = 24_000;
 
 const TARGET_SHARE = 0.6;
 const SMALL_FILE_TOKENS = 300;
-const MAX_NEARBY = 30;
+const MAX_NEARBY = 12;
+const MAX_DETAILED_DEPENDENTS = 8;
+const MAX_USAGE_LINES = 8;
+const MAX_USAGE_LINE_LENGTH = 160;
 const FENCE_LANGUAGES: Readonly<Record<string, string>> = {
   typescript: "ts",
   tsx: "tsx",
@@ -74,7 +77,7 @@ const FENCE_LANGUAGES: Readonly<Record<string, string>> = {
 const SECTION_TITLES: Readonly<Record<Exclude<PackRole, "nearby">, string>> = {
   target: "Targets",
   dependency: "Direct dependencies (imported by the targets)",
-  dependent: "Direct dependents (import the targets)",
+  dependent: "Direct dependents: where the targets are used",
 };
 
 const LEVEL_LABELS: Readonly<Record<ContextLevel, string>> = {
@@ -100,6 +103,40 @@ function fence(content: string): string {
 
 const OPAQUE_IMPORTS = new Set(["*", "default"]);
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function usageExcerpt(
+  file: PackFile,
+  candidate: Candidate,
+  input: ContextPackInput,
+): { content: string; symbols: string[] | null } | null {
+  const names = candidate.names.filter((name) => !OPAQUE_IMPORTS.has(name));
+  if (names.length === 0) return null;
+  const source = input.readSource(file.relPath);
+  if (source === null) return null;
+  const pattern = new RegExp(`(^|[^\\w$])(${names.map(escapeRegExp).join("|")})(?![\\w$])`);
+  const lines: string[] = [];
+  let hidden = 0;
+  source.split("\n").forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!pattern.test(line) || /^(import|from)\s|^export\s.*\sfrom\s/.test(trimmed)) return;
+    if (lines.length >= MAX_USAGE_LINES) {
+      hidden += 1;
+      return;
+    }
+    const text =
+      trimmed.length > MAX_USAGE_LINE_LENGTH
+        ? `${trimmed.slice(0, MAX_USAGE_LINE_LENGTH - 1)}…`
+        : trimmed;
+    lines.push(`${index + 1}: ${text}`);
+  });
+  if (lines.length === 0) return null;
+  if (hidden > 0) lines.push(`… ${hidden} more`);
+  return { content: lines.join("\n"), symbols: names };
+}
+
 function contentAt(
   file: PackFile,
   candidate: Candidate,
@@ -114,6 +151,7 @@ function contentAt(
     }
     case 2:
     case 1: {
+      if (candidate.role === "dependent") return usageExcerpt(file, candidate, input);
       const names = candidate.names.filter((name) => !OPAQUE_IMPORTS.has(name));
       if (
         candidate.role === "dependency" &&
@@ -195,13 +233,23 @@ function collectCandidates(input: ContextPackInput, targets: readonly string[]):
     });
   }
 
+  const targetSet = new Set(targets);
   const dependents = [...new Set(targets.flatMap((target) => input.graph.dependents(target)))]
     .filter(fresh)
     .sort(byRank);
-  for (const relPath of dependents) {
+  dependents.forEach((relPath, position) => {
     seen.add(relPath);
-    candidates.push({ relPath, role: "dependent", distance: 1, plannedLevel: 1, names: [] });
-  }
+    const names = effectiveDependencies(input.graph, exportsOf, relPath)
+      .filter((dependency) => targetSet.has(dependency.relPath))
+      .flatMap((dependency) => dependency.names);
+    candidates.push({
+      relPath,
+      role: "dependent",
+      distance: 1,
+      plannedLevel: position < MAX_DETAILED_DEPENDENTS ? 1 : 0,
+      names: [...new Set(names)],
+    });
+  });
 
   const firstRing = [...dependencies.keys(), ...dependents];
   const secondRing = [
@@ -257,7 +305,8 @@ function render(
       const ticks = fence(content);
       push("", true);
       const scope = entry.symbols === null ? "" : `: ${entry.symbols.join(", ")}`;
-      push(`### ${entry.relPath} (${LEVEL_LABELS[entry.level]}${scope})`, true);
+      const label = role === "dependent" ? "usages" : LEVEL_LABELS[entry.level];
+      push(`### ${entry.relPath} (${label}${scope})`, true);
       push(`${ticks}${language}`, true);
       push(content, false);
       push(ticks, true);

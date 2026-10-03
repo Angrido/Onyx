@@ -10,7 +10,8 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 |---|---|---|
 | 0 | Infrastruttura LXC e rete | Documentata in `architecture.md` §10–11, script in `deploy/` |
 | 1 | Monorepo, database, Agent Runtime, API, console web | **Completata** |
-| 2–7 | Lean-ctx, Graphify, Context Surgeon, Model Router, TDD Auto-Loop, orchestrazione multi-agente | Da fare |
+| 2 | Lean-ctx (scheletri AST con tree-sitter), Graphify (grafo delle importazioni), server MCP `onyx`, vista Graph | **Completata** (manca solo la prova con un modello reale, vedi `architecture.md` §16) |
+| 3–7 | Context Surgeon, Model Router, TDD Auto-Loop, orchestrazione multi-agente, hardening | Da fare |
 
 ## Requisiti
 
@@ -29,9 +30,19 @@ pnpm dev
 
 Apri http://localhost:3000 **oppure, da qualsiasi altro dispositivo della rete, `http://<ip-della-macchina>:3000`** (lo script stampa gli indirizzi). Crea l'utente operatore, registra il progetto demo (`.onyx-data/projects/demo`) e lancia un task.
 
-In modalità `stub` gli agenti sono simulati da `packages/agent-runtime/bin/claude-stub.ts`, che rigioca trascrizioni `stream-json` registrate: nessun token consumato. Nel prompt si può scegliere lo scenario con un marcatore, ad esempio `[stub:hang]` (run che non termina, per provare l'abort), `[stub:crash]`, `[stub:error-max-turns]`, `[stub:quick]`.
+In modalità `stub` gli agenti sono simulati da `packages/agent-runtime/bin/claude-stub.ts`, che rigioca trascrizioni `stream-json` registrate: nessun token consumato. Nel prompt si può scegliere lo scenario con un marcatore, ad esempio `[stub:hang]` (run che non termina, per provare l'abort), `[stub:crash]`, `[stub:error-max-turns]`, `[stub:quick]`, oppure `[stub:mcp]`, che avvia il vero server MCP `onyx` della run ed espande il primo simbolo del pacchetto di contesto.
 
 Per usare Claude Code reale: `./scripts/dev-setup.sh real`, poi imposta **una sola** credenziale tra `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` in `apps/api/.env`.
+
+## Contesto Onyx (Fase 2)
+
+Ogni progetto viene indicizzato alla registrazione e dopo ogni run: tree-sitter estrae simboli e import, repomix enumera i file e segnala quelli con segreti, Graphify costruisce il grafo delle importazioni e ne calcola centralità, cicli e blast radius. A ogni run l'agente riceve:
+
+- nel system prompt, una mappa compatta del progetto (file più centrali con i loro export);
+- nel primo messaggio, un pacchetto di contesto: i file target completi, gli estratti dei simboli importati dalle dipendenze, le righe in cui i dipendenti usano i target;
+- il server MCP `onyx` con `expand_symbol`, `file_skeleton`, `deps` e `search_symbols`, per leggere solo ciò che serve.
+
+Sui benchmark (`pnpm --filter @onyx/graphify bench <cartella…>`) il pacchetto costa dal 46% all'81% in meno del contesto naive "file target + dipendenze dirette". La pagina del progetto mostra lo stato dell'indice e porta alla vista Graph; la console della run mostra il contesto inviato e le chiamate ai tool `onyx`.
 
 ## Accesso dalla rete
 
@@ -48,13 +59,14 @@ La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le 
 
 | Comando | Effetto |
 |---|---|
-| `pnpm dev` | API (`:4000`, tsx watch) e web (`:3000`, Next.js dev) in parallelo |
+| `pnpm dev` | API (`:4000`, tsx watch), web (`:3000`, Next.js dev) e bundle del server MCP in watch |
 | `pnpm test` | Test di tutti i pacchetti (Vitest) |
 | `pnpm typecheck` | TypeScript strict su tutti i pacchetti |
 | `pnpm lint` | ESLint, inclusa la regola `onyx/no-comments` |
 | `pnpm format` / `pnpm format:check` | Prettier |
-| `pnpm build` | Bundle API (tsup) e build standalone Next.js |
+| `pnpm build` | Bundle API e server MCP (tsup) e build standalone Next.js |
 | `pnpm db:migrate` | `prisma migrate deploy` sul `DATABASE_URL` corrente |
+| `pnpm --filter @onyx/graphify bench <cartella…>` | Benchmark del pacchetto di contesto su uno o più repository |
 
 ## Struttura
 
@@ -65,6 +77,9 @@ La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le 
 | `packages/contracts` | Schemi zod condivisi: REST, WebSocket, eventi `stream-json` e normalizzatore |
 | `packages/db` | Schema Prisma 7 + SQLite, migrazioni, seed |
 | `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool con abort sul process group, stub |
+| `packages/lean-ctx` | Parse tree-sitter (TS, TSX, JS, Python), simboli, scheletri L1/L2, estratti, mappa L0 |
+| `packages/graphify` | Enumerazione repomix, resolver dei moduli, grafo, metriche, pacchetto di contesto, benchmark |
+| `packages/mcp-server` | Server MCP `onyx` (stdio) impacchettato in `dist/onyx-mcp.js` |
 | `packages/config` | Preset TypeScript, ESLint, Prettier |
 | `deploy/` | systemd, Caddy, nftables, bootstrap LXC, build/release/backup |
 

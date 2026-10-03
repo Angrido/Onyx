@@ -1,4 +1,4 @@
 {
   "extends": "@onyx/config/tsconfig/node.json",
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "bench"]
 }
