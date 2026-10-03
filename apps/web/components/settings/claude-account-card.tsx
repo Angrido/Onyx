@@ -1,6 +1,11 @@
 "use client";
 
-import type { ClaudeAccountDto, ClaudeLoginDto, ClaudeTestResult } from "@onyx/contracts";
+import type {
+  ClaudeAccountDto,
+  ClaudeLoginDto,
+  ClaudeTestResult,
+  CliCompatibilityDto,
+} from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -50,6 +55,54 @@ function SimulatorNotice({ claudeBin }: { claudeBin: string }) {
         <p className="break-all font-mono text-[11px] text-muted-foreground" title={claudeBin}>
           CLAUDE_BIN={claudeBin}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function CompatibilityNotice({
+  compatibility,
+  checking,
+  onCheck,
+}: {
+  compatibility: CliCompatibilityDto;
+  checking: boolean;
+  onCheck: () => void;
+}) {
+  const missing = [
+    ...compatibility.missingFlags.map((flag) => `option ${flag}`),
+    ...compatibility.missingModes.map((mode) => `permission mode ${mode}`),
+    ...compatibility.missingCommands.map((command) => `command ${command}`),
+  ];
+  return (
+    <div
+      className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+      data-testid="claude-compatibility"
+      role="alert"
+    >
+      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+      <div className="min-w-0 space-y-1.5">
+        <p className="font-medium text-destructive">
+          Claude Code {compatibility.version ?? ""} is not compatible with this Onyx
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {missing.length > 0
+            ? `It does not accept the ${missing.join(", ")} that Onyx passes, so runs would fail.`
+            : (compatibility.error ?? "The check failed.")}{" "}
+          Update Onyx with{" "}
+          <code className="whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
+            onyx-update
+          </code>{" "}
+          or install a version Onyx knows, for example{" "}
+          <code className="whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
+            claude install 2.1.288
+          </code>
+          .
+        </p>
+        <Button variant="ghost" size="sm" onClick={onCheck} disabled={checking}>
+          {checking ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          Check again
+        </Button>
       </div>
     </div>
   );
@@ -236,6 +289,16 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
     onError: (error) => toast.error(errorMessage(error)),
   });
 
+  const check = useMutation({
+    mutationFn: () => api.post<ClaudeAccountDto>("/api/settings/claude/check"),
+    onSuccess: (next) => {
+      store(next);
+      if (next.compatibility?.ok)
+        toast.success(`Claude Code ${next.cliVersion ?? ""} is compatible`);
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
   const lastTest = data.lastTest;
 
   return (
@@ -276,6 +339,13 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
         </div>
 
         {data.simulator ? <SimulatorNotice claudeBin={data.claudeBin} /> : null}
+        {data.compatibility && !data.compatibility.ok ? (
+          <CompatibilityNotice
+            compatibility={data.compatibility}
+            checking={check.isPending}
+            onCheck={() => check.mutate()}
+          />
+        ) : null}
 
         {lastTest ? (
           <p

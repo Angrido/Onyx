@@ -12,7 +12,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "fixtures:record": "node scripts/record-fixtures.ts"
   },
   "dependencies": {
     "@onyx/contracts": "workspace:*",

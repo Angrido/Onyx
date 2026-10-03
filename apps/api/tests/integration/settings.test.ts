@@ -209,3 +209,46 @@ describe("credentials from the environment", () => {
     }
   });
 });
+
+describe("Claude Code compatibility", () => {
+  it("checks the CLI at startup and reports missing options in Settings and readiness", async () => {
+    const checked = await createTestContext({ checkCli: true });
+    try {
+      const checkedApi = apiClient(checked.app, await authenticate(checked.app));
+      const ready = await waitFor(
+        async () => (await checkedApi.get<ClaudeAccountDto>("/api/settings/claude")).body,
+        (value) => value.compatibility !== null,
+        30_000,
+      );
+      expect(ready.compatibility).toMatchObject({ version: "0.0.0-stub", ok: true });
+    } finally {
+      await destroyTestContext(checked);
+    }
+
+    const older = await createTestContext({
+      checkCli: false,
+      sourceEnv: { CLAUDE_STUB_UNKNOWN_FLAGS: "--json-schema,--agents" },
+    });
+    try {
+      const olderApi = apiClient(older.app, await authenticate(older.app));
+      const before = await olderApi.get<ClaudeAccountDto>("/api/settings/claude");
+      expect(before.body.compatibility).toBeNull();
+      const rechecked = await olderApi.post<ClaudeAccountDto>("/api/settings/claude/check");
+      expect(rechecked.body.compatibility).toMatchObject({
+        ok: false,
+        missingFlags: ["--json-schema", "--agents"],
+      });
+      const readiness = await older.app.inject({ method: "GET", url: "/api/ready" });
+      const cli = (
+        readiness.json() as { checks: Array<{ name: string; ok: boolean; detail: string }> }
+      ).checks.find((check) => check.name === "claude-cli");
+      expect(cli).toEqual({
+        name: "claude-cli",
+        ok: false,
+        detail: "0.0.0-stub is not compatible: missing --json-schema, --agents",
+      });
+    } finally {
+      await destroyTestContext(older);
+    }
+  }, 60_000);
+});

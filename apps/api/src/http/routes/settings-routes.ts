@@ -29,6 +29,11 @@ export function registerSettingsRoutes(app: FastifyInstance, container: Containe
     credentials.test(actorOf(request)),
   );
 
+  app.post("/api/settings/claude/check", async (): Promise<ClaudeAccountDto> => {
+    await container.checkCli();
+    return credentials.account();
+  });
+
   app.post("/api/settings/claude/login", async (request, reply): Promise<ClaudeLoginDto> => {
     const login = credentials.startLogin(actorOf(request));
     reply.status(201);

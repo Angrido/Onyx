@@ -33,6 +33,7 @@ export interface TestContextOptions {
   classifier?: TaskClassifier | null;
   summarizer?: HandoffSummarizer | null;
   sourceEnv?: Record<string, string>;
+  checkCli?: boolean;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -73,6 +74,7 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     indexRefreshDelayMs: 50,
     classifier: options.classifier ?? null,
     summarizer: options.summarizer ?? null,
+    checkCli: options.checkCli ?? false,
   });
   await container.start();
   const app = await buildApp(container);

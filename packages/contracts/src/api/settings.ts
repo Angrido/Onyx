@@ -30,6 +30,17 @@ export const ClaudeTestResultSchema = z.object({
 });
 export type ClaudeTestResult = z.infer<typeof ClaudeTestResultSchema>;
 
+export const CliCompatibilitySchema = z.object({
+  version: z.string().nullable(),
+  ok: z.boolean(),
+  missingFlags: z.array(z.string()),
+  missingModes: z.array(z.string()),
+  missingCommands: z.array(z.string()),
+  error: z.string().nullable(),
+  checkedAt: z.string(),
+});
+export type CliCompatibilityDto = z.infer<typeof CliCompatibilitySchema>;
+
 export const ClaudeAccountDtoSchema = z.object({
   configured: z.boolean(),
   source: CredentialSourceSchema.nullable(),
@@ -41,6 +52,7 @@ export const ClaudeAccountDtoSchema = z.object({
   simulator: z.boolean(),
   login: ClaudeLoginDtoSchema.nullable(),
   lastTest: ClaudeTestResultSchema.nullable(),
+  compatibility: CliCompatibilitySchema.nullable(),
 });
 export type ClaudeAccountDto = z.infer<typeof ClaudeAccountDtoSchema>;
 

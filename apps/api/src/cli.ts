@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { checkCliCompatibility } from "@onyx/agent-runtime";
 import { sqliteFilePathFromUrl } from "@onyx/db";
 import { loadConfig, type AppConfig } from "./config";
 import {
@@ -22,6 +23,8 @@ const USAGE = `Usage: onyx-cli <command>
   restore <name|latest|path> [--force]  replace the database with a backup;
                                         Onyx must be stopped (the current
                                         database is saved first)
+  check-claude                          check that CLAUDE_BIN accepts every
+                                        option Onyx passes (no request is sent)
 `;
 
 class UsageError extends Error {}
@@ -146,6 +149,23 @@ async function restore(config: AppConfig, args: string[]): Promise<void> {
     );
 }
 
+async function checkClaude(config: AppConfig): Promise<boolean> {
+  const result = await checkCliCompatibility(
+    { command: config.claudeBin, args: [] },
+    { env: process.env },
+  );
+  if (result.ok) {
+    print(`Claude Code ${result.version ?? "?"} at ${config.claudeBin}: compatible with Onyx`);
+    return true;
+  }
+  print(`Claude Code ${result.version ?? "?"} at ${config.claudeBin}: NOT compatible with Onyx`);
+  for (const flag of result.missingFlags) print(`  - missing option ${flag}`);
+  for (const mode of result.missingModes) print(`  - missing permission mode ${mode}`);
+  for (const command of result.missingCommands) print(`  - missing command ${command}`);
+  if (result.error) print(`  - ${result.error}`);
+  return false;
+}
+
 export async function main(argv: string[]): Promise<number> {
   const [command, ...args] = argv;
   if (!command || command === "-h" || command === "--help" || command === "help") {
@@ -166,6 +186,8 @@ export async function main(argv: string[]): Promise<number> {
       case "restore":
         await restore(config, args);
         return 0;
+      case "check-claude":
+        return (await checkClaude(config)) ? 0 : 1;
       default:
         throw new UsageError(`Unknown command "${command}"`);
     }

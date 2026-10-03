@@ -1,6 +1,12 @@
 import { statfs } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
-import { AgentPool, detectCliVersion, type ClaudeBinary } from "@onyx/agent-runtime";
+import {
+  AgentPool,
+  checkCliCompatibility,
+  detectCliVersion,
+  type ClaudeBinary,
+  type CliCompatibility,
+} from "@onyx/agent-runtime";
 import type { ReadyResponse } from "@onyx/contracts";
 import { connectDatabase, seedDatabase, type PrismaClient } from "@onyx/db";
 import { AdjustableTokenEstimator, LeanAnalyzer } from "@onyx/lean-ctx";
@@ -53,6 +59,7 @@ export interface ContainerOverrides {
   credentialTestTimeoutMs?: number;
   classifier?: TaskClassifier | null;
   summarizer?: HandoffSummarizer | null;
+  checkCli?: boolean;
 }
 
 export interface Container {
@@ -89,6 +96,8 @@ export interface Container {
   telemetry: TelemetryService;
   catalog: CatalogService;
   cliVersion(): string | null;
+  cliCompatibility(): CliCompatibility | null;
+  checkCli(): Promise<CliCompatibility>;
   readiness(): Promise<ReadyResponse>;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -110,6 +119,32 @@ export async function createContainer(
     logger.info({ keyFile: vault.keyFile }, "Created the secret key for stored tokens");
   const binary = overrides.binary ?? { command: config.claudeBin, args: [] };
   let cliVersion: string | null = null;
+  let compatibility: CliCompatibility | null = null;
+  let checking: Promise<CliCompatibility> | null = null;
+  const checkCli = (): Promise<CliCompatibility> => {
+    checking ??= checkCliCompatibility(binary, {
+      env: { ...process.env, ...overrides.sourceEnv },
+    })
+      .then((result) => {
+        compatibility = result;
+        if (!result.ok)
+          logger.warn(
+            {
+              version: result.version,
+              missingFlags: result.missingFlags,
+              missingModes: result.missingModes,
+              missingCommands: result.missingCommands,
+              error: result.error,
+            },
+            "This Claude Code version lacks options Onyx needs",
+          );
+        return result;
+      })
+      .finally(() => {
+        checking = null;
+      });
+    return checking;
+  };
 
   const pool = new AgentPool({
     maxConcurrent: config.maxConcurrentAgents,
@@ -180,6 +215,7 @@ export async function createContainer(
     binary,
     config,
     cliVersion: () => cliVersion,
+    cliCompatibility: () => compatibility,
     vault,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
@@ -388,6 +424,8 @@ export async function createContainer(
     })),
     catalog: new CatalogService(prisma),
     cliVersion: () => cliVersion,
+    cliCompatibility: () => compatibility,
+    checkCli,
 
     async readiness(): Promise<ReadyResponse> {
       const checks: ReadyResponse["checks"] = [];
@@ -397,10 +435,22 @@ export async function createContainer(
       } catch (error) {
         checks.push({ name: "database", ok: false, detail: String(error) });
       }
+      const missing = compatibility
+        ? [
+            ...compatibility.missingFlags,
+            ...compatibility.missingModes.map((mode) => `permission mode ${mode}`),
+            ...compatibility.missingCommands.map((command) => `command ${command}`),
+          ]
+        : [];
       checks.push({
         name: "claude-cli",
-        ok: cliVersion !== null,
-        detail: cliVersion === null ? `${binary.command} is not executable` : cliVersion,
+        ok: cliVersion !== null && compatibility?.ok !== false,
+        detail:
+          cliVersion === null
+            ? `${binary.command} is not executable`
+            : compatibility?.ok === false
+              ? `${cliVersion} is not compatible: ${missing.length > 0 ? `missing ${missing.join(", ")}` : (compatibility.error ?? "check failed")}`
+              : cliVersion,
       });
       const resolved = await credentials.resolve();
       checks.push({
@@ -433,6 +483,7 @@ export async function createContainer(
       cliVersion = await detectCliVersion(binary);
       if (cliVersion === null)
         logger.warn({ command: binary.command }, "Claude Code CLI not found");
+      else if (overrides.checkCli !== false) void checkCli();
       const seeded = await seedDatabase(prisma);
       const sealed = [await credentials.sealStored(), await container.github.sealStored()];
       if (sealed.some(Boolean)) logger.info("Encrypted the tokens saved by an older version");
@@ -451,6 +502,7 @@ export async function createContainer(
     },
 
     async stop(): Promise<void> {
+      await checking?.catch(() => undefined);
       await backups.stop();
       await indexes.shutdown();
       await roadmap.shutdown();

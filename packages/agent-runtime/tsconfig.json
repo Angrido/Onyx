@@ -3,5 +3,5 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "bin", "tests"]
+  "include": ["src", "bin", "scripts", "tests"]
 }

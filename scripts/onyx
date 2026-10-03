@@ -10,7 +10,7 @@ LOG_FILE="$LOG_DIR/onyx-dev.log"
 API_URL="${ONYX_API_URL:-http://127.0.0.1:4000}"
 WEB_URL="${ONYX_WEB_URL:-http://127.0.0.1:3000}"
 SERVICES=(onyx-api.service onyx-web.service)
-COMMANDS=(onyx-start onyx-stop onyx-restart onyx-update onyx-status onyx-logs onyx-use-claude onyx-backup onyx-restore)
+COMMANDS=(onyx-start onyx-stop onyx-restart onyx-update onyx-status onyx-logs onyx-use-claude onyx-update-claude onyx-backup onyx-restore)
 STUB_BIN="$ROOT/packages/agent-runtime/bin/claude-stub.ts"
 SERVICE_ENV=/etc/onyx/onyx.env
 
@@ -53,6 +53,9 @@ Usage: onyx <command>    (or onyx-start, onyx-stop, onyx-update, …)
   use-claude use the real Claude Code (installed if missing), so Onyx can
              sign in with your Claude account; restarts Onyx
   use-stub   go back to the bundled simulator (development and tests)
+  update-claude
+             update Claude Code, check that it accepts every option Onyx
+             passes (no request is sent) and restart Onyx
   backup     write a backup of the database now
   backups    list the backups
   restore [name|latest]
@@ -223,6 +226,31 @@ use_claude() {
   ok "CLAUDE_BIN=$bin in $(env_file)"
   restart_if_running
   printf '\nOpen Settings in the console and press %sSign in with Claude%s.\n' "$BOLD" "$RESET"
+}
+
+update_claude() {
+  local bin before after
+  bin="$(claude_bin)"
+  [ -n "$bin" ] || fail "CLAUDE_BIN is not set: run onyx use-claude first"
+  if is_stub "$bin"; then fail "Onyx uses the simulator: run onyx use-claude first"; fi
+  before="$("$bin" --version 2>/dev/null | awk 'NR == 1' || true)"
+  step "Updating Claude Code (${before:-unknown version})"
+  if [ "$(mode)" = service ]; then
+    as_root runuser -u onyx -- env DISABLE_AUTOUPDATER=0 "$bin" update
+  else
+    DISABLE_AUTOUPDATER=0 "$bin" update
+  fi
+  after="$("$bin" --version 2>/dev/null | awk 'NR == 1' || true)"
+  if [ "$before" = "$after" ]; then ok "Claude Code is already up to date (${after:-?})"; else ok "Claude Code $before -> $after"; fi
+  step "Checking Claude Code with Onyx"
+  if ! onyx_cli check-claude; then
+    warn "this Claude Code version lacks options Onyx needs: update Onyx (onyx-update) or go back with: $bin install ${before%% *}"
+  fi
+  restart_if_running
+  if [ "$before" != "$after" ] && [ "$(mode)" = dev ]; then
+    info "To record fresh transcripts for the contract tests (spends a few cents of Claude usage):"
+    info "  pnpm --filter @onyx/agent-runtime fixtures:record -- --yes"
+  fi
 }
 
 use_stub() {
@@ -488,6 +516,7 @@ run() {
     logs) logs ;;
     use-claude) use_claude ;;
     use-stub) use_stub ;;
+    update-claude) update_claude ;;
     backup) backup_now manual ;;
     backups) onyx_cli list ;;
     restore) restore_backup "${2:-}" ;;

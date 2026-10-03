@@ -19,6 +19,7 @@ import {
   type ClaudeLoginDto,
   type ClaudeLoginState,
   type ClaudeTestResult,
+  type CliCompatibilityDto,
   type CredentialSource,
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
@@ -37,6 +38,7 @@ export interface CredentialServiceDeps {
   binary: ClaudeBinary;
   config: Pick<AppConfig, "credentials" | "claudeBin" | "childEnvPassthrough">;
   cliVersion: () => string | null;
+  cliCompatibility?: () => CliCompatibilityDto | null;
   vault: SecretVault;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
@@ -160,6 +162,7 @@ export class CredentialService {
       simulator: this.isSimulator(),
       login: this.login ? this.toLoginDto(this.login) : null,
       lastTest: lastTest.success ? lastTest.data : null,
+      compatibility: this.deps.cliCompatibility?.() ?? null,
     };
   }
 

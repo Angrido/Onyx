@@ -18,6 +18,31 @@ if (argv.includes("--version") || argv.includes("-v")) {
   process.exit(0);
 }
 
+const unknownFlags = (process.env.CLAUDE_STUB_UNKNOWN_FLAGS ?? "")
+  .split(",")
+  .map((flag) => flag.trim())
+  .filter((flag) => flag.length > 0);
+
+if (argv.includes("--help") || argv.includes("-h")) {
+  const help = readFileSync(
+    fileURLToPath(new URL("../fixtures/cli/help-2.1.288.txt", import.meta.url)),
+    "utf8",
+  );
+  process.stdout.write(
+    help
+      .split("\n")
+      .filter((line) => !unknownFlags.some((flag) => line.includes(`${flag} `)))
+      .join("\n"),
+  );
+  process.exit(0);
+}
+
+const rejected = argv.find((arg) => unknownFlags.includes(arg));
+if (rejected) {
+  process.stderr.write(`error: unknown option '${rejected}'\n`);
+  process.exit(1);
+}
+
 const fixturesDir =
   process.env.CLAUDE_STUB_FIXTURES ??
   fileURLToPath(new URL("../fixtures/synthetic", import.meta.url));
@@ -1206,6 +1231,7 @@ async function main(): Promise<void> {
   if (argv[0] === "setup-token") return runSetupToken();
   if (!argv.includes("-p")) return runInteractive();
   const prompt = await readPrompt();
+  if (flagValue("--input-format") === "stream-json" && prompt.length === 0) return;
   if (missingCredentials()) {
     await writeLine(initLine());
     await writeLine(
