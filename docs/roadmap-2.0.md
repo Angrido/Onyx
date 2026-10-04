@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–9 | **Fatte** (vedi sotto) |
-| 10–11 | Da fare, nell'ordine concordato |
+| 1–10 | **Fatte** (vedi sotto) |
+| 11 | Da fare |
 
 ### Milestone 1 — esito
 
@@ -293,3 +293,16 @@ Da verificare con Claude reale: che il revisore citi davvero il diff e non bocci
 Effetto sui token: con lo stub, nell'E2E una domanda dall'indice costa 0 e la stessa fatta a Haiku 14.000 token (con la scrittura della cache); la revisione di 4 punti sospetti ha letto 810 token di snippet. Su un progetto così piccolo gli snippet non costano meno del codice, e la riga lo dice.
 
 Da verificare con Claude reale: qualità e costo delle risposte di Haiku con i tool `onyx`, affidabilità dei verdetti sui punti sospetti.
+
+### Milestone 10 — esito
+
+| Voce | Stato | Token |
+|---|---|---|
+| 10.1 Italiano, inglese a scelta | Fatta (ADR-081): console e testi del server in italiano, inglese da Impostazioni o dalla palette; controllo delle chiavi in CI per web e API. **Deviazione**: restano in inglese prompt, testi scritti da Claude, errori dell'API (tradotti dal web), log, contenuti per GitHub e i testi salvati con valori dentro | Nessuno: i prompt non cambiano |
+| 10.2 Stati vuoti | Fatta: ogni pagina vuota dice cosa fare (verificato da database vuoto, con screenshot) | — |
+| 10.3 Primo progetto guidato | Fatta (ADR-083): cinque passi calcolati dallo stato reale | — |
+| 10.4 Palette ed errori | Fatta (ADR-082, ADR-084): creazione, impostazioni, sottopagine e lingua dalla palette; 23 regole che danno causa e soluzione. **Deviazione**: la palette apre il modulo dell'azione invece di eseguirla, per non saltare anteprime e conferme | — |
+| 10.5 Mobile e accessibilità | Fatta (ADR-085): `scripts/ui-audit.mjs`, 36/36 con Lighthouse ≥ 90, accessibilità 100, axe senza violazioni, nessun overflow a 375 px | — |
+
+Nessun effetto sui token: la milestone non cambia nulla di quello che arriva a Claude.
+
