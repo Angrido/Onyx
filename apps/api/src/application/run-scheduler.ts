@@ -138,6 +138,8 @@ export class RunScheduler {
 
   enqueue(item: QueuedRun): number {
     if (this.stopped) throw new Error("Scheduler is stopped");
+    if (this.isQueued(item.request.taskId))
+      throw new Error(`Task ${item.request.taskId} is already queued`);
     const index = this.queue.findIndex(
       (queued) =>
         queued.priority < item.priority ||

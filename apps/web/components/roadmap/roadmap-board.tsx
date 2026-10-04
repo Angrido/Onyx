@@ -266,8 +266,8 @@ function TaskCard({
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <ModelBadge modelId={task.lastRun.modelId} />
           <span>{formatUsd(task.lastRun.costUsd)}</span>
-          {task.lastRun.changedFiles.length > 0 ? (
-            <span>{task.lastRun.changedFiles.length} files changed</span>
+          {task.lastRun.changedFileCount > 0 ? (
+            <span>{task.lastRun.changedFileCount} files changed</span>
           ) : null}
         </div>
       ) : null}

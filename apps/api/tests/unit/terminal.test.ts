@@ -69,12 +69,15 @@ describe("pty channels", () => {
     expect(hub.hasListeners("pty:t1")).toBe(false);
     await hub.subscribe(subscriber, ["pty:t1"]);
     hub.publishPtyOutput("t1", "later");
+    hub.publishPtyOutput("t1", " again");
     hub.publishPtyOutput("t2", "elsewhere");
+    hub.flushOutput("t1");
+    hub.flushOutput("t2");
     expect(
       connection.messages.map((message) =>
         message.type === "pty.output" ? message.data.data : message.type,
       ),
-    ).toEqual(["subscribed", "earlier", "later"]);
+    ).toEqual(["subscribed", "earlier", "later again"]);
     expect(hub.hasListeners("pty:t1")).toBe(true);
   });
 });

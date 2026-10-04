@@ -6,6 +6,7 @@ import {
 } from "@onyx/contracts";
 import { destructiveReason } from "@onyx/ignore-compiler";
 import type { FastifyInstance } from "fastify";
+import { WRITING_TOOLS } from "../../application/run-recorder";
 import type { Container } from "../../container";
 import { requireGrant } from "../internal-auth";
 
@@ -133,8 +134,9 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
     { config: { public: true } },
     async (request): Promise<Record<string, never>> => {
       const { grant } = requireGrant(request, runTokens);
-      indexes.scheduleRefresh(grant.projectId);
       const parsed = HookInputSchema.safeParse(request.body);
+      if (!parsed.success || WRITING_TOOLS.has(parsed.data.tool_name))
+        indexes.scheduleRefresh(grant.projectId);
       if (parsed.success)
         terminals.recordEdit(grant.runId, parsed.data.tool_name, parsed.data.tool_input);
       return {};

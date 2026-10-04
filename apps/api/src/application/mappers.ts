@@ -5,6 +5,7 @@ import {
   type ModelProfileDto,
   type ProjectDto,
   type RunDto,
+  type RunSummaryDto,
   type SessionDto,
   type TaskDto,
   type TokenUsage,
@@ -176,10 +177,39 @@ export function toRunDto(run: RunWithRelations): RunDto {
   };
 }
 
-export type TaskWithLastRun = Task & { runs: RunWithRelations[] };
+export type RunSummaryRow = Pick<
+  AgentRun,
+  "id" | "status" | "modelId" | "costUsd" | "changedFiles" | "startedAt" | "endedAt"
+>;
+
+export type TaskWithLastRun = Task & { runs: RunSummaryRow[] };
+
+export const RUN_SUMMARY_SELECT = {
+  id: true,
+  status: true,
+  modelId: true,
+  costUsd: true,
+  changedFiles: true,
+  startedAt: true,
+  endedAt: true,
+} as const;
 
 export function taskIncludeLastRun() {
-  return { runs: { orderBy: { startedAt: "desc" as const }, take: 1, include: RUN_INCLUDE } };
+  return {
+    runs: { orderBy: { startedAt: "desc" as const }, take: 1, select: RUN_SUMMARY_SELECT },
+  };
+}
+
+export function toRunSummaryDto(run: RunSummaryRow): RunSummaryDto {
+  return {
+    id: run.id,
+    status: run.status,
+    modelId: run.modelId,
+    costUsd: run.costUsd,
+    changedFileCount: toStringArray(run.changedFiles).length,
+    startedAt: iso(run.startedAt),
+    endedAt: run.endedAt ? iso(run.endedAt) : null,
+  };
 }
 
 export function toTaskDto(task: TaskWithLastRun): TaskDto {
@@ -202,7 +232,7 @@ export function toTaskDto(task: TaskWithLastRun): TaskDto {
     updatedAt: iso(task.updatedAt),
     startedAt: isoOrNull(task.startedAt),
     completedAt: isoOrNull(task.completedAt),
-    lastRun: lastRun ? toRunDto(lastRun) : null,
+    lastRun: lastRun ? toRunSummaryDto(lastRun) : null,
   };
 }
 

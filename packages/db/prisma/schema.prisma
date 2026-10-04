@@ -350,6 +350,7 @@ model RoutingDecision {
   runs     AgentRun[]
 
   @@index([taskId, createdAt])
+  @@index([createdAt])
 }
 
 model Task {
@@ -395,6 +396,9 @@ model Task {
 
   @@index([projectId, status])
   @@index([parentTaskId])
+  @@index([projectId, updatedAt])
+  @@index([updatedAt])
+  @@index([workspaceId])
 }
 
 model TaskDependency {
@@ -496,6 +500,9 @@ model AgentRun {
   @@index([contextArm, startedAt])
   @@index([sessionId, endedAt])
   @@index([cacheLoss, startedAt])
+  @@index([endedAt])
+  @@index([status, startedAt])
+  @@index([startedAt])
 }
 
 model AgentEvent {
@@ -505,6 +512,7 @@ model AgentEvent {
   type      String
   subtype   String?
   payload   Json
+  items     Json?
   createdAt DateTime @default(now())
 
   run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -537,6 +545,8 @@ model TokenLog {
   @@index([sessionId])
   @@index([modelId, createdAt])
   @@index([scope, createdAt])
+  @@index([createdAt])
+  @@index([runId, scope])
 }
 
 model IgnoreProfile {
@@ -748,6 +758,8 @@ model Approval {
 
   @@index([status, createdAt])
   @@index([projectId, status])
+  @@index([taskId])
+  @@index([createdAt])
 }
 
 model Orchestration {

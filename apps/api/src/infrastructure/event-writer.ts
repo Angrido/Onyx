@@ -6,6 +6,7 @@ export interface AgentEventRow {
   type: string;
   subtype: string | null;
   payload: unknown;
+  items?: unknown;
 }
 
 export interface EventWriterOptions {
@@ -70,6 +71,7 @@ export class EventWriter {
           type: row.type,
           subtype: row.subtype,
           payload: row.payload as object,
+          ...(row.items === undefined ? {} : { items: row.items as object }),
         })),
       });
     } catch (error) {

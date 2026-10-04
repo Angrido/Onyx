@@ -1,5 +1,6 @@
 import {
   normalizeStoredEvent,
+  type RunItem,
   type BlockedCommandsResponse,
   type RunDto,
   type RunEventsResponse,
@@ -10,6 +11,22 @@ import type { StoredRunEvent } from "../infrastructure/ws-hub";
 import { analyzeCommands } from "../domain/command-rules";
 import { RUN_INCLUDE, toRunDto, toStringArray } from "./mappers";
 import type { RunScheduler } from "./run-scheduler";
+
+function toStoredEvent(row: {
+  seq: number;
+  type: string;
+  payload: unknown;
+  items: unknown;
+  createdAt: Date;
+}): StoredRunEvent {
+  return {
+    seq: row.seq,
+    ts: row.createdAt.toISOString(),
+    items: Array.isArray(row.items)
+      ? (row.items as RunItem[])
+      : normalizeStoredEvent(row.type, row.payload),
+  };
+}
 
 export class RunService {
   constructor(
@@ -49,11 +66,15 @@ export class RunService {
       orderBy: { seq: "asc" },
       take: limit,
     });
-    return rows.map((row) => ({
-      seq: row.seq,
-      ts: row.createdAt.toISOString(),
-      items: normalizeStoredEvent(row.type, row.payload),
-    }));
+    return rows.map(toStoredEvent);
+  }
+
+  private async resultEvents(runId: string): Promise<StoredRunEvent[]> {
+    const rows = await this.prisma.agentEvent.findMany({
+      where: { runId, OR: [{ type: "result" }, { subtype: "result" }] },
+      orderBy: { seq: "asc" },
+    });
+    return rows.map(toStoredEvent);
   }
 
   async blockedCommands(id: string): Promise<BlockedCommandsResponse> {
@@ -69,7 +90,7 @@ export class RunService {
     });
     if (!run) throw notFound("Run");
     const commands: string[] = [];
-    for (const event of await this.storedEvents(id, 0, null)) {
+    for (const event of await this.resultEvents(id)) {
       for (const item of event.items) {
         if (item.kind !== "guard" || item.source !== "permission" || item.tool !== "Bash") continue;
         if (item.target !== null && !commands.includes(item.target)) commands.push(item.target);

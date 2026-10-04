@@ -21,6 +21,10 @@ export function isRunnable(status: TaskStatus): boolean {
   return canTransition(status, "QUEUED");
 }
 
+export const RUNNABLE_STATUSES: readonly TaskStatus[] = (
+  Object.keys(TRANSITIONS) as TaskStatus[]
+).filter((status) => isRunnable(status));
+
 export function isActive(status: TaskStatus): boolean {
   return (
     status === "QUEUED" || status === "RUNNING" || status === "TDD_LOOP" || status === "PLANNING"

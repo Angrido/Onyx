@@ -40,6 +40,7 @@ import { parseMatcher, type RuleView } from "../domain/routing/rules";
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS } from "../domain/routing/scoring";
 import { badRequest, notFound } from "../errors";
 import type { AuxUsage, TaskClassifier } from "../infrastructure/aux-model";
+import { completedTaskRuns, type RunTotalRow } from "../infrastructure/run-totals";
 import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 
@@ -148,7 +149,12 @@ function toRuleDto(row: Prisma.RoutingRuleGetPayload<object>): RoutingRuleDto {
   };
 }
 
+const TELEMETRY_DAYS = 90;
+const TELEMETRY_CACHE_MS = 60_000;
+
 export class RouterService {
+  private readonly telemetryCache = new Map<string, { at: number; value: RoutingTelemetry }>();
+
   constructor(private readonly deps: RouterServiceDeps) {}
 
   get classifierAvailable(): boolean {
@@ -527,8 +533,22 @@ export class RouterService {
     return decision.id;
   }
 
+  forgetTelemetry(): void {
+    this.telemetryCache.clear();
+  }
+
   async telemetry(projectId: string | null): Promise<RoutingTelemetry> {
+    const key = projectId ?? "*";
+    const cached = this.telemetryCache.get(key);
+    if (cached && Date.now() - cached.at < TELEMETRY_CACHE_MS) return cached.value;
+    const value = await this.computeTelemetry(projectId);
+    this.telemetryCache.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  private async computeTelemetry(projectId: string | null): Promise<RoutingTelemetry> {
     const { prisma } = this.deps;
+    const since = new Date(Date.now() - TELEMETRY_DAYS * 86_400_000);
     const [models, preferred] = await Promise.all([
       prisma.modelProfile.findMany(),
       this.tierPreferences(),
@@ -537,18 +557,7 @@ export class RouterService {
     const referenceProfile = reference
       ? (models.find((model) => model.id === reference.modelId) ?? null)
       : null;
-    const tasks = await prisma.task.findMany({
-      where: { status: "COMPLETED", ...(projectId ? { projectId } : {}) },
-      include: {
-        runs: {
-          orderBy: { startedAt: "asc" },
-          include: {
-            routingDecision: { select: { tier: true } },
-            tokenLogs: { where: { scope: "RUN_TOTAL" }, take: 1 },
-          },
-        },
-      },
-    });
+    const rows = await completedTaskRuns(prisma, since, projectId);
     const byTier = new Map<
       ModelTier,
       { tasks: number; runs: number; cost: number; counterfactual: number }
@@ -556,28 +565,28 @@ export class RouterService {
     let cost = 0;
     let counterfactual = 0;
     let completed = 0;
-    for (const task of tasks) {
-      const finalRun = [...task.runs].reverse().find((run) => run.status === "COMPLETED");
-      if (!finalRun) continue;
+    const settle = (runs: RunTotalRow[]): void => {
+      const finalRun = [...runs].reverse().find((run) => run.status === "COMPLETED");
+      if (!finalRun) return;
       completed += 1;
       const tier =
-        finalRun.routingDecision?.tier ??
+        (finalRun.tier as ModelTier | null) ??
         models.find((model) => model.id === finalRun.modelId)?.tier ??
         "BUILDER";
       const entry = byTier.get(tier) ?? { tasks: 0, runs: 0, cost: 0, counterfactual: 0 };
       entry.tasks += 1;
-      for (const run of task.runs) {
-        const log = run.tokenLogs[0];
-        const runCost = run.costUsd ?? log?.costUsd ?? 0;
+      for (const run of runs) {
+        const hasLog = run.inputTokens !== null;
+        const runCost = run.costUsd ?? run.logCost ?? 0;
         const runCounterfactual =
-          log?.counterfactualUsd ??
-          (log && referenceProfile
+          run.counterfactual ??
+          (hasLog && referenceProfile
             ? priceUsage(
                 {
-                  inputTokens: log.inputTokens,
-                  outputTokens: log.outputTokens,
-                  cacheCreationTokens: log.cacheCreationTokens,
-                  cacheReadTokens: log.cacheReadTokens,
+                  inputTokens: run.inputTokens ?? 0,
+                  outputTokens: run.outputTokens ?? 0,
+                  cacheCreationTokens: run.cacheCreationTokens ?? 0,
+                  cacheReadTokens: run.cacheReadTokens ?? 0,
                 },
                 referenceProfile,
               )
@@ -589,13 +598,23 @@ export class RouterService {
         counterfactual += runCounterfactual;
       }
       byTier.set(tier, entry);
+    };
+    let current: RunTotalRow[] = [];
+    for (const row of rows) {
+      if (current.length > 0 && current[0]?.taskId !== row.taskId) {
+        settle(current);
+        current = [];
+      }
+      current.push(row);
     }
+    if (current.length > 0) settle(current);
     const strategies = await prisma.routingDecision.groupBy({
       by: ["strategy"],
-      where: projectId ? { task: { projectId } } : {},
+      where: { createdAt: { gte: since }, ...(projectId ? { task: { projectId } } : {}) },
       _count: { _all: true },
     });
     return {
+      windowDays: TELEMETRY_DAYS,
       referenceModelId: referenceProfile?.id ?? null,
       completedTasks: completed,
       costUsd: round(cost),

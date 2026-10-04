@@ -11,7 +11,7 @@ import type {
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
 import type { z } from "zod";
-import { isActive, isRunnable } from "../domain/task-state";
+import { RUNNABLE_STATUSES, isActive, isRunnable } from "../domain/task-state";
 import { badRequest, conflict, notFound } from "../errors";
 import type { WsHub } from "../infrastructure/ws-hub";
 import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toTaskDto } from "./mappers";
@@ -119,9 +119,15 @@ export class TaskService {
       if (!config) throw badRequest("Agent configuration not found");
     }
 
-    const updated = await this.prisma.task.update({
-      where: { id },
+    if (this.scheduler.isQueued(id) || this.scheduler.activeRunOf(id) !== null)
+      throw conflict("Task is already queued or running");
+    const claimed = await this.prisma.task.updateMany({
+      where: { id, status: { in: [...RUNNABLE_STATUSES] } },
       data: { status: "QUEUED", ...(input.modelId ? { modelOverride: input.modelId } : {}) },
+    });
+    if (claimed.count !== 1) throw conflict("Task is already queued or running");
+    const updated = await this.prisma.task.findUniqueOrThrow({
+      where: { id },
       include: taskIncludeLastRun(),
     });
     this.publish(updated.id, updated.projectId, "QUEUED");

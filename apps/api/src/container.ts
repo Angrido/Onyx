@@ -315,6 +315,8 @@ export async function createContainer(
       });
     },
     afterRun: () => {
+      router.forgetTelemetry();
+      savings.forget();
       void spending.budgets?.refresh().catch(() => undefined);
     },
   });

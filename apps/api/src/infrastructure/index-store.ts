@@ -166,7 +166,20 @@ export class IndexStore {
       async (tx) => {
         const existing = await tx.fileNode.findMany({
           where: { projectId },
-          select: { id: true, relPath: true, contentHash: true, analyzerVersion: true },
+          select: {
+            id: true,
+            relPath: true,
+            contentHash: true,
+            analyzerVersion: true,
+            inDegree: true,
+            outDegree: true,
+            centrality: true,
+            blastRadius: true,
+            inCycle: true,
+            domain: true,
+            isSensitive: true,
+            isBinary: true,
+          },
         });
         const existingByPath = new Map(existing.map((node) => [node.relPath, node]));
         const removed = existing
@@ -195,7 +208,10 @@ export class IndexStore {
             previous.contentHash === file.contentHash &&
             previous.analyzerVersion === index.analyzerVersion;
           if (unchanged) {
-            await tx.fileNode.update({ where: { id: previous.id }, data: metricData });
+            const same = (Object.keys(metricData) as (keyof typeof metricData)[]).every(
+              (key) => previous[key] === metricData[key],
+            );
+            if (!same) await tx.fileNode.update({ where: { id: previous.id }, data: metricData });
             idByPath.set(file.relPath, previous.id);
             continue;
           }
@@ -230,7 +246,6 @@ export class IndexStore {
           }
         }
 
-        await tx.dependencyEdge.deleteMany({ where: { projectId } });
         const edgeRows = index.graph.edges.flatMap((edge) => {
           const fromId = idByPath.get(edge.from);
           if (fromId === undefined) return [];
@@ -246,7 +261,42 @@ export class IndexStore {
             },
           ];
         });
-        for (const rows of chunks(edgeRows)) await tx.dependencyEdge.createMany({ data: rows });
+        const stored = await tx.dependencyEdge.findMany({
+          where: { projectId },
+          select: {
+            id: true,
+            fromId: true,
+            toId: true,
+            external: true,
+            kind: true,
+            specifier: true,
+            symbols: true,
+          },
+        });
+        const edgeKey = (edge: Omit<(typeof stored)[number], "id">) =>
+          JSON.stringify([
+            edge.fromId,
+            edge.toId,
+            edge.external,
+            edge.kind,
+            edge.specifier,
+            edge.symbols,
+          ]);
+        const storedByKey = new Map<string, string[]>();
+        for (const edge of stored) {
+          const key = edgeKey(edge);
+          storedByKey.set(key, [...(storedByKey.get(key) ?? []), edge.id]);
+        }
+        const added: typeof edgeRows = [];
+        for (const row of edgeRows) {
+          const ids = storedByKey.get(edgeKey({ ...row, symbols: row.symbols }));
+          if (ids && ids.length > 0) ids.pop();
+          else added.push(row);
+        }
+        const obsolete = [...storedByKey.values()].flat();
+        for (const ids of chunks(obsolete))
+          await tx.dependencyEdge.deleteMany({ where: { id: { in: ids } } });
+        for (const rows of chunks(added)) await tx.dependencyEdge.createMany({ data: rows });
 
         await tx.project.update({
           where: { id: projectId },

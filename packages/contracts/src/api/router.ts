@@ -174,6 +174,7 @@ export const TierSpendSchema = z.object({
 export type TierSpend = z.infer<typeof TierSpendSchema>;
 
 export const RoutingTelemetrySchema = z.object({
+  windowDays: z.number().int(),
   referenceModelId: z.string().nullable(),
   completedTasks: z.number().int(),
   costUsd: z.number(),

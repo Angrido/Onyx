@@ -1,6 +1,17 @@
 import { z } from "zod";
-import { TaskKindSchema, TaskStatusSchema } from "../domain";
+import { RunStatusSchema, TaskKindSchema, TaskStatusSchema } from "../domain";
 import { RunDtoSchema } from "./runs";
+
+export const RunSummaryDtoSchema = z.object({
+  id: z.string(),
+  status: RunStatusSchema,
+  modelId: z.string(),
+  costUsd: z.number().nullable(),
+  changedFileCount: z.number().int(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+});
+export type RunSummaryDto = z.infer<typeof RunSummaryDtoSchema>;
 
 export const CreateTaskRequestSchema = z.object({
   projectId: z.string().min(1),
@@ -46,7 +57,7 @@ export const TaskDtoSchema = z.object({
   updatedAt: z.string(),
   startedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
-  lastRun: RunDtoSchema.nullable(),
+  lastRun: RunSummaryDtoSchema.nullable(),
 });
 export type TaskDto = z.infer<typeof TaskDtoSchema>;
 

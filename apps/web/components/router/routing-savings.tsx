@@ -31,7 +31,8 @@ export function RoutingSavings({ telemetry }: { telemetry: RoutingTelemetry }) {
           Cost per completed task vs all on {reference}
         </CardTitle>
         <CardDescription>
-          Every run is also priced as if it had run on {reference} with the same token usage.
+          Every run of the last {telemetry.windowDays} days is also priced as if it had run on{" "}
+          {reference} with the same token usage.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">

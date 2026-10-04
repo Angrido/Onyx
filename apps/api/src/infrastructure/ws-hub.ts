@@ -34,13 +34,22 @@ export type SnapshotProvider = (channel: string) => ServerMessage[];
 
 export interface WsHubOptions {
   bufferSize?: number;
+  bufferBytes?: number;
   maxChannels?: number;
   maxBufferedBytes?: number;
+  coalesceMs?: number;
 }
 
 interface ChannelState {
   lastSeq: number;
-  buffer: SequencedServerMessage[];
+  buffer: { message: SequencedServerMessage; text: string }[];
+  bytes: number;
+}
+
+interface PendingText {
+  key: string;
+  text: string;
+  timer: NodeJS.Timeout;
 }
 
 interface SubscriptionState {
@@ -120,16 +129,30 @@ export class WsHub implements RunEventPublisher {
   private readonly snapshotProviders: Array<{ prefix: string; provider: SnapshotProvider }> = [];
   private nextSubscriberId = 1;
   private readonly bufferSize: number;
+  private readonly bufferBytes: number;
   private readonly maxChannels: number;
   private readonly maxBufferedBytes: number;
+  private readonly coalesceMs: number;
+  private readonly pendingDeltas = new Map<string, PendingText & { index: number }>();
+  private readonly pendingOutput = new Map<string, PendingText>();
 
   constructor(
     private readonly replaySource: RunReplaySource,
     options: WsHubOptions = {},
   ) {
     this.bufferSize = options.bufferSize ?? 500;
+    this.bufferBytes = options.bufferBytes ?? 2 * 1024 * 1024;
     this.maxChannels = options.maxChannels ?? 512;
     this.maxBufferedBytes = options.maxBufferedBytes ?? 8 * 1024 * 1024;
+    this.coalesceMs = options.coalesceMs ?? 25;
+  }
+
+  releaseRun(runId: string): void {
+    this.flushDelta(runId);
+    const state = this.channelStates.get(channelNames.run(runId));
+    if (!state) return;
+    state.buffer = [];
+    state.bytes = 0;
   }
 
   get connectionCount(): number {
@@ -147,11 +170,16 @@ export class WsHub implements RunEventPublisher {
   }
 
   disconnect(subscriber: Subscriber): void {
-    for (const channel of subscriber.subscriptions.keys()) {
-      this.listeners.get(channel)?.delete(subscriber);
-    }
+    for (const channel of subscriber.subscriptions.keys()) this.removeListener(channel, subscriber);
     subscriber.subscriptions.clear();
     this.subscribers.delete(subscriber);
+  }
+
+  private removeListener(channel: string, subscriber: Subscriber): void {
+    const set = this.listeners.get(channel);
+    if (!set) return;
+    set.delete(subscriber);
+    if (set.size === 0) this.listeners.delete(channel);
   }
 
   async subscribe(
@@ -181,6 +209,7 @@ export class WsHub implements RunEventPublisher {
     });
     for (const channel of fresh) {
       if (since[channel] !== undefined) continue;
+      if (channel.startsWith("pty:")) this.flushOutput(channel.slice("pty:".length));
       for (const { prefix, provider } of this.snapshotProviders) {
         if (!channel.startsWith(prefix)) continue;
         for (const message of provider(channel)) this.send(subscriber, message);
@@ -194,11 +223,12 @@ export class WsHub implements RunEventPublisher {
   unsubscribe(subscriber: Subscriber, channels: readonly string[]): void {
     for (const channel of channels) {
       subscriber.subscriptions.delete(channel);
-      this.listeners.get(channel)?.delete(subscriber);
+      this.removeListener(channel, subscriber);
     }
   }
 
   publishRunEvent(runId: string, seq: number, ts: string, items: RunItem[]): void {
+    this.flushDelta(runId);
     this.publishSequenced({
       v: WS_PROTOCOL_VERSION,
       type: "run.event",
@@ -210,6 +240,31 @@ export class WsHub implements RunEventPublisher {
   }
 
   publishRunDelta(runId: string, index: number, text: string): void {
+    const pending = this.pendingDeltas.get(runId);
+    if (pending && pending.index !== index) this.flushDelta(runId);
+    const current = this.pendingDeltas.get(runId);
+    if (current) {
+      current.text += text;
+      return;
+    }
+    if (this.coalesceMs === 0) {
+      this.sendDelta(runId, index, text);
+      return;
+    }
+    const timer = setTimeout(() => this.flushDelta(runId), this.coalesceMs);
+    timer.unref();
+    this.pendingDeltas.set(runId, { key: runId, index, text, timer });
+  }
+
+  private flushDelta(runId: string): void {
+    const pending = this.pendingDeltas.get(runId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingDeltas.delete(runId);
+    this.sendDelta(runId, pending.index, pending.text);
+  }
+
+  private sendDelta(runId: string, index: number, text: string): void {
     this.publishTransient({
       v: WS_PROTOCOL_VERSION,
       type: "run.delta",
@@ -230,10 +285,30 @@ export class WsHub implements RunEventPublisher {
   }
 
   publishPtyOutput(terminalId: string, data: string): void {
-    this.publishTransient(ptyOutputMessage(terminalId, data));
+    if (this.coalesceMs === 0) {
+      this.publishTransient(ptyOutputMessage(terminalId, data));
+      return;
+    }
+    const pending = this.pendingOutput.get(terminalId);
+    if (pending) {
+      pending.text += data;
+      return;
+    }
+    const timer = setTimeout(() => this.flushOutput(terminalId), this.coalesceMs);
+    timer.unref();
+    this.pendingOutput.set(terminalId, { key: terminalId, text: data, timer });
+  }
+
+  flushOutput(terminalId: string): void {
+    const pending = this.pendingOutput.get(terminalId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingOutput.delete(terminalId);
+    this.publishTransient(ptyOutputMessage(terminalId, pending.text));
   }
 
   publishPtyState(terminal: TerminalDto): void {
+    this.flushOutput(terminal.id);
     this.publishTransient(ptyStateMessage(terminal));
   }
 
@@ -307,18 +382,20 @@ export class WsHub implements RunEventPublisher {
   }
 
   private publishTransient(message: ServerMessage & { ch: string }): void {
+    let text: string | null = null;
     for (const subscriber of this.listeners.get(message.ch) ?? []) {
-      if (subscriber.subscriptions.get(message.ch)?.replaying === false)
-        this.send(subscriber, message);
+      if (subscriber.subscriptions.get(message.ch)?.replaying !== false) continue;
+      text ??= JSON.stringify(message);
+      this.sendText(subscriber, text);
     }
   }
 
   private async replay(subscriber: Subscriber, channel: string, since: number): Promise<void> {
     const state = subscriber.subscriptions.get(channel);
     if (!state) return;
-    const buffered = (this.channelStates.get(channel)?.buffer ?? []).filter(
-      (message) => message.seq > since,
-    );
+    const buffered = (this.channelStates.get(channel)?.buffer ?? [])
+      .map((entry) => entry.message)
+      .filter((message) => message.seq > since);
     const firstBufferedSeq = buffered[0]?.seq ?? null;
     const runId = runIdFromChannel(channel);
     let stored: SequencedServerMessage[] = [];
@@ -342,14 +419,22 @@ export class WsHub implements RunEventPublisher {
 
   private publishSequenced(message: SequencedServerMessage): void {
     const state = this.stateOf(message.ch);
+    const text = JSON.stringify(message);
     state.lastSeq = Math.max(state.lastSeq, message.seq);
-    state.buffer.push(message);
-    if (state.buffer.length > this.bufferSize) state.buffer.shift();
+    state.buffer.push({ message, text });
+    state.bytes += text.length;
+    while (
+      state.buffer.length > 1 &&
+      (state.buffer.length > this.bufferSize || state.bytes > this.bufferBytes)
+    ) {
+      const dropped = state.buffer.shift();
+      state.bytes -= dropped?.text.length ?? 0;
+    }
     for (const subscriber of this.listeners.get(message.ch) ?? []) {
       const subscription = subscriber.subscriptions.get(message.ch);
       if (!subscription) continue;
       if (subscription.replaying) subscription.queued.push(message);
-      else this.deliver(subscriber, subscription, message);
+      else this.deliver(subscriber, subscription, message, text);
     }
   }
 
@@ -357,20 +442,25 @@ export class WsHub implements RunEventPublisher {
     subscriber: Subscriber,
     subscription: SubscriptionState,
     message: SequencedServerMessage,
+    text?: string,
   ): void {
     if (message.seq <= subscription.lastSentSeq) return;
     subscription.lastSentSeq = message.seq;
-    this.send(subscriber, message);
+    this.sendText(subscriber, text ?? JSON.stringify(message));
   }
 
   private send(subscriber: Subscriber, message: ServerMessage): void {
+    this.sendText(subscriber, JSON.stringify(message));
+  }
+
+  private sendText(subscriber: Subscriber, text: string): void {
     if (!this.subscribers.has(subscriber)) return;
     if (subscriber.connection.bufferedAmount > this.maxBufferedBytes) {
       subscriber.connection.close(1013, "Client too slow");
       this.disconnect(subscriber);
       return;
     }
-    subscriber.connection.send(JSON.stringify(message));
+    subscriber.connection.send(text);
   }
 
   private nextSeq(channel: string): number {
@@ -385,7 +475,7 @@ export class WsHub implements RunEventPublisher {
       return existing;
     }
     this.evictIdleChannels();
-    const created: ChannelState = { lastSeq: 0, buffer: [] };
+    const created: ChannelState = { lastSeq: 0, buffer: [], bytes: 0 };
     this.channelStates.set(channel, created);
     return created;
   }

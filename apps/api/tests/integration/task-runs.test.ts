@@ -328,6 +328,18 @@ describe("task execution", () => {
     expect(again.status).toBe(409);
   });
 
+  it("runs a task once when two requests arrive together (M6)", async () => {
+    const task = await createTask("Twice [stub:quick]");
+    const [first, second] = await Promise.all([
+      api.post<RunTaskResponse>(`/api/tasks/${task.id}/run`, {}),
+      api.post<RunTaskResponse>(`/api/tasks/${task.id}/run`, {}),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([202, 409]);
+    const detail = await waitForTask(task.id, ["COMPLETED"]);
+    await context.container.scheduler.settledTask(task.id);
+    expect(detail.runs).toHaveLength(1);
+  });
+
   it("cancels a queued task before it starts", async () => {
     const blocker = await createTask("Blocker [stub:hang]");
     const waiting = await createTask("Waiting [stub:quick]");

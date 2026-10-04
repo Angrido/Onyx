@@ -411,6 +411,7 @@ export class RunExecutor {
       }),
     );
     await writer.flush();
+    hub.releaseRun(prepared.runId);
     const changedFiles = this.normalizeChanged(prepared.projectRoot, recorder.changedFiles);
     const reference = await this.deps.router.referenceProfile().catch(() => null);
     const audit = await this.readAudit(prepared, recorder.reads);
@@ -555,7 +556,8 @@ export class RunExecutor {
       status: taskStatus,
       runId: prepared.runId,
     });
-    if (exit.sawInit) indexes.scheduleRefresh(prepared.projectId);
+    if (exit.sawInit && !prepared.isolated && recorder.mayHaveWritten)
+      indexes.scheduleRefresh(prepared.projectId);
     if (changedFiles.length > 0 && !prepared.isolated) {
       try {
         this.deps.onRunFinished?.({
