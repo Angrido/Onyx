@@ -77,6 +77,7 @@ export const ImportRepoRequestSchema = z.object({
     .optional(),
   branch: z.string().trim().min(1).max(255).optional(),
   createDefaultWorkspaces: z.boolean().default(true),
+  proposeWorkspaces: z.boolean().default(false),
 });
 export type ImportRepoRequest = z.input<typeof ImportRepoRequestSchema>;
 

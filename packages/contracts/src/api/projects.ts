@@ -1,6 +1,50 @@
 import { z } from "zod";
+import { DomainSchema } from "../domain";
 import { IsoDateSchema } from "./common";
 import { WorkspaceDtoSchema } from "./workspaces";
+
+export const WorkspaceDraftSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  domain: DomainSchema,
+  pathGlobs: z.array(z.string().trim().min(1).max(256)).min(1).max(32),
+});
+export type WorkspaceDraft = z.infer<typeof WorkspaceDraftSchema>;
+
+export const WorkspaceProposalSchema = WorkspaceDraftSchema.extend({ reason: z.string() });
+export type WorkspaceProposal = z.infer<typeof WorkspaceProposalSchema>;
+
+export const WorkspaceProposalRequestSchema = z.object({
+  rootPath: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1024)
+    .refine((value) => value.startsWith("/"), "rootPath must be an absolute path"),
+});
+export type WorkspaceProposalRequest = z.input<typeof WorkspaceProposalRequestSchema>;
+
+export const WorkspaceProposalResponseSchema = z.object({
+  workspaces: z.array(WorkspaceProposalSchema),
+});
+export type WorkspaceProposalResponse = z.infer<typeof WorkspaceProposalResponseSchema>;
+
+export const StackCommandSchema = z.object({
+  rule: z.string(),
+  command: z.string(),
+  reason: z.string(),
+  risky: z.boolean(),
+  allowed: z.boolean(),
+});
+export type StackCommand = z.infer<typeof StackCommandSchema>;
+
+export const ProjectStackDtoSchema = z.object({
+  stacks: z.array(z.string()),
+  packageManager: z.string().nullable(),
+  commands: z.array(StackCommandSchema),
+  continuationRuns: z.number().int(),
+  windowDays: z.number().int(),
+});
+export type ProjectStackDto = z.infer<typeof ProjectStackDtoSchema>;
 
 export const CreateProjectRequestSchema = z.object({
   name: z.string().trim().min(1).max(64),
@@ -13,6 +57,8 @@ export const CreateProjectRequestSchema = z.object({
   gitRemote: z.string().trim().max(1024).optional(),
   defaultBranch: z.string().trim().min(1).max(128).default("main"),
   createDefaultWorkspaces: z.boolean().default(true),
+  proposeWorkspaces: z.boolean().default(false),
+  workspaces: z.array(WorkspaceDraftSchema).max(12).optional(),
 });
 export type CreateProjectRequest = z.input<typeof CreateProjectRequestSchema>;
 

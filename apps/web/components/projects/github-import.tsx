@@ -367,6 +367,7 @@ export function GitHubImport({
         name: name.trim() || projectNameFor(selected.name),
         ...(branch.trim() ? { branch: branch.trim() } : {}),
         createDefaultWorkspaces: defaultWorkspaces,
+        proposeWorkspaces: true,
       });
     },
     onSuccess: (created) => {

@@ -1,25 +1,129 @@
 "use client";
 
-import type { AllowedToolsResponse } from "@onyx/contracts";
-import { useMutation } from "@tanstack/react-query";
-import { Loader2, Plus, Terminal, X } from "lucide-react";
+import type { AllowedToolsResponse, ProjectStackDto } from "@onyx/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Loader2, Plus, Sparkles, Terminal, TriangleAlert, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
+import { queryKeys } from "@/lib/api/keys";
 import { ruleFor, ruleProgram } from "@/lib/permissions";
 
+const STACK_LABELS: Record<string, string> = {
+  node: "Node.js",
+  python: "Python",
+  go: "Go",
+  rust: "Rust",
+  make: "make",
+  docker: "Docker",
+};
+
+function StackSuggestions({
+  stack,
+  pending,
+  onAllow,
+}: {
+  stack: ProjectStackDto;
+  pending: boolean;
+  onAllow: (rules: string[]) => void;
+}) {
+  const open = stack.commands.filter((command) => !command.allowed);
+  const [unchecked, setUnchecked] = useState<Set<string>>(
+    () => new Set(open.filter((command) => command.risky).map((command) => command.rule)),
+  );
+  if (stack.commands.length === 0) return null;
+  const chosen = open
+    .filter((command) => !unchecked.has(command.rule))
+    .map((command) => command.rule);
+  const label = stack.stacks
+    .map((name) =>
+      name === "node" && stack.packageManager
+        ? `${STACK_LABELS[name] ?? name} (${stack.packageManager})`
+        : (STACK_LABELS[name] ?? name),
+    )
+    .join(" · ");
+  return (
+    <div
+      className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-3 text-xs"
+      data-testid="stack-commands"
+    >
+      <p className="flex items-center gap-2 font-medium">
+        <Sparkles className="size-3.5 text-primary" />
+        Suggested for this project · {label}
+      </p>
+      <p className="text-muted-foreground">
+        {stack.continuationRuns > 0
+          ? `${stack.continuationRuns} ${stack.continuationRuns === 1 ? "run was" : "runs were"} spent in the last ${stack.windowDays} days continuing after a refused command. `
+          : ""}
+        Allowing them now saves the runs that would stop on a refused command. Commands that install
+        packages or build images are not selected: they can run code from outside the project.
+      </p>
+      <ul className="space-y-1">
+        {stack.commands.map((command) => (
+          <li key={command.rule}>
+            <label className="flex min-h-6 items-center gap-2.5">
+              {command.allowed ? (
+                <Check className="size-4 text-success" aria-label="Already allowed" />
+              ) : (
+                <input
+                  type="checkbox"
+                  className="size-4 accent-[var(--primary)]"
+                  checked={!unchecked.has(command.rule)}
+                  onChange={(event) => {
+                    const next = new Set(unchecked);
+                    if (event.target.checked) next.delete(command.rule);
+                    else next.add(command.rule);
+                    setUnchecked(next);
+                  }}
+                />
+              )}
+              <span className="font-mono">{command.command}</span>
+              {command.risky ? (
+                <span className="inline-flex items-center gap-1 text-warning">
+                  <TriangleAlert className="size-3" />
+                  runs third-party code
+                </span>
+              ) : null}
+              <span className="min-w-0 truncate text-muted-foreground">{command.reason}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {open.length > 0 ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={pending || chosen.length === 0}
+          onClick={() => onAllow(chosen)}
+        >
+          {pending ? <Loader2 className="animate-spin" /> : <Check />}
+          Allow {chosen.length} selected
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function AllowedCommands({ projectId, initial }: { projectId: string; initial: string[] }) {
+  const queryClient = useQueryClient();
   const [rules, setRules] = useState(initial);
   const [draft, setDraft] = useState("");
+  const stack = useQuery({
+    queryKey: queryKeys.projectStack(projectId),
+    queryFn: () => api.get<ProjectStackDto>(`/api/projects/${projectId}/stack`),
+  });
   const save = useMutation({
     mutationFn: (next: string[]) =>
       api.put<AllowedToolsResponse>(`/api/projects/${projectId}/allowed-tools`, {
         allowedTools: next,
       }),
-    onSuccess: (response) => setRules(response.allowedTools),
+    onSuccess: (response) => {
+      setRules(response.allowedTools);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectStack(projectId) });
+    },
     onError: (error) => toast.error(errorMessage(error)),
   });
 
@@ -73,6 +177,16 @@ export function AllowedCommands({ projectId, initial }: { projectId: string; ini
             ))}
           </ul>
         )}
+        {stack.data ? (
+          <StackSuggestions
+            key={stack.data.commands
+              .map((command) => `${command.rule}:${command.allowed}`)
+              .join("|")}
+            stack={stack.data}
+            pending={save.isPending}
+            onAllow={(chosen) => save.mutate([...new Set([...rules, ...chosen])])}
+          />
+        ) : null}
         <form className="flex gap-2" onSubmit={add}>
           <Input
             aria-label="Command to allow"

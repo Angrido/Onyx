@@ -4,12 +4,15 @@ import {
   ResetWorkspaceRequestSchema,
   UpdateAllowedToolsRequestSchema,
   UpdateWorkspaceRequestSchema,
+  WorkspaceProposalRequestSchema,
   type AllowedToolsResponse,
   type ProjectDetailDto,
   type ProjectListResponse,
+  type ProjectStackDto,
   type ResetWorkspaceResponse,
   type SessionListResponse,
   type WorkspaceDto,
+  type WorkspaceProposalResponse,
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
@@ -27,6 +30,19 @@ export function registerProjectRoutes(app: FastifyInstance, container: Container
     reply.status(201);
     return project;
   });
+
+  app.post(
+    "/api/projects/workspace-proposal",
+    async (request): Promise<WorkspaceProposalResponse> => ({
+      workspaces: await projects.proposal(
+        WorkspaceProposalRequestSchema.parse(request.body).rootPath,
+      ),
+    }),
+  );
+
+  app.get("/api/projects/:id/stack", async (request): Promise<ProjectStackDto> =>
+    projects.stack(idParam(request.params)),
+  );
 
   app.get("/api/projects/:id", async (request): Promise<ProjectDetailDto> =>
     projects.get(idParam(request.params)),

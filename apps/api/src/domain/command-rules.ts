@@ -118,12 +118,12 @@ export function mergeRules(current: readonly string[], added: readonly string[])
   return merged;
 }
 
+export const CONTINUE_PROMPT_PREFIX = "The commands you could not run before are now allowed";
+
 export function continuePrompt(rules: readonly string[], reply: string | undefined): string {
   const allowed = rules.map((rule) => BASH_RULE.exec(rule)?.[1] ?? rule).join(", ");
   const note =
-    rules.length > 0
-      ? `The commands you could not run before are now allowed: ${allowed}.`
-      : "Nothing new was allowed.";
+    rules.length > 0 ? `${CONTINUE_PROMPT_PREFIX}: ${allowed}.` : "Nothing new was allowed.";
   const answer = reply?.trim();
   return answer ? `${note}\n\n${answer}` : `${note} Continue the task.`;
 }

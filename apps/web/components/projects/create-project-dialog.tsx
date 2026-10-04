@@ -1,8 +1,12 @@
 "use client";
 
-import type { ProjectDetailDto } from "@onyx/contracts";
+import type {
+  ProjectDetailDto,
+  WorkspaceProposal,
+  WorkspaceProposalResponse,
+} from "@onyx/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, Loader2, Plus } from "lucide-react";
+import { FolderOpen, Layers3, Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState, type FormEvent } from "react";
 import { toast } from "sonner";
@@ -43,6 +47,18 @@ function LocalFolderForm({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [rootPath, setRootPath] = useState(suggestedRoot);
+  const [proposal, setProposal] = useState<WorkspaceProposal[] | null>(null);
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+
+  const preview = useMutation({
+    mutationFn: () =>
+      api.post<WorkspaceProposalResponse>("/api/projects/workspace-proposal", { rootPath }),
+    onSuccess: (response) => {
+      setProposal(response.workspaces);
+      setSkipped(new Set());
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -50,6 +66,17 @@ function LocalFolderForm({
         name,
         rootPath,
         createDefaultWorkspaces: defaults,
+        ...(defaults && proposal
+          ? {
+              workspaces: proposal
+                .filter((workspace) => !skipped.has(workspace.name))
+                .map(({ name: workspaceName, domain, pathGlobs }) => ({
+                  name: workspaceName,
+                  domain,
+                  pathGlobs,
+                })),
+            }
+          : { proposeWorkspaces: true }),
       }),
     onSuccess: (project) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
@@ -84,10 +111,69 @@ function LocalFolderForm({
           id="project-root"
           className="font-mono text-xs"
           value={rootPath}
-          onChange={(event) => setRootPath(event.target.value)}
+          onChange={(event) => {
+            setRootPath(event.target.value);
+            setProposal(null);
+          }}
+          onBlur={() => {
+            if (defaults && rootPath.startsWith("/") && proposal === null && !preview.isPending)
+              preview.mutate();
+          }}
           required
         />
       </Field>
+      {defaults ? (
+        <div className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-2 font-medium">
+              <Layers3 className="size-3.5 text-primary" />
+              Workspaces from the folder structure
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={!rootPath.startsWith("/") || preview.isPending}
+              onClick={() => preview.mutate()}
+            >
+              {preview.isPending ? <Loader2 className="animate-spin" /> : null}
+              {proposal === null ? "Preview" : "Refresh"}
+            </Button>
+          </div>
+          {proposal === null ? (
+            <p className="text-muted-foreground">
+              Onyx looks at the folders (apps, packages, src, prisma, deploy…) and proposes one
+              workspace per area it recognises. Preview them to choose.
+            </p>
+          ) : proposal.length === 0 ? (
+            <p className="text-muted-foreground">No workspace proposed for this folder.</p>
+          ) : (
+            <ul className="space-y-1" data-testid="workspace-proposal">
+              {proposal.map((workspace) => (
+                <li key={workspace.name}>
+                  <label className="flex min-h-6 items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--primary)]"
+                      checked={!skipped.has(workspace.name)}
+                      onChange={(event) => {
+                        const next = new Set(skipped);
+                        if (event.target.checked) next.delete(workspace.name);
+                        else next.add(workspace.name);
+                        setSkipped(next);
+                      }}
+                    />
+                    <span className="font-medium">{workspace.name}</span>
+                    <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                      {workspace.reason}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
       <DialogFooter>
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
@@ -173,7 +259,7 @@ export function CreateProjectDialog({
               checked={defaults}
               onChange={(event) => setDefaults(event.target.checked)}
             />
-            Create Frontend, Backend, Database and Infra workspaces
+            Create workspaces for the areas of the project (frontend, backend, database, infra…)
           </label>
         </div>
       </DialogContent>

@@ -336,6 +336,7 @@ export class GitHubService {
         gitRemote: repo.html_url,
         defaultBranch: job.branch ?? repo.default_branch,
         createDefaultWorkspaces: input.createDefaultWorkspaces,
+        proposeWorkspaces: input.proposeWorkspaces,
       });
       job.projectId = project.id;
       job.state = "done";

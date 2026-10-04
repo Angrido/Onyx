@@ -6,6 +6,7 @@ export const queryKeys = {
   projects: ["projects"] as const,
   paletteProjects: ["projects", "palette"] as const,
   project: (id: string) => ["projects", id] as const,
+  projectStack: (id: string) => ["projects", id, "stack"] as const,
   tasks: (filter: { projectId?: string; status?: string } = {}) => ["tasks", filter] as const,
   allTasks: ["tasks"] as const,
   paletteTasks: ["tasks", "palette"] as const,
