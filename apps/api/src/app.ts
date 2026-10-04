@@ -23,6 +23,7 @@ import { registerTaskRoutes } from "./http/routes/task-routes";
 import { registerTddRoutes } from "./http/routes/tdd-routes";
 import { registerTerminalRoutes } from "./http/routes/terminal-routes";
 import { registerWsRoutes } from "./http/routes/ws-routes";
+import { registerLocale } from "./http/locale";
 import { createOriginPolicy } from "./http/origin-policy";
 import { registerSecurity } from "./http/security";
 
@@ -41,6 +42,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   await app.register(rateLimit, { global: false });
   await app.register(websocket, { options: { maxPayload: MAX_WS_MESSAGE_BYTES } });
 
+  registerLocale(app);
   registerErrorHandling(app);
   registerSecurity(app, {
     auth: container.auth,
