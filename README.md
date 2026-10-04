@@ -16,7 +16,8 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 5 | TDD Auto-Loop: test Vitest/Jest in PTY, digest dei fallimenti, anti-cheat, gate, escalation su stallo | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 6 | Orchestrator multi-agente: planner, approvazione del piano, DAG, git worktree in parallelo, merge assistito, sub-agenti nativi, budget, centro approvazioni | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 7 | Hardening: token cifrati, backup e ripristino testati, aggiornamento e verifica di Claude Code, firme di movimento, accessibilità, palette dei comandi, Lighthouse ≥ 90 | **Completata** (manca solo la registrazione delle trascrizioni reali, vedi `architecture.md` §16) |
-| 2.0 · 0 | Audit (`docs/audit-2.0.md`), correzione dei bug critici, piano della 2.0 (`docs/roadmap-2.0.md`) | **Completata**; milestone 2.0 in attesa di approvazione |
+| 2.0 · 0 | Audit (`docs/audit-2.0.md`), correzione dei bug critici, piano della 2.0 (`docs/roadmap-2.0.md`) | **Completata** |
+| 2.0 · 1 | Sprechi di token: mappa tenuta per la sessione, pacchetto non rimandato, telemetria della cache, registro dei risparmi, verifica dei piani sui test già rossi, falsi positivi del guard | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -90,7 +91,15 @@ La pagina **Savings** lo dice con un verdetto e separa ciò che è misurato da c
 
 - **stima netta**: pacchetto, mappa ed espansioni MCP contro la lettura completa di target e dipendenze, meno i file che l'agente ha riletto comunque con `Read` (succede sempre prima di modificarli);
 - **misura**: con *Run the experiment* una quota delle sessioni nuove (default 25%) parte senza contesto Onyx; i due gruppi si confrontano sui token reali riportati da Claude, con un test statistico. Le run di controllo costano come senza Onyx, quindi l'esperimento è spento di default;
-- **controlli** su copertura del pacchetto, riletture e stima netta, con i file più riletti; cache dei prompt e routing sono mostrati a parte.
+- **controlli** su copertura del pacchetto, riletture e stima netta, con i file più riletti; cache dei prompt e routing sono mostrati a parte;
+- **registro dei risparmi**: una riga per ogni modo in cui Onyx risparmia token (contesto, mappa tenuta per la sessione, pacchetto non rimandato, cache dei prompt, routing), ciascuna marcata *Measured* o *Estimate* con il calcolo usato;
+- **cache dei prompt nelle riprese**: per ogni run che riprende una sessione, quanti token Claude ha riletto dalla cache e, se l'ha dovuta riscrivere, perché (prompt di sistema cambiato, modello cambiato, cache scaduta, non spiegato).
+
+### Meno token nelle sessioni riprese (2.0, milestone 1)
+
+- Una sessione tiene la mappa del progetto con cui è partita: le run che la riprendono mandano lo stesso prompt di sistema e Claude rilegge la conversazione dalla cache invece di riscriverla. La mappa aggiornata entra con la sessione successiva.
+- Le run riprese non rimandano i file del pacchetto che la conversazione ha già: li elencano per nome e mandano solo quelli cambiati. Dopo una compattazione del contesto il pacchetto torna intero.
+- Nei piani multi-agente, i test già rossi prima del lavoro non fanno fallire i nodi: Onyx esegue la suite sul commit di partenza (senza token) e la verifica del nodo li ignora, a meno che non siano test dei file del nodo. Il messaggio dice quali sono stati ignorati.
 
 Dettagli in [docs/operations.md §10](docs/operations.md#10-il-risparmio-di-token-funziona).
 

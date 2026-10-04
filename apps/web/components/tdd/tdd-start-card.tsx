@@ -108,8 +108,8 @@ export function TddStartCard({ task, disabled }: { task: TaskDetailDto; disabled
               onChange={(event) => setBudget(event.target.value)}
             />
           </Field>
-          <div className="space-y-1.5 text-xs">
-            <label className="flex items-center gap-2.5 text-muted-foreground">
+          <div className="space-y-2 text-xs">
+            <label className="flex min-h-6 items-center gap-2.5 text-muted-foreground">
               <input
                 type="checkbox"
                 className="size-4 accent-[var(--primary)]"
@@ -120,7 +120,7 @@ export function TddStartCard({ task, disabled }: { task: TaskDetailDto; disabled
               Type check (tsc --noEmit)
               {!typecheckAvailable ? <span className="text-[11px]">· no tsconfig.json</span> : null}
             </label>
-            <label className="flex items-center gap-2.5 text-muted-foreground">
+            <label className="flex min-h-6 items-center gap-2.5 text-muted-foreground">
               <input
                 type="checkbox"
                 className="size-4 accent-[var(--primary)]"

@@ -473,7 +473,10 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
         input.prefix.runs > 0 ? Math.round(input.prefix.readTokens * CACHE_REWRITE_PREMIUM) : null,
       usd: null,
       runs: input.prefix.runs,
-      detail: `Resumed runs whose project map had changed but kept the one their session started with. They read ${compactTokens(input.prefix.readTokens)} tokens from Claude's cache (measured); with a new map Claude would have written them again at 1.25× instead of 0.1×.`,
+      detail:
+        input.prefix.runs > 0
+          ? `Resumed runs whose project map had changed but kept the one their session started with. They read ${compactTokens(input.prefix.readTokens)} tokens from Claude's cache (measured); with a new map Claude would have written them again at 1.25× instead of 0.1×.`
+          : "No resumed run has needed it yet: it counts the resumes whose project map changed during the session.",
     },
     {
       source: "pack-reuse",
@@ -482,7 +485,9 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
       usd: null,
       runs: input.reuse.runs,
       detail:
-        "Context pack entries the conversation already had, unchanged: listed by name instead of being sent again in resumed runs.",
+        input.reuse.runs > 0
+          ? "Context pack entries the conversation already had, unchanged: listed by name instead of being sent again in resumed runs."
+          : "No resumed run has reused the pack yet.",
     },
     {
       source: "prompt-cache",

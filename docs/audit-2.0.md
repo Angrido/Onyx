@@ -18,6 +18,21 @@ Scala di gravità:
 - **Media**: comportamento sbagliato in casi plausibili, con un aggiramento.
 - **Bassa**: caso raro, estetica, robustezza.
 
+### Stato delle correzioni
+
+| ID | Stato |
+|---|---|
+| C1–C5 | Corretti in `e1168ea` (Fase 0) |
+| A2 | Corretto nella milestone 1 (`e72e934`): verifica dei nodi rispetto ai fallimenti del commit di partenza (ADR-057) |
+| A16 | Corretto nella milestone 1 (`165531d`): mappa congelata per sessione (ADR-055), con telemetria della cache |
+| A17 | Corretto nella milestone 1 (`165531d`): voci del pacchetto già inviate solo elencate (ADR-056) |
+| M11, M12, M13 | Corretti nella milestone 1 (`e72e934`): falsi positivi del guard |
+| M17 | Lato test in `e1168ea`; lato codice ancora aperto |
+| B1 | Corretto nella milestone 1 (`165531d`): `turn_usage` dei sotto-agenti escluso dal contesto della sessione |
+| B26 | Corretto nella milestone 1: aree scorrevoli di Telemetry raggiungibili da tastiera |
+| B27 | Corretto nella milestone 1: modello d'uso dei token e della cache nello stub (`CLAUDE_STUB_USAGE=model`) |
+| Altri | Aperti; assegnati alle milestone di `docs/roadmap-2.0.md` |
+
 ## 2. Metodo
 
 1. Controlli di base sul monorepo pulito.

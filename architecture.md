@@ -2136,6 +2136,7 @@ ONYX_CONTEXT_ENABLED=true
 ONYX_CONTEXT_BUDGET_TOKENS=24000
 ONYX_MAP_BUDGET_TOKENS=4000
 ONYX_INDEX_WAIT_MS=30000
+ONYX_PROMPT_CACHE_TTL_MINUTES=5
 ANTHROPIC_API_KEY=
 CLAUDE_CODE_OAUTH_TOKEN=
 ```
@@ -2150,6 +2151,7 @@ CLAUDE_CODE_OAUTH_TOKEN=
 | `ONYX_CONTEXT_ENABLED` | `false` disattiva mappa, pacchetto e MCP |
 | `ONYX_CONTEXT_BUDGET_TOKENS` / `ONYX_MAP_BUDGET_TOKENS` | Budget stimati del pacchetto di contesto e della mappa L0 |
 | `ONYX_INDEX_WAIT_MS` | Quanto una run attende un progetto mai indicizzato prima di partire senza contesto |
+| `ONYX_PROMPT_CACHE_TTL_MINUTES` | Durata della cache dei prompt di Claude usata per classificare una cache persa come *scaduta* (default 5) |
 | `ONYX_INTERNAL_API_URL` | Facoltativa: URL con cui il server MCP raggiunge l'API (default `http://127.0.0.1:<API_PORT>`) |
 | `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` | Impostarne **una sola** (ADR-008): con entrambe l'API non parte |
 
@@ -2618,6 +2620,9 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-051 | Stima netta che sottrae le riletture dei file della baseline rilevate dalle chiamate `Read` | Stima lorda (baseline contro consegnati) | La stima lorda conta come risparmiato anche un file che l'agente poi rilegge per intero, come fa sempre prima di modificarlo; la netta è più bassa ma onesta, e i file più riletti indicano dove il pacchetto non serve |
 | ADR-052 | Comandi Bash consentiti per progetto (`Project.allowedTools`, regole `Bash(<programma> *)`) aggiunti alla lista dell'agente; proposti dalla run che li ha visti rifiutare e confermati dall'operatore con *Allow and continue*, che rimette in coda il task nella stessa sessione | Allargare la lista predefinita dell'agente; approvazione interattiva durante la run | In headless nessuno può rispondere a una richiesta di permesso: la run finisce con l'agente che chiede. Le regole per progetto restano strette dove non servono, le regole `deny` (`rm -rf`, `sudo`, `git push`) vincono comunque e i programmi rischiosi non sono preselezionati |
 | ADR-053 | I comandi `git` lanciati da Onyx ricevono un ambiente da allowlist e `-c core.fsmonitor=false -c core.hooksPath=/dev/null`; gli agenti non possono scrivere in `.git/` né leggere i file di Onyx (`config.agentProtectedPaths`) | Fidarsi della configurazione del repository; affidarsi al solo guard | Un agente poteva piantare un hook o un `fsmonitor` che l'API eseguiva con tutti i suoi segreti. Gli hook del repository non servono ai commit e ai merge di Onyx. Resta il limite dell'utente condiviso (roadmap 2.0, milestone 3) |
+| ADR-055 | Mappa del progetto congelata per sessione (`Session.contextMap`); le run riprese usano la stessa | Ricalcolare la mappa a ogni run | La mappa sta nel prompt di sistema e cambia a ogni modifica (token e ordine per centralità): con `--resume` un prefisso diverso invalida la cache di tutta la conversazione. Una mappa un po' vecchia costa meno di riscrivere la storia in cache; la sessione successiva la aggiorna |
+| ADR-056 | Pacchetto di contesto con impronta per voce (`Session.deliveredPack`): le run riprese elencano le voci invariate invece di rimandarle | Rimandare sempre il pacchetto; non rimandarlo mai nelle riprese | Le voci invariate sono già nella conversazione; quelle cambiate vanno rimandate perché l'agente veda lo stato attuale; dopo un `compact_boundary` la conversazione è riassunta e il pacchetto torna intero |
+| ADR-057 | Fallimenti di base dei piani calcolati eseguendo suite e `tsc` sul commit di partenza in un worktree temporaneo, condivisi per commit; ignorati solo nella suite completa e nei gate e mai per i file del nodo | Verifica di nodo solo sui test correlati; correggere prima tutti i test rossi | I nodi paralleli partono dallo stesso commit e vedevano i test che un nodo vicino stava correggendo, sprecando tentativi e token; i test correlati ai file del nodo restano obbligatori, e la verifica finale dichiara cosa ha ignorato |
 | ADR-054 | Migrazioni tramite `onyx-cli migrate`: backup obbligatorio, migrazioni, ripristino del backup se falliscono | Backup facoltativo con avviso; `prisma migrate resolve` a mano | Con SQLite una migrazione fallita a metà non viene annullata e blocca le successive (P3009); il ripristino automatico rende ogni aggiornamento ripetibile, e la logica in TypeScript si può testare |
 
 ---
@@ -2892,6 +2897,18 @@ La telemetria mostrava solo la stima *baseline contro consegnati*: diceva quanto
   - un aggiornamento fallito poteva lasciare il database a metà e senza backup (ADR-054).
 - Totale del monorepo: 557 test verdi più uno saltato.
 - Piano della 2.0 in `docs/roadmap-2.0.md`, in attesa di approvazione.
+
+### Onyx 2.0 — Milestone 1: sprechi di token (dopo la Fase 0)
+
+- **Telemetria della cache dei prompt**: ogni run registra lettura e scrittura in cache del primo turno principale (`AgentRun.cacheReadTokens`, `cacheWriteTokens`), l'hash del prefisso (modello, primer, sotto-agenti, MCP) e, per le riprese, il motivo della perdita (`cacheLoss`: `NONE`, `PREFIX_CHANGED`, `MODEL_CHANGED`, `EXPIRED`, `UNKNOWN`; `NEW_SESSION` per le sessioni nuove). `turn_usage` porta `parentToolUseId`: i turni dei sotto-agenti non contano più come contesto della sessione (B1).
+- **Mappa congelata per sessione** (ADR-055) e **pacchetto non rimandato** (ADR-056); `ctxMapDrift` segna le riprese in cui la mappa sarebbe cambiata, `ctxReusedTokens` i token non rimandati.
+- **Savings**: registro dei risparmi (misurati o stimati) e card della cache nelle riprese; la console della run dice se la ripresa ha letto la cache o perché l'ha persa; il contesto mostra le voci già inviate e la mappa tenuta.
+- **Piani**: verifica dei nodi e verifica finale rispetto ai fallimenti già presenti sul commit di partenza (ADR-057). Nella prova end-to-end, il piano che falliva sul test rosso del nodo vicino ora si completa senza tentativi di correzione sprecati.
+- **Guard**: niente più setaccio dell'intero comando. `$(…)`, backtick, `bash -c`/`sh -c` ed `eval` vengono valutati come comandi; per gli interpreti si controllano le stringhe letterali del codice; `grep`/`rg` conoscono `-e`, `-f` e le opzioni con valore; `find` e `tree` controllano solo i percorsi (M11–M13 dell'audit).
+- **Stub**: `CLAUDE_STUB_USAGE=model` simula l'uso dei token in base a prompt di sistema, messaggio e storia, con una cache dei prompt per prefisso e una durata (`CLAUDE_STUB_CACHE_TTL_MS`); scenario `[stub:compact]` con `compact_boundary`.
+- Migrazione `20261010090000_prompt_cache` scritta con soli `ADD COLUMN`, applicata con `onyx-cli migrate` anche al database della prova E2E creato con lo schema precedente (righe conservate, backup `pre-update`).
+- Verifica: 613 test più uno saltato; E2E con Playwright sulla build di produzione (ripresa dalla cache con 15,7K token riletti, voci del pacchetto già inviate, piano completato con un fallimento di base ignorato e dichiarato); Lighthouse: Savings 100/100 desktop e 96/100 mobile, task 100/100 e 91/100, Telemetry 100/100 e 97/100; axe senza violazioni anche a 375 px (corretto B26).
+- **Da misurare con Claude reale**: quanta cache si perdeva prima (una run ripresa su un progetto in cui sono cambiati file) e quanta dopo; se Claude Code cambia il proprio prompt di sistema tra una ripresa e l'altra la causa compare come *Unexplained*.
 
 ---
 

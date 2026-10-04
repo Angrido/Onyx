@@ -175,4 +175,20 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 | Milestone | Stato |
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
-| 1–11 | In attesa del tuo via libera |
+| Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
+| 1 | **Fatta** (vedi sotto) |
+| 2–11 | Da fare, nell'ordine concordato |
+
+### Milestone 1 — esito
+
+| Voce | Stato | Risparmio |
+|---|---|---|
+| 1.1 Telemetria della cache persa | Fatta: lettura e scrittura del primo turno, motivo della perdita, card in Savings, nota nella console | Strumento (misura) |
+| 1.2 Prefisso stabile per sessione | Fatta (ADR-055) | **Stimato su dati misurati**: per ogni ripresa protetta, token letti dalla cache × 1,15. Con lo stub: senza la correzione la ripresa dopo una modifica è `PREFIX_CHANGED` e riscrive ~16K token; con la correzione li rilegge. Il valore reale arriverà dalle tue run |
+| 1.3 Pacchetto non rimandato | Fatta (ADR-056) | **Stimato**: token delle voci già presenti, contati per run in `ctxReusedTokens` |
+| 1.4 Verifica dei nodi con i fallimenti di base | Fatta (ADR-057) | **Stimato**: nella prova E2E il piano che prima falliva dopo 3 tentativi (con escalation a Opus) ora non ne usa nessuno |
+| 1.5 Falsi positivi del guard | Fatta (M11–M13) | Non quantificato: meno turni persi su comandi bloccati per errore |
+| 1.6 Stub realistico | Fatto | Strumento |
+| 1.7 Registro dei risparmi | Fatto | Strumento |
+
+Da verificare con Claude reale (lo fai tu, vedi il riassunto): una ripresa dopo aver modificato dei file deve risultare *Read from the cache*; se compare spesso *Unexplained*, Claude Code cambia il proprio prompt di sistema tra le riprese e il guadagno della 1.2 è minore.

@@ -154,6 +154,10 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | Console *Offline* | API ferma o WebSocket bloccato dal proxy | `onyx-status`, `onyx-logs`; con Caddy controlla la rotta `/ws` |
 | **Savings**: *Only N of M runs got a context pack* | Progetto non indicizzato o task senza file target | Imposta i *target paths* del task o nomina i file nel prompt; controlla l'indice nella pagina del progetto |
 | **Savings**: *The agent re-reads files it already has* | L'agente rilegge i file del pacchetto (sempre, prima di modificarli) | Guarda *Most read again*; abbassa `ONYX_CONTEXT_BUDGET_TOKENS` o restringi i target |
+| **Savings → Prompt cache on resumed runs**: *System prompt changed* | Tra due run della stessa sessione sono cambiati il primer del workspace, le istruzioni dell'agente o i sotto-agenti (per esempio un TDD loop usa l'agente `test-fixer`) | Normale se il cambio è voluto; altrimenti evita di modificare il primer mentre un workspace lavora |
+| **Savings → Prompt cache on resumed runs**: *Cache expired during the pause* | La sessione è stata ripresa dopo la durata della cache (5 minuti di default per Claude) | Manda i follow-up prima; se il tuo account ha una cache più lunga, alza `ONYX_PROMPT_CACHE_TTL_MINUTES` perché Onyx la classifichi bene |
+| **Savings → Prompt cache on resumed runs**: *Unexplained* | Claude Code ha riscritto la conversazione per un motivo che Onyx non vede (per esempio il suo prompt di sistema è cambiato) | Nessuna azione: se succede spesso, registra una trascrizione reale (§5) e segnalalo |
+| Nodo di un piano *Green … ignored N failures that already failed before this work* | Il progetto aveva già test o errori di tipo prima del piano | Nessuna azione: sono elencati nel messaggio; correggili con un task a parte se vuoi la suite verde |
 | **Savings**: *Not paying off* | Con il pacchetto le run consumano più token di quelle senza | Controlla riletture e budget del pacchetto; con `ONYX_CONTEXT_ENABLED=false` le run girano senza contesto |
 
 ## 9. Accessibilità e prestazioni
@@ -186,6 +190,20 @@ La pagina **Savings** risponde in cima con un verdetto. Ogni cifra porta l'etich
 **La misura.** Con *Run the experiment* attivo, una quota delle run che aprono una sessione nuova (10–50%, default 25%) parte senza contesto Onyx: niente pacchetto, mappa o tool MCP. Le run che riprendono una sessione non partecipano. Onyx confronta i due gruppi sui token di input per run (mediana) e con il test di Mann–Whitney; sotto p = 0,05 la differenza conta. La tabella mostra anche costo, turni, file letti ed esito, così un risparmio ottenuto con più fallimenti salta all'occhio.
 
 Le run di controllo costano quanto costerebbero senza Onyx, quindi l'esperimento consuma qualcosa in più finché è attivo. Conviene accenderlo per qualche decina di run e spegnerlo quando il verdetto è chiaro: i risultati restano visibili per 90 giorni.
+
+**Registro dei risparmi.** Una riga per fonte, sempre con l'etichetta *Measured* o *Estimate*:
+
+| Fonte | Come si calcola | Tipo |
+|---|---|---|
+| Contesto Onyx (pacchetto, mappa, MCP) | Stima netta come sopra; diventa misura con l'esperimento A/B | Stima o misura |
+| Mappa tenuta per la sessione | Riprese in cui la mappa nuova sarebbe stata diversa: i token letti dalla cache (misurati) per la differenza tra riscriverli (1,25×) e rileggerli (0,1×) | Stima su dati misurati |
+| Pacchetto non rimandato | Token delle voci del pacchetto già presenti nella conversazione e quindi solo elencate | Stima |
+| Cache dei prompt | Token letti dalla cache riportati da Claude | Misura |
+| Routing dei modelli | Costo contro lo stesso uso sul modello di riferimento | Stima |
+
+I token sono *input-equivalenti* sugli ultimi 30 giorni e le righe non si sommano perché i metodi sono diversi.
+
+**Cache dei prompt nelle riprese.** Ogni run registra quanti token del primo turno Claude ha letto dalla cache e quanti ha scritto. In una run che riprende una sessione, una scrittura grande vuol dire che la cache è andata persa: Onyx dice se è cambiato il prompt di sistema, il modello, se la pausa ha superato la durata della cache (`ONYX_PROMPT_CACHE_TTL_MINUTES`, default 5) o se non lo sa. La console della run lo scrive a fine run.
 
 **Is it working?** elenca i controlli: contesto attivo, quota di run che ricevono un pacchetto, peso delle riletture, stima netta positiva, stato dell'esperimento. Cache dei prompt (misurata) e routing dei modelli (stimato) sono in fondo alla pagina, separati, perché non dipendono dal pacchetto.
 

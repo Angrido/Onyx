@@ -73,7 +73,7 @@ export default async function TelemetryPage() {
           {summary.byModel.length === 0 ? (
             <p className="text-sm text-muted-foreground">No completed runs yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Spend by model">
               <table className="w-full min-w-[30rem] text-sm">
                 <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
@@ -110,7 +110,7 @@ export default async function TelemetryPage() {
           <CardDescription>Prices drive estimates and counterfactuals only.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Model catalog">
             <table className="w-full min-w-[30rem] text-sm">
               <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
