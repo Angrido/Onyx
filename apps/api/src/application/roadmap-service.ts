@@ -31,6 +31,7 @@ import {
 } from "../domain/roadmap";
 import { AppError, conflict, notFound } from "../errors";
 import { ErrorCode } from "@onyx/contracts";
+import { msg, tx } from "../i18n";
 import {
   buildMcpConfig,
   emptyMcpConfig,
@@ -98,6 +99,19 @@ const MANIFEST_NAMES = [
 ];
 const TEXT_EXTENSIONS =
   /\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|kt|cs|swift|vue|svelte|css|scss|md|ya?ml|toml|sql|sh)$/i;
+
+const FIXED_TEXTS: ReadonlySet<string> = new Set([
+  msg("Interrupted"),
+  msg("The roadmap was interrupted"),
+  msg("Claude did not return a roadmap in the expected JSON format"),
+  msg("Reading the project index"),
+  msg("Collecting README, manifests, TODOs and history"),
+  msg("Claude is studying the project"),
+]);
+
+function localized<T extends string | null>(text: T): T {
+  return (text !== null && FIXED_TEXTS.has(text) ? tx(text) : text) as T;
+}
 
 function toItemDto(item: RoadmapItem): RoadmapItemDto {
   return {
@@ -589,6 +603,7 @@ export class RoadmapService {
   }
 
   private toGenerationDto(generation: RoadmapGeneration): RoadmapGenerationDto {
+    const activity = this.active.get(generation.id)?.activity ?? null;
     return {
       id: generation.id,
       projectId: generation.projectId,
@@ -597,13 +612,13 @@ export class RoadmapService {
       language: RoadmapLanguageSchema.catch("en").parse(generation.language),
       focus: generation.focus,
       summary: generation.summary,
-      error: generation.error,
+      error: localized(generation.error),
       itemCount: generation.itemCount,
       numTurns: generation.numTurns,
       costUsd: generation.costUsd,
       startedAt: generation.startedAt.toISOString(),
       endedAt: generation.endedAt?.toISOString() ?? null,
-      activity: this.active.get(generation.id)?.activity ?? null,
+      activity: activity ? { ...activity, lastAction: localized(activity.lastAction) } : null,
     };
   }
 }

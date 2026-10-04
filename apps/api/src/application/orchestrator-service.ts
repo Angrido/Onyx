@@ -41,6 +41,7 @@ import {
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { QA_MAX_REWORKS, qaFeedbackPrompt } from "../domain/qa";
 import { badRequest, conflict, notFound } from "../errors";
+import { msg, tx } from "../i18n";
 import { GitRepo, linkDependencies } from "../infrastructure/git-worktree";
 import {
   buildMcpConfig,
@@ -68,7 +69,13 @@ import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 import { shortAction } from "./roadmap-service";
 import { priceUsage, type RouterService } from "./router-service";
-import { toQaReviewDto, toResolutionDto, type ReviewService } from "./review-service";
+import {
+  localizeQaReview,
+  localizeResolution,
+  toQaReviewDto,
+  toResolutionDto,
+  type ReviewService,
+} from "./review-service";
 import type { RunScheduler } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
 import type { TddService } from "./tdd-service";
@@ -156,6 +163,43 @@ const NODE_TASK_STATUS: Readonly<Record<NodeState, TaskStatus | null>> = {
   cancelled: "CANCELLED",
 };
 
+const FIXED_TEXTS: ReadonlySet<string> = new Set([
+  msg("Interrupted by an Onyx restart while planning"),
+  msg("Interrupted by an Onyx restart: resume it to continue"),
+  msg("Cancelled by the operator"),
+  msg("Plan discarded"),
+  msg("Plan cancelled"),
+  msg("Planning was interrupted"),
+  msg("Waiting for a merge decision in Approvals"),
+  msg("Claude did not return a plan in the expected format"),
+  msg("The plan has no usable tasks"),
+  msg("A task it depends on failed"),
+  msg("Merge declined: the task was dropped"),
+  msg("Reading the project index"),
+  msg("Collecting the README, the tests and the history"),
+  msg("Claude is studying the project"),
+]);
+
+function localized<T extends string | null>(text: T): T {
+  return (text !== null && FIXED_TEXTS.has(text) ? tx(text) : text) as T;
+}
+
+function localizePlan(dto: OrchestrationDto): OrchestrationDto {
+  return {
+    ...dto,
+    message: localized(dto.message),
+    activity: dto.activity
+      ? { ...dto.activity, lastAction: localized(dto.activity.lastAction) }
+      : null,
+    nodes: dto.nodes.map((node) => ({
+      ...node,
+      message: localized(node.message),
+      review: node.review ? localizeQaReview(node.review) : null,
+      resolution: node.resolution ? localizeResolution(node.resolution) : null,
+    })),
+  };
+}
+
 function shorten(text: string, length: number): string {
   const single = text.replace(/\s+/g, " ").trim();
   return single.length <= length ? single : `${single.slice(0, length - 1)}…`;
@@ -223,7 +267,7 @@ export class OrchestratorService {
   constructor(private readonly deps: OrchestratorDeps) {
     deps.hub.registerSnapshot("orchestration:", (channel) => {
       const state = this.states.get(channel.slice("orchestration:".length));
-      return state ? [orchestrationStateMessage(state)] : [];
+      return state ? [orchestrationStateMessage(localizePlan(state))] : [];
     });
     deps.approvals.register("PLAN", {
       approve: (approval, payload, actor) => this.approvePlan(approval, payload, actor),
@@ -251,10 +295,14 @@ export class OrchestratorService {
       orderBy: { createdAt: "desc" },
       take: 30,
     });
-    return Promise.all(rows.map((row) => this.toDto(row)));
+    return Promise.all(rows.map(async (row) => localizePlan(await this.toDto(row))));
   }
 
   async get(id: string): Promise<OrchestrationDto> {
+    return localizePlan(await this.load(id));
+  }
+
+  private async load(id: string): Promise<OrchestrationDto> {
     const row = await this.deps.prisma.orchestration.findUnique({ where: { id } });
     if (!row) throw notFound("Plan");
     return this.toDto(row);
@@ -1639,12 +1687,13 @@ export class OrchestratorService {
   }
 
   private async publish(id: string): Promise<OrchestrationDto> {
-    const dto = await this.get(id);
+    const dto = await this.load(id);
     const live = this.planners.has(id) || this.drivers.has(id);
     if (live) this.states.set(id, dto);
     else this.states.delete(id);
-    this.deps.hub.publishOrchestration(dto);
-    return dto;
+    const shown = localizePlan(dto);
+    this.deps.hub.publishOrchestration(shown);
+    return shown;
   }
 
   private async toDto(row: Orchestration): Promise<OrchestrationDto> {

@@ -28,6 +28,7 @@ import { GitHubError, type GitHubClient } from "../infrastructure/github-client"
 import type { GitHubService } from "./github-service";
 import type { GitService } from "./git-service";
 import { toStringArray } from "./mappers";
+import { tx } from "../i18n";
 
 type CreateInput = z.output<typeof CreatePullRequestRequestSchema>;
 
@@ -209,15 +210,17 @@ export class PullRequestService {
       if (!latest.has(loop.taskId))
         latest.set(loop.taskId, { command: loop.fullCommand, status: loop.status });
     const reason = !repo
-      ? "The project has no GitHub remote"
+      ? tx("The project has no GitHub remote")
       : branch === base
-        ? `Choose a branch other than ${base}`
+        ? tx("Choose a branch other than {branch}", { branch: base })
         : !exists
-          ? `The branch ${branch} does not exist in the project`
+          ? tx("The branch {branch} does not exist in the project", { branch })
           : !token
-            ? "Connect a GitHub token with Pull requests read and write"
+            ? tx("Connect a GitHub token with Pull requests read and write")
             : existing
-              ? `Pull request #${existing.number} is already open for this branch`
+              ? tx("Pull request #{number} is already open for this branch", {
+                  number: existing.number,
+                })
               : null;
     return {
       repo,

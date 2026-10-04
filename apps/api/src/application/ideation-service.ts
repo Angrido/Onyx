@@ -27,9 +27,12 @@ import {
   reviewPrompt,
   scanSource,
   snippet,
+  translateFinding,
   type StaticFinding,
 } from "../domain/ideation";
+import { translateKnown } from "../domain/insights";
 import { badRequest, conflict, notFound } from "../errors";
+import { interpolate, msg } from "../i18n";
 import { READ_ONLY_TOOLS, WRITE_TOOLS, structuredOf, type AgentRunner } from "./agent-runner";
 import type { IndexService } from "./index-service";
 import type { ProjectContext } from "./project-context";
@@ -44,6 +47,15 @@ const HOTSPOT_TOKENS = 4_000;
 const HOTSPOT_IMPORTERS = 5;
 const HOTSPOTS = 5;
 const SEVERITY_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
+const AUDIT = {
+  failed: msg("{tool} audit could not run: {error}"),
+  vulnerableOne: msg("{tool} audit: {count} vulnerable package"),
+  vulnerableMany: msg("{tool} audit: {count} vulnerable packages"),
+  noJson: msg("{tool} audit returned no JSON"),
+  notRun: msg("Dependency audit not run"),
+  noLockfile: msg("No lockfile: dependency audit skipped"),
+} as const;
+const AUDIT_KEYS: readonly string[] = Object.values(AUDIT);
 
 export interface IdeationServiceDeps {
   prisma: PrismaClient;
@@ -62,7 +74,7 @@ function toRunDto(run: IdeationRun): IdeationRunDto {
     id: run.id,
     status: run.status,
     files: run.files,
-    audit: run.audit,
+    audit: run.audit === null ? null : translateKnown(run.audit, AUDIT_KEYS),
     projectTokens: run.projectTokens,
     snippetTokens: run.snippetTokens,
     modelTokens: run.modelTokens,
@@ -80,11 +92,9 @@ function toFindingDto(finding: IdeationFinding): IdeationFindingDto {
     category: finding.category,
     severity: finding.severity,
     rule: finding.rule,
-    title: finding.title,
+    ...translateFinding(finding),
     file: finding.file,
     line: finding.line,
-    excerpt: finding.excerpt,
-    explanation: finding.explanation,
     confidence: finding.confidence,
     source: finding.source,
     verdict:
@@ -332,7 +342,7 @@ export class IdeationService {
         data: {
           status: "DONE",
           files: files.length,
-          audit: audit?.summary ?? "Dependency audit not run",
+          audit: audit?.summary ?? AUDIT.notRun,
           projectTokens: files.reduce((sum, file) => sum + file.rawTokens, 0),
           endedAt: new Date(),
         },
@@ -360,7 +370,7 @@ export class IdeationService {
       : existsSync(join(root, "package-lock.json"))
         ? "npm"
         : null;
-    if (!tool) return { summary: "No lockfile: dependency audit skipped", findings: [] };
+    if (!tool) return { summary: AUDIT.noLockfile, findings: [] };
     let stdout = "";
     try {
       stdout = (
@@ -375,18 +385,24 @@ export class IdeationService {
       stdout = (error as { stdout?: string }).stdout ?? "";
       if (stdout.trim().length === 0)
         return {
-          summary: `${tool} audit could not run: ${(error as Error).message.split("\n")[0]?.slice(0, 160) ?? "unknown error"}`,
+          summary: interpolate(AUDIT.failed, {
+            tool,
+            error: (error as Error).message.split("\n")[0]?.slice(0, 160) ?? "unknown error",
+          }),
           findings: [],
         };
     }
     try {
       const findings = parseNpmAudit(JSON.parse(stdout) as unknown, "package.json");
       return {
-        summary: `${tool} audit: ${findings.length} vulnerable ${findings.length === 1 ? "package" : "packages"}`,
+        summary: interpolate(findings.length === 1 ? AUDIT.vulnerableOne : AUDIT.vulnerableMany, {
+          tool,
+          count: findings.length,
+        }),
         findings,
       };
     } catch {
-      return { summary: `${tool} audit returned no JSON`, findings: [] };
+      return { summary: interpolate(AUDIT.noJson, { tool }), findings: [] };
     }
   }
 }

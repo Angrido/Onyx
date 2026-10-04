@@ -1,3 +1,5 @@
+import { tx } from "../i18n";
+
 export type Stack = "node" | "python" | "go" | "rust" | "make" | "docker";
 
 export interface StackFacts {
@@ -69,18 +71,20 @@ function nodeCommands(facts: StackFacts, manager: string): StackCommand[] {
   const commands: StackCommand[] = [
     command(
       `${manager} install`,
-      "Installs the dependencies; it can run the packages' install scripts",
+      tx("Installs the dependencies; it can run the packages' install scripts"),
       true,
     ),
   ];
   const scripts = scriptsOf(facts.packageJson);
   for (const script of NODE_SCRIPTS.filter((name) => scripts.includes(name)))
-    commands.push(command(`${manager} run ${script}`, `The "${script}" script of package.json`));
+    commands.push(
+      command(`${manager} run ${script}`, tx('The "{script}" script of package.json', { script })),
+    );
   if (hasDependency(facts.packageJson, "typescript"))
     commands.push(
       command(
         manager === "npm" ? "npx tsc" : `${manager} exec tsc`,
-        "The TypeScript compiler of the project",
+        tx("The TypeScript compiler of the project"),
       ),
     );
   return commands;
@@ -92,20 +96,22 @@ function pythonCommands(facts: StackFacts): StackCommand[] {
   const usesPoetry = facts.files.has("poetry.lock") || /\[tool\.poetry\]/.test(pyproject);
   const usesUv = facts.files.has("uv.lock");
   const runner = usesPoetry ? "poetry run " : usesUv ? "uv run " : "";
-  commands.push(command(`${runner}pytest`, "Runs the Python tests"));
-  commands.push(command(`${runner}python -m pytest`, "Runs the Python tests through the module"));
+  commands.push(command(`${runner}pytest`, tx("Runs the Python tests")));
+  commands.push(
+    command(`${runner}python -m pytest`, tx("Runs the Python tests through the module")),
+  );
   if (/\bruff\b/.test(pyproject) || facts.files.has("ruff.toml"))
-    commands.push(command(`${runner}ruff check`, "The Ruff linter configured in the project"));
+    commands.push(command(`${runner}ruff check`, tx("The Ruff linter configured in the project")));
   if (/\bmypy\b/.test(pyproject) || facts.files.has("mypy.ini"))
-    commands.push(command(`${runner}mypy`, "The mypy type checker configured in the project"));
+    commands.push(command(`${runner}mypy`, tx("The mypy type checker configured in the project")));
   if (usesPoetry)
-    commands.push(command("poetry install", "Installs the dependencies with Poetry", true));
-  else if (usesUv) commands.push(command("uv sync", "Installs the dependencies with uv", true));
+    commands.push(command("poetry install", tx("Installs the dependencies with Poetry"), true));
+  else if (usesUv) commands.push(command("uv sync", tx("Installs the dependencies with uv"), true));
   else if (facts.files.has("requirements.txt"))
     commands.push(
       command(
         "pip install -r requirements.txt",
-        "Installs the dependencies listed in requirements.txt",
+        tx("Installs the dependencies listed in requirements.txt"),
         true,
       ),
     );
@@ -132,26 +138,28 @@ export function detectStack(facts: StackFacts): StackReport {
   if (facts.files.has("go.mod")) {
     stacks.push("go");
     commands.push(
-      command("go test", "Runs the Go tests"),
-      command("go build", "Builds the Go packages"),
-      command("go vet", "Reports suspicious Go code"),
-      command("gofmt -l", "Lists Go files that are not formatted"),
+      command("go test", tx("Runs the Go tests")),
+      command("go build", tx("Builds the Go packages")),
+      command("go vet", tx("Reports suspicious Go code")),
+      command("gofmt -l", tx("Lists Go files that are not formatted")),
     );
   }
   if (facts.files.has("Cargo.toml")) {
     stacks.push("rust");
     commands.push(
-      command("cargo test", "Runs the Rust tests"),
-      command("cargo check", "Type-checks the Rust crate"),
-      command("cargo build", "Builds the Rust crate"),
-      command("cargo clippy", "The Rust linter"),
-      command("cargo fmt --check", "Checks the Rust formatting"),
+      command("cargo test", tx("Runs the Rust tests")),
+      command("cargo check", tx("Type-checks the Rust crate")),
+      command("cargo build", tx("Builds the Rust crate")),
+      command("cargo clippy", tx("The Rust linter")),
+      command("cargo fmt --check", tx("Checks the Rust formatting")),
     );
   }
   if (facts.files.has("Makefile")) {
     stacks.push("make");
     for (const target of MAKE_TARGETS.filter((name) => facts.makeTargets.includes(name)))
-      commands.push(command(`make ${target}`, `The "${target}" target of the Makefile`));
+      commands.push(
+        command(`make ${target}`, tx('The "{target}" target of the Makefile', { target })),
+      );
   }
   if (
     facts.files.has("Dockerfile") ||
@@ -161,7 +169,7 @@ export function detectStack(facts: StackFacts): StackReport {
     commands.push(
       command(
         "docker build",
-        "Builds the project image; it can run any command of the Dockerfile",
+        tx("Builds the project image; it can run any command of the Dockerfile"),
         true,
       ),
     );

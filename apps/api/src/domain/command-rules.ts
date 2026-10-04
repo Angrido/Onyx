@@ -6,6 +6,7 @@ import {
   withoutKeywords,
 } from "@onyx/ignore-compiler";
 import { parse, type ParseEntry } from "shell-quote";
+import { msg, tx } from "../i18n";
 
 const SEPARATORS = new Set([";", "&&", "||", "|", "&", "|&", "(", ")"]);
 const SKIPPED = new Set([
@@ -24,15 +25,15 @@ const SKIPPED = new Set([
   "}",
 ]);
 const REFUSED: Readonly<Record<string, string>> = {
-  sudo: "runs commands as another user",
-  su: "runs commands as another user",
-  doas: "runs commands as another user",
-  pkexec: "runs commands as another user",
-  mkfs: "formats disks",
-  shutdown: "stops the machine",
-  reboot: "restarts the machine",
-  halt: "stops the machine",
-  poweroff: "stops the machine",
+  sudo: msg("runs commands as another user"),
+  su: msg("runs commands as another user"),
+  doas: msg("runs commands as another user"),
+  pkexec: msg("runs commands as another user"),
+  mkfs: msg("formats disks"),
+  shutdown: msg("stops the machine"),
+  reboot: msg("restarts the machine"),
+  halt: msg("stops the machine"),
+  poweroff: msg("stops the machine"),
 };
 const INTERPRETERS = new Set([
   "bash",
@@ -237,30 +238,35 @@ function classify(
   wrapper: string | null,
 ): { safety: RuleSafety; reason: string | null } {
   if (INTERPRETERS.has(name))
-    return { safety: "REVIEW", reason: "runs any code it is given, not just one command" };
+    return { safety: "REVIEW", reason: tx("runs any code it is given, not just one command") };
   if (NETWORK.has(name))
-    return { safety: "REVIEW", reason: "reaches the network: it can send project files out" };
-  if (DESTRUCTIVE.has(name)) return { safety: "REVIEW", reason: "can delete or change files" };
+    return { safety: "REVIEW", reason: tx("reaches the network: it can send project files out") };
+  if (DESTRUCTIVE.has(name)) return { safety: "REVIEW", reason: tx("can delete or change files") };
   if (SUBCOMMAND_TOOLS.has(name)) {
-    if (subcommand === null) return { safety: "REVIEW", reason: "covers every subcommand" };
+    if (subcommand === null) return { safety: "REVIEW", reason: tx("covers every subcommand") };
     if (ANY_CODE_SUBCOMMANDS.has(subcommand))
-      return { safety: "REVIEW", reason: "downloads and runs any package" };
+      return { safety: "REVIEW", reason: tx("downloads and runs any package") };
     if (INSTALL_SUBCOMMANDS.has(subcommand))
-      return { safety: "REVIEW", reason: "installs packages, which can run their own scripts" };
+      return { safety: "REVIEW", reason: tx("installs packages, which can run their own scripts") };
     if (!SAFE_SUBCOMMANDS[name]?.has(subcommand))
       return {
         safety: "REVIEW",
-        reason: `${name} ${subcommand} is not on the list of safe commands`,
+        reason: tx("{command} is not on the list of safe commands", {
+          command: `${name} ${subcommand}`,
+        }),
       };
   } else if (name === "npx" || name === "pnpx" || name === "bunx") {
-    return { safety: "REVIEW", reason: "downloads and runs any package" };
+    return { safety: "REVIEW", reason: tx("downloads and runs any package") };
   } else if (!SAFE.has(name)) {
-    return { safety: "REVIEW", reason: "not on the list of safe commands: check what it does" };
+    return { safety: "REVIEW", reason: tx("not on the list of safe commands: check what it does") };
   }
   if (wrapper)
     return {
       safety: "SAFE",
-      reason: `the agent ran it through ${wrapper}: the rule covers the command without ${wrapper}`,
+      reason: tx(
+        "the agent ran it through {wrapper}: the rule covers the command without {wrapper}",
+        { wrapper },
+      ),
     };
   return { safety: "SAFE", reason: null };
 }
@@ -286,11 +292,12 @@ export function analyzeCommands(commands: readonly string[]): {
             ? invocation.wrapper
             : null;
       if (refusedProgram) {
+        const reason = REFUSED[refusedProgram];
         if (!refused.some((entry) => entry.command === shortCommand(command)))
           refused.push({
             command: shortCommand(command),
             program: refusedProgram,
-            reason: REFUSED[refusedProgram] ?? "is never allowed",
+            reason: reason === undefined ? tx("is never allowed") : tx(reason),
           });
         continue;
       }
@@ -299,7 +306,7 @@ export function analyzeCommands(commands: readonly string[]): {
         refused.push({
           command: shortCommand(command),
           program: "git push",
-          reason: "Onyx pushes the branches: agents never push",
+          reason: tx("Onyx pushes the branches: agents never push"),
         });
         continue;
       }

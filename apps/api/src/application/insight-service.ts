@@ -11,14 +11,17 @@ import type { Logger } from "pino";
 import type { z } from "zod";
 import {
   INSIGHT_MAX_TURNS,
+  MORE_ITEMS,
   citedSources,
   classifyQuestion,
   insightPrompt,
   listAnswer,
+  translateAnswer,
   type ClassifiedQuestion,
   type IndexAnswer,
 } from "../domain/insights";
 import { AppError, notFound } from "../errors";
+import { interpolate, msg } from "../i18n";
 import { READ_ONLY_TOOLS, WRITE_TOOLS, type AgentRunner } from "./agent-runner";
 import type { IndexService } from "./index-service";
 import type { ProjectContext } from "./project-context";
@@ -28,8 +31,40 @@ type AskInput = z.output<typeof AskInsightRequestSchema>;
 
 const LIST_LIMIT = 50;
 const MENTION_LIMIT = 40;
-const GRAPH_CAVEAT =
-  "From the import graph and a text search in the importing files: dynamic imports, re-exports through strings and generated code can be missing. Ask the model when it matters.";
+const TEXT = {
+  noCycles: msg("No import cycles in the project index."),
+  graph: msg("From the import graph of the indexed files."),
+  cycle: msg("{count} import cycle:"),
+  cycles: msg("{count} import cycles:"),
+  largest: msg("The largest files by tokens:"),
+  tokens: msg("~{tokens} tokens"),
+  tokenCaveat: msg("Token counts from the index; binary and sensitive files are left out."),
+  central: msg("The most central files (imported directly or indirectly by many others):"),
+  importedByOne: msg("imported by {count} file"),
+  importedByMany: msg("imported by {count} files"),
+  centralCaveat: msg("Ranked by the centrality of the import graph."),
+  definedIn: msg("`{subject}` is defined in:"),
+  exported: msg("{kind}, exported: `{signature}`"),
+  symbolCaveat: msg("From the symbols of the index."),
+  isFile: msg("`{subject}` is a file of the project:"),
+  indexCaveat: msg("From the index."),
+  importerOne: msg("`{file}` is imported by {count} file:"),
+  importerMany: msg("`{file}` is imported by {count} files:"),
+  noImporters: msg("No indexed file imports `{file}`."),
+  graphCaveat: msg(
+    "From the import graph and a text search in the importing files: dynamic imports, re-exports through strings and generated code can be missing. Ask the model when it matters.",
+  ),
+  importsOneOne: msg("`{file}` imports {count} project file and {packages} package ({names}):"),
+  importsOneMany: msg("`{file}` imports {count} project file and {packages} packages ({names}):"),
+  importsManyOne: msg("`{file}` imports {count} project files and {packages} package ({names}):"),
+  importsManyMany: msg("`{file}` imports {count} project files and {packages} packages ({names}):"),
+  importsOne: msg("`{file}` imports {count} project file:"),
+  importsMany: msg("`{file}` imports {count} project files:"),
+  usedOne: msg("`{subject}` is defined in {where} and used in {count} place:"),
+  usedMany: msg("`{subject}` is defined in {where} and used in {count} places:"),
+  unused: msg("`{subject}` is defined in {where}; no file that imports it mentions it."),
+} as const;
+const ANSWER_KEYS: readonly string[] = [...Object.values(TEXT), MORE_ITEMS];
 
 export interface InsightServiceDeps {
   prisma: PrismaClient;
@@ -57,7 +92,7 @@ export function toInsightDto(row: Insight): InsightDto {
     question: row.question,
     intent: row.intent as InsightIntent,
     mode: row.mode,
-    answer: row.answer,
+    answer: row.mode === "INDEX" ? translateAnswer(row.answer, ANSWER_KEYS) : row.answer,
     sources: readSources(row.sources),
     modelId: row.modelId,
     costUsd: row.costUsd,
@@ -77,41 +112,38 @@ export function answerFromIndex(
   const { intent, subject } = question;
   if (intent === "CYCLES") {
     const cycles = context.cycles();
-    if (cycles.length === 0)
-      return {
-        answer:
-          "No import cycles in the project index.\n\n_From the import graph of the indexed files._",
-        sources: [],
-      };
+    if (cycles.length === 0) return { answer: `${TEXT.noCycles}\n\n_${TEXT.graph}_`, sources: [] };
     return listAnswer(
-      `${cycles.length} import ${cycles.length === 1 ? "cycle" : "cycles"}:`,
+      interpolate(cycles.length === 1 ? TEXT.cycle : TEXT.cycles, { count: cycles.length }),
       cycles.map((cycle) => ({
         path: cycle[0] ?? "",
         line: null,
         note: [...cycle, cycle[0]].join(" → "),
       })),
-      "From the import graph of the indexed files.",
+      TEXT.graph,
     );
   }
   if (intent === "LARGEST")
     return listAnswer(
-      "The largest files by tokens:",
+      TEXT.largest,
       context.largestFiles(10).map((file) => ({
         path: file.relPath,
         line: null,
-        note: `~${file.rawTokens.toLocaleString("en-US")} tokens`,
+        note: interpolate(TEXT.tokens, { tokens: file.rawTokens.toLocaleString("en-US") }),
       })),
-      "Token counts from the index; binary and sensitive files are left out.",
+      TEXT.tokenCaveat,
     );
   if (intent === "CENTRAL")
     return listAnswer(
-      "The most central files (imported directly or indirectly by many others):",
+      TEXT.central,
       context.topFiles(10).map((file) => ({
         path: file.relPath,
         line: null,
-        note: `imported by ${file.inDegree} ${file.inDegree === 1 ? "file" : "files"}`,
+        note: interpolate(file.inDegree === 1 ? TEXT.importedByOne : TEXT.importedByMany, {
+          count: file.inDegree,
+        }),
       })),
-      "Ranked by the centrality of the import graph.",
+      TEXT.centralCaveat,
     );
   if (!subject) return null;
   const definitions = looksLikeFile(subject) ? [] : context.definitions(subject);
@@ -121,19 +153,21 @@ export function answerFromIndex(
   if (intent === "DEFINITION") {
     if (definitions.length > 0)
       return listAnswer(
-        `\`${subject}\` is defined in:`,
+        interpolate(TEXT.definedIn, { subject }),
         definitions.map((hit) => ({
           path: hit.relPath,
           line: hit.line,
-          note: `${hit.kind}${hit.exported ? ", exported" : ""}: \`${hit.signature}\``,
+          note: hit.exported
+            ? interpolate(TEXT.exported, { kind: hit.kind, signature: hit.signature })
+            : `${hit.kind}: \`${hit.signature}\``,
         })),
-        "From the symbols of the index.",
+        TEXT.symbolCaveat,
       );
     return file
       ? listAnswer(
-          `\`${subject}\` is a file of the project:`,
+          interpolate(TEXT.isFile, { subject }),
           [{ path: file, line: null }],
-          "From the index.",
+          TEXT.indexCaveat,
         )
       : null;
   }
@@ -142,21 +176,41 @@ export function answerFromIndex(
     const importers = context.importers(file);
     return listAnswer(
       importers.length > 0
-        ? `\`${file}\` is imported by ${importers.length} ${importers.length === 1 ? "file" : "files"}:`
-        : `No indexed file imports \`${file}\`.`,
+        ? interpolate(importers.length === 1 ? TEXT.importerOne : TEXT.importerMany, {
+            file,
+            count: importers.length,
+          })
+        : interpolate(TEXT.noImporters, { file }),
       importers.map((path) => ({ path, line: null })),
-      GRAPH_CAVEAT,
+      TEXT.graphCaveat,
     );
   }
   if (intent === "IMPORTS") {
     if (!file) return null;
     const { internal, external } = context.imports(file);
-    const answer = listAnswer(
-      `\`${file}\` imports ${internal.length} project ${internal.length === 1 ? "file" : "files"}${external.length > 0 ? ` and ${external.length} ${external.length === 1 ? "package" : "packages"} (${external.join(", ")})` : ""}:`,
+    const one = internal.length === 1;
+    const heading =
+      external.length === 0
+        ? one
+          ? TEXT.importsOne
+          : TEXT.importsMany
+        : external.length === 1
+          ? one
+            ? TEXT.importsOneOne
+            : TEXT.importsManyOne
+          : one
+            ? TEXT.importsOneMany
+            : TEXT.importsManyMany;
+    return listAnswer(
+      interpolate(heading, {
+        file,
+        count: internal.length,
+        packages: external.length,
+        names: external.join(", "),
+      }),
       internal.map((path) => ({ path, line: null })),
-      "From the import graph of the indexed files.",
+      TEXT.graph,
     );
-    return answer;
   }
   if (intent === "USAGES") {
     const owners = [...new Set(definitions.map((hit) => hit.relPath))];
@@ -171,10 +225,14 @@ export function answerFromIndex(
       .join(", ");
     return listAnswer(
       mentions.length > 0
-        ? `\`${subject}\` is defined in ${where} and used in ${mentions.length} ${mentions.length === 1 ? "place" : "places"}:`
-        : `\`${subject}\` is defined in ${where}; no file that imports it mentions it.`,
+        ? interpolate(mentions.length === 1 ? TEXT.usedOne : TEXT.usedMany, {
+            subject,
+            where,
+            count: mentions.length,
+          })
+        : interpolate(TEXT.unused, { subject, where }),
       mentions.map((hit) => ({ path: hit.relPath, line: hit.line, note: `\`${hit.text}\`` })),
-      GRAPH_CAVEAT,
+      TEXT.graphCaveat,
     );
   }
   return null;

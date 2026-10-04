@@ -409,10 +409,10 @@ export async function createContainer(
     prisma,
     logger,
     approvals,
-    onHardLimit: (projectId, reason) => {
+    onHardLimit: (projectId, reason, notice) => {
       void prisma.project
         .findUnique({ where: { id: projectId ?? "" }, select: { name: true } })
-        .then((project) => notifications.budgetStopped(project?.name ?? null, reason))
+        .then((project) => notifications.budgetStopped(project?.name ?? null, notice))
         .catch(() => undefined);
       void scheduler
         .abortScope(projectId)

@@ -1,8 +1,10 @@
 import type { InsightIntent, InsightSource } from "@onyx/contracts";
+import { currentLocale, interpolate, msg, tx } from "../i18n";
 
 export const INSIGHT_MARKER = "ONYX_INSIGHT_QUESTION";
 export const INSIGHT_MAX_TURNS = 10;
 export const INSIGHT_LIST_LIMIT = 15;
+export const MORE_ITEMS = msg("… and {count} more");
 
 export interface ClassifiedQuestion {
   intent: InsightIntent;
@@ -13,15 +15,15 @@ const RULES: ReadonlyArray<[InsightIntent, RegExp]> = [
   ["CYCLES", /\b(cycles?|circular|cicli|circolari)\b/],
   [
     "LARGEST",
-    /\b(largest|biggest|longest|heaviest)\b.*\bfiles?\b|\bfile\b.*\bpiù\s+(grandi|grossi|lunghi|pesanti)\b/,
+    /\b(largest|biggest|longest|heaviest)\b.*\bfiles?\b|\bfile\b.*\bpiù\s+(grandi|grossi|lunghi|pesanti|grande|grosso|lungo|pesante)\b/,
   ],
   [
     "CENTRAL",
-    /\b(most\s+)?(central|important|critical|core)\s+files?\b|\bfile\b.*\bpiù\s+(centrali|importanti|critici)\b|\bfile\s+(centrali|principali)\b/,
+    /\b(most\s+)?(central|important|critical|core)\s+files?\b|\bfile\b.*\bpiù\s+(centrali|importanti|critici|importati)\b|\bfile\s+(centrali|principali)\b/,
   ],
   [
     "IMPORTERS",
-    /\b(who|what|which(\s+files?)?)\s+(imports?|depends\s+on|requires?)\b|\bimported\s+by\b|\bdependents\s+of\b|\bchi\s+(importa|dipende\s+da)\b|\bquali\s+file\s+importano\b/,
+    /\b(who|what|which(\s+files?)?)\s+(imports?|depends\s+on|requires?)\b|\bimported\s+by\b|\bdependents\s+of\b|\bchi\s+(importa|dipende\s+da)\b|\bquali\s+file\s+(importano|dipendono\s+da)\b|\bda\s+chi\s+(è|e'|viene)\s+importat|\bdove\s+(è|e'|viene)\s+importat|\bdov['’]\s*è\s+importat/,
   ],
   [
     "IMPORTS",
@@ -29,16 +31,16 @@ const RULES: ReadonlyArray<[InsightIntent, RegExp]> = [
   ],
   [
     "USAGES",
-    /\b(where|who|what)\b.*\b(uses?|used|calls?|called|references?|referenced)\b|\busages?\s+of\b|\bdove\s+(si\s+)?(usa|usano|chiama|richiama)\b|\bdove\s+(è|e'|viene)\s+(usat|chiamat|richiamat)|\bchi\s+(usa|chiama)\b/,
+    /\b(where|who|what)\b.*\b(uses?|used|calls?|called|references?|referenced)\b|\busages?\s+of\b|\bdove\s+(si\s+)?(usa|usano|utilizza|utilizzano|chiama|richiama)\b|\bdove\s+(è|e'|viene|sono|vengono)\s+(usat|utilizzat|chiamat|richiamat)|\bdov['’]\s*è\s+(usat|utilizzat|chiamat|richiamat)|\bchi\s+(usa|utilizza|chiama|richiama)\b|\bquali\s+file\s+(usano|utilizzano|chiamano|richiamano)\b|\bin\s+quali\s+file\b.*\b(usat|utilizzat|chiamat|richiamat)|\b(utilizzi|usi|riferimenti)\s+(di|del|della|a)\b/,
   ],
   [
     "DEFINITION",
-    /\bwhere\s+is\b.*\b(defined|declared|implemented)\b|\bdefinition\s+of\b|\bdove\s+(è|e'|viene)\s+(definit|dichiarat|implementat)|\bdove\s+si\s+trova\b|\bwhere\s+(is|are)\b/,
+    /\bwhere\s+is\b.*\b(defined|declared|implemented)\b|\bdefinition\s+of\b|\bdove\s+(è|e'|viene|sono|vengono)\s+(definit|dichiarat|implementat)|\bdov['’]\s*è\s+(definit|dichiarat|implementat)|\bdefinizione\s+(di|del|della)\b|\bdove\s+si\s+trova\b|\bdov['’]\s*è\s|\bwhere\s+(is|are)\b/,
   ],
 ];
 
 const STOPWORDS = new Set(
-  "a an the is are was where who what which how does do of in on by to from for and or file files function class type it this that used uses use called call defined declared imports import imported depends dependents dependencies most project code dove chi cosa quale quali è e il lo la i gli le un una di da del della nel nella usa usato usata viene definito definita importa importano dipende file progetto codice si trova".split(
+  "a an the is are was where who what which how does do of in on by to from for and or file files function class type it this that used uses use called call defined declared imports import imported depends dependents dependencies most project code dove chi cosa quale quali è e il lo la i gli le un una di da del della nel nella usa usato usata usati usano utilizza utilizzato utilizzata utilizzati utilizzano utilizzi usi riferimenti chiama chiamato richiama viene vengono sono definito definita definiti definizione dichiarato implementato importa importano importato importata dipende dipendono file progetto codice si trova dov".split(
     " ",
   ),
 );
@@ -85,7 +87,8 @@ export function listAnswer(
     (item) =>
       `- \`${item.path}${item.line !== null ? `:${item.line}` : ""}\`${item.note ? ` — ${item.note}` : ""}`,
   );
-  if (items.length > shown.length) lines.push(`- … and ${items.length - shown.length} more`);
+  if (items.length > shown.length)
+    lines.push(`- ${interpolate(MORE_ITEMS, { count: items.length - shown.length })}`);
   return {
     answer: [heading, "", ...lines, "", `_${caveat}_`].join("\n"),
     sources: shown.map((item) => ({ path: item.path, line: item.line })),
@@ -118,4 +121,48 @@ export function citedSources(text: string): InsightSource[] {
     if (!found.has(key)) found.set(key, { path, line });
   }
   return [...found.values()].slice(0, 20);
+}
+
+const keyPatterns = new Map<string, { pattern: RegExp; names: string[] }>();
+
+function keyPattern(key: string): { pattern: RegExp; names: string[] } {
+  const cached = keyPatterns.get(key);
+  if (cached) return cached;
+  const names: string[] = [];
+  const source = key
+    .split(/(\{\w+\})/)
+    .map((part) => {
+      const name = /^\{(\w+)\}$/.exec(part)?.[1];
+      if (name === undefined) return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      names.push(name);
+      return "([\\s\\S]*?)";
+    })
+    .join("");
+  const entry = { pattern: new RegExp(`^${source}$`), names };
+  keyPatterns.set(key, entry);
+  return entry;
+}
+
+export function translateKnown(text: string, keys: readonly string[]): string {
+  if (currentLocale() === "en") return text;
+  for (const key of keys) {
+    const { pattern, names } = keyPattern(key);
+    const match = pattern.exec(text);
+    if (!match) continue;
+    return tx(key, Object.fromEntries(names.map((name, index) => [name, match[index + 1] ?? ""])));
+  }
+  return text;
+}
+
+export function translateAnswer(answer: string, keys: readonly string[]): string {
+  return answer
+    .split("\n")
+    .map((line) => {
+      const caveat = /^_([\s\S]+)_$/.exec(line);
+      if (caveat) return `_${translateKnown(caveat[1] ?? "", keys)}_`;
+      const item = /^(- (?:`[^`]*` — )?)([\s\S]*)$/.exec(line);
+      if (item) return `${item[1] ?? ""}${translateKnown(item[2] ?? "", keys)}`;
+      return translateKnown(line, keys);
+    })
+    .join("\n");
 }

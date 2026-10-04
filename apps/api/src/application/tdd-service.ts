@@ -48,6 +48,7 @@ import {
 } from "../domain/tdd/runners";
 import { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, conflict, notFound } from "../errors";
+import { msg, tx } from "../i18n";
 import {
   listProjectFiles,
   ProtectedSnapshot,
@@ -188,6 +189,19 @@ const STAGE_LABEL: Readonly<Record<TddStage, string>> = {
   lint: "lint",
 };
 
+const FIXED_TEXTS: ReadonlySet<string> = new Set([
+  msg("Stopped by the operator"),
+  msg("The test runner found no tests to run"),
+  msg("Already green: tests and gates passed before any fix"),
+  msg("Interrupted by an Onyx restart"),
+]);
+
+function localizeLoop(loop: TddLoopDto): TddLoopDto {
+  return loop.message !== null && FIXED_TEXTS.has(loop.message)
+    ? { ...loop, message: tx(loop.message) }
+    : loop;
+}
+
 function iso(date: Date | null): string | null {
   return date ? date.toISOString() : null;
 }
@@ -272,7 +286,7 @@ export class TddService {
     });
     deps.hub.registerSnapshot("tdd:", (channel) => {
       const state = this.states.get(channel.slice("tdd:".length));
-      return state ? [tddStateMessage(state)] : [];
+      return state ? [tddStateMessage(localizeLoop(state))] : [];
     });
   }
 
@@ -310,10 +324,14 @@ export class TddService {
       orderBy: { createdAt: "desc" },
       take: 20,
     });
-    return rows.map((row) => toLoopDto(row, this.active.get(row.id)?.phase ?? null));
+    return rows.map((row) => localizeLoop(toLoopDto(row, this.active.get(row.id)?.phase ?? null)));
   }
 
   async get(loopId: string): Promise<TddLoopDto> {
+    return localizeLoop(await this.load(loopId));
+  }
+
+  private async load(loopId: string): Promise<TddLoopDto> {
     const row = await this.deps.prisma.tddLoop.findUnique({
       where: { id: loopId },
       include: LOOP_INCLUDE,
@@ -488,7 +506,7 @@ export class TddService {
 
   async settled(loopId: string): Promise<TddLoopDto> {
     await this.active.get(loopId)?.done;
-    return this.get(loopId);
+    return this.load(loopId);
   }
 
   async abort(loopId: string, actor: string): Promise<TddLoopDto> {
@@ -1329,10 +1347,11 @@ export class TddService {
   }
 
   private async publish(loop: ActiveLoop): Promise<TddLoopDto> {
-    const dto = await this.get(loop.id);
+    const dto = await this.load(loop.id);
     if (this.active.has(loop.id)) this.states.set(loop.id, dto);
-    this.deps.hub.publishTddState(dto);
-    return dto;
+    const shown = localizeLoop(dto);
+    this.deps.hub.publishTddState(shown);
+    return shown;
   }
 
   private remember(loopId: string, output: TextTail): void {

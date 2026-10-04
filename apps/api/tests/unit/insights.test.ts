@@ -45,6 +45,29 @@ describe("insight questions", () => {
     expect(classifyQuestion("How does checkout handle refunds?").intent).toBe("OPEN");
   });
 
+  it("understands more Italian phrasings", () => {
+    const intent = (question: string) => classifyQuestion(question).intent;
+    expect(intent("Dov'è usato formatPrice?")).toBe("USAGES");
+    expect(intent("Dove viene utilizzato formatPrice?")).toBe("USAGES");
+    expect(intent("In quali file è usato formatPrice?")).toBe("USAGES");
+    expect(intent("Quali file usano formatPrice?")).toBe("USAGES");
+    expect(intent("Chi richiama formatPrice?")).toBe("USAGES");
+    expect(intent("Riferimenti a formatPrice")).toBe("USAGES");
+    expect(classifyQuestion("Dov'è definito TaskService?")).toEqual({
+      intent: "DEFINITION",
+      subject: "TaskService",
+    });
+    expect(intent("Dove sono definiti i tipi Order?")).toBe("DEFINITION");
+    expect(intent("Definizione di TaskService")).toBe("DEFINITION");
+    expect(classifyQuestion("Da chi è importato db.ts?")).toEqual({
+      intent: "IMPORTERS",
+      subject: "db.ts",
+    });
+    expect(intent("Dove viene importato db.ts?")).toBe("IMPORTERS");
+    expect(intent("Quali file dipendono da db.ts?")).toBe("IMPORTERS");
+    expect(intent("Qual è il file più grande?")).toBe("LARGEST");
+  });
+
   it("prefers quoted names, then paths, then code-like words", () => {
     expect(questionSubject('where is "user.id" read')).toBe("user.id");
     expect(questionSubject("who uses the cart helper in web/badge.ts")).toBe("web/badge.ts");

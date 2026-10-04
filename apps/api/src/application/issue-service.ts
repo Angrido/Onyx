@@ -16,6 +16,7 @@ import type { GitService } from "./git-service";
 import type { IndexService } from "./index-service";
 import type { TaskService } from "./task-service";
 import { githubFailure } from "./pull-request-service";
+import { tx } from "../i18n";
 
 type ImportInput = z.output<typeof ImportIssuesRequestSchema>;
 
@@ -84,7 +85,7 @@ export class IssueService {
     const skipped: ImportIssuesResponse["skipped"] = [];
     for (const number of numbers) {
       if (imported.has(number)) {
-        skipped.push({ number, reason: "Already imported" });
+        skipped.push({ number, reason: tx("Already imported") });
         continue;
       }
       let issue: GitHubIssue;
@@ -93,12 +94,12 @@ export class IssueService {
       } catch (error) {
         skipped.push({
           number,
-          reason: error instanceof GitHubError ? error.message : "GitHub could not be reached",
+          reason: error instanceof GitHubError ? error.message : tx("GitHub could not be reached"),
         });
         continue;
       }
       if (issue.pull_request !== undefined) {
-        skipped.push({ number, reason: "This is a pull request, not an issue" });
+        skipped.push({ number, reason: tx("This is a pull request, not an issue") });
         continue;
       }
       const labels = labelsOf(issue);

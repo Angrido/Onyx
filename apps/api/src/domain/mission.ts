@@ -1,4 +1,5 @@
 import type { GitSummary, ProjectHealth, RunStatus, TddStatus } from "@onyx/contracts";
+import { tx } from "../i18n";
 
 export interface HealthInput {
   indexError: string | null;
@@ -10,37 +11,47 @@ export interface HealthInput {
 
 const RANK: Record<ProjectHealth, number> = { OK: 0, ATTENTION: 1, ERROR: 2 };
 
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
 export function projectHealth(input: HealthInput): { health: ProjectHealth; reasons: string[] } {
   const found: { level: ProjectHealth; reason: string }[] = [];
   if (input.indexError)
-    found.push({ level: "ERROR", reason: `The code index failed: ${input.indexError}` });
+    found.push({
+      level: "ERROR",
+      reason: tx("The code index failed: {error}", { error: input.indexError }),
+    });
   if (input.git.error)
-    found.push({ level: "ERROR", reason: `Git could not read the project: ${input.git.error}` });
-  else if (!input.git.isRepo) found.push({ level: "ATTENTION", reason: "Not a git repository" });
+    found.push({
+      level: "ERROR",
+      reason: tx("Git could not read the project: {error}", { error: input.git.error }),
+    });
+  else if (!input.git.isRepo)
+    found.push({ level: "ATTENTION", reason: tx("Not a git repository") });
   if (input.lastRun?.status === "FAILED" || input.lastRun?.status === "TIMEOUT")
-    found.push({ level: "ATTENTION", reason: "The last run failed" });
+    found.push({ level: "ATTENTION", reason: tx("The last run failed") });
   else if (input.lastRun?.status === "INTERRUPTED")
-    found.push({ level: "ATTENTION", reason: "The last run was interrupted" });
+    found.push({ level: "ATTENTION", reason: tx("The last run was interrupted") });
   if (
     input.lastTdd &&
     (input.lastTdd.status === "EXHAUSTED" ||
       input.lastTdd.status === "STALLED" ||
       input.lastTdd.status === "FAILED")
   )
-    found.push({ level: "ATTENTION", reason: "The last TDD loop did not reach green" });
+    found.push({ level: "ATTENTION", reason: tx("The last TDD loop did not reach green") });
   if (input.pendingApprovals > 0)
     found.push({
       level: "ATTENTION",
-      reason: `${plural(input.pendingApprovals, "approval", "approvals")} waiting`,
+      reason:
+        input.pendingApprovals === 1
+          ? tx("{count} approval waiting", { count: input.pendingApprovals })
+          : tx("{count} approvals waiting", { count: input.pendingApprovals }),
     });
+  const behind = { count: input.git.behind, upstream: input.git.upstream ?? "upstream" };
   if (input.git.behind > 0)
     found.push({
       level: "ATTENTION",
-      reason: `${plural(input.git.behind, "commit", "commits")} behind ${input.git.upstream ?? "upstream"}`,
+      reason:
+        input.git.behind === 1
+          ? tx("{count} commit behind {upstream}", behind)
+          : tx("{count} commits behind {upstream}", behind),
     });
   const health = found.reduce<ProjectHealth>(
     (worst, entry) => (RANK[entry.level] > RANK[worst] ? entry.level : worst),

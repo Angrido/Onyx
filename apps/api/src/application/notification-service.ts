@@ -23,6 +23,7 @@ import {
   type NotificationMessage,
 } from "../domain/notifications";
 import { badRequest } from "../errors";
+import { msg, tx } from "../i18n";
 import type { SecretVault } from "../infrastructure/secret-vault";
 import { generateVapidKeys, sendWebPush, type VapidKeys } from "../infrastructure/web-push";
 
@@ -161,8 +162,8 @@ export class NotificationService {
   async test(channel: NotificationChannel): Promise<TestNotificationResponse> {
     const message: NotificationMessage = {
       event: "RUN_FINISHED",
-      title: "Onyx test notification",
-      body: "Notifications reach this channel.",
+      title: tx("Onyx test notification"),
+      body: tx("Notifications reach this channel."),
       path: "/settings",
       tag: `test-${channel}`,
       urgent: false,
@@ -171,7 +172,7 @@ export class NotificationService {
       const detail = await this.deliver(channel, message, true);
       return { ok: true, detail };
     } catch (error) {
-      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+      return { ok: false, detail: error instanceof Error ? tx(error.message) : String(error) };
     }
   }
 
@@ -274,7 +275,7 @@ export class NotificationService {
 
   private async sendNtfy(message: NotificationMessage, explicit: boolean): Promise<string> {
     const { ntfy } = this.stored;
-    if (!ntfy.server || !ntfy.topic) throw new Error("Enter the ntfy server and topic first");
+    if (!ntfy.server || !ntfy.topic) throw new Error(msg("Enter the ntfy server and topic first"));
     if (!ntfy.enabled && !explicit) return "off";
     const request = ntfyRequest(
       { server: ntfy.server, topic: ntfy.topic, token: this.reveal(ntfy.token) },
@@ -288,13 +289,13 @@ export class NotificationService {
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`ntfy answered ${response.status}`);
-    return `Sent to ${request.url}`;
+    return tx("Sent to {url}", { url: request.url });
   }
 
   private async sendTelegram(message: NotificationMessage, explicit: boolean): Promise<string> {
     const { telegram } = this.stored;
     const token = this.reveal(telegram.token);
-    if (!token || !telegram.chatId) throw new Error("Enter the bot token and chat id first");
+    if (!token || !telegram.chatId) throw new Error(msg("Enter the bot token and chat id first"));
     if (!telegram.enabled && !explicit) return "off";
     const request = telegramRequest(
       {
@@ -312,12 +313,12 @@ export class NotificationService {
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`Telegram answered ${response.status}`);
-    return `Sent to chat ${telegram.chatId}`;
+    return tx("Sent to chat {chat}", { chat: telegram.chatId });
   }
 
   private async sendPush(message: NotificationMessage): Promise<string> {
     const subscriptions = await this.deps.prisma.pushSubscription.findMany();
-    if (subscriptions.length === 0) throw new Error("No browser is subscribed yet");
+    if (subscriptions.length === 0) throw new Error(msg("No browser is subscribed yet"));
     const keys = await this.vapidKeys();
     const payload = pushPayload(message);
     let delivered = 0;
@@ -351,8 +352,10 @@ export class NotificationService {
         });
       }
     }
-    if (delivered === 0) throw new Error("No browser accepted the notification");
-    return `Sent to ${delivered} ${delivered === 1 ? "browser" : "browsers"}`;
+    if (delivered === 0) throw new Error(msg("No browser accepted the notification"));
+    return delivered === 1
+      ? tx("Sent to {count} browser", { count: delivered })
+      : tx("Sent to {count} browsers", { count: delivered });
   }
 
   private async vapidKeys(): Promise<VapidKeys> {

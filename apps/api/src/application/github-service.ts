@@ -27,6 +27,7 @@ import {
   type RepoPage,
 } from "../infrastructure/github-client";
 import { isWithinRoot, type ProjectService } from "./project-service";
+import { msg, tx } from "../i18n";
 
 type ImportRepoInput = z.output<typeof ImportRepoRequestSchema>;
 
@@ -64,6 +65,7 @@ interface CloneJob {
 
 const TOKEN_KEY = "github.token";
 const TEMP_PREFIX = ".onyx-clone-";
+const REGISTERING = msg("Registering");
 const MAX_PAGES = 10;
 const REPO_CACHE_MS = 60_000;
 const ACCOUNT_CACHE_MS = 5 * 60_000;
@@ -326,7 +328,7 @@ export class GitHubService {
       });
       await new GitRepo(temp, this.deps.sourceEnv ?? process.env).populate(temp);
       job.state = "registering";
-      job.phase = "Registering";
+      job.phase = REGISTERING;
       job.percent = null;
       if (await exists(job.targetPath))
         throw new Error(`${job.targetPath} appeared during the clone`);
@@ -455,7 +457,7 @@ export class GitHubService {
       branch: job.branch,
       targetPath: job.targetPath,
       state: job.state,
-      phase: job.phase,
+      phase: job.phase === REGISTERING ? tx(REGISTERING) : job.phase,
       percent: job.percent,
       projectId: job.projectId,
       error: job.error,

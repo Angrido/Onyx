@@ -8,6 +8,7 @@ import type { Logger } from "pino";
 import type { z } from "zod";
 import { budgetLevel, periodKey, periodStart, type BudgetLevel } from "../domain/budget";
 import { badRequest, notFound } from "../errors";
+import { tx } from "../i18n";
 import type { ApprovalService } from "./approval-service";
 
 type CreateInput = z.output<typeof CreateBudgetRequestSchema>;
@@ -29,7 +30,7 @@ export interface BudgetServiceDeps {
   logger: Logger;
   approvals: Pick<ApprovalService, "create" | "register" | "expire">;
   now?: () => Date;
-  onHardLimit?: (projectId: string | null, reason: string) => void;
+  onHardLimit?: (projectId: string | null, reason: string, notice: string) => void;
   onChange?: () => void;
 }
 
@@ -195,9 +196,20 @@ export class BudgetService {
         this.deps.onHardLimit?.(
           state.budget.scope === "GLOBAL" ? null : state.budget.projectId,
           reason,
+          this.hardNotice(state),
         );
       }
     }
+  }
+
+  private hardNotice(state: BudgetState): string {
+    const amount = money(state.budget.hardUsd);
+    if (state.budget.scope === "GLOBAL")
+      return tx("All projects reached the hard budget of {amount}", { amount });
+    return tx("{project} reached the hard budget of {amount}", {
+      project: this.names.get(state.budget.projectId ?? "") ?? tx("Project"),
+      amount,
+    });
   }
 
   private covers(budget: Budget, projectId: string | null): boolean {

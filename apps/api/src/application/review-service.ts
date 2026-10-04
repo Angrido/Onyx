@@ -15,12 +15,28 @@ import {
   truncateDiff,
   type QaOutcome,
 } from "../domain/qa";
+import { msg, tx } from "../i18n";
 import type { GitRepo } from "../infrastructure/git-worktree";
 import { READ_ONLY_TOOLS, WRITE_TOOLS, structuredOf, type AgentRunner } from "./agent-runner";
 import { toStringArray } from "./mappers";
 import type { RouterService } from "./router-service";
 
 const MAX_DIFF_CHARS = 200_000;
+
+const FIXED_TEXTS: ReadonlySet<string> = new Set([
+  msg("Not reviewed"),
+  msg("The review returned no verdict"),
+  msg("Git found no conflict to resolve"),
+  msg("The resolution left nothing to commit"),
+  msg("The tests or the type check fail on the proposal"),
+  msg("The plan moved on and the proposal no longer applies"),
+  msg("Tests not run: the plan does not verify."),
+  msg("No test runner: tests not run."),
+]);
+
+function localized<T extends string | null>(text: T): T {
+  return (text !== null && FIXED_TEXTS.has(text) ? tx(text) : text) as T;
+}
 
 export interface ReviewServiceDeps {
   prisma: PrismaClient;
@@ -45,6 +61,25 @@ export function toQaReviewDto(review: QaReview): QaReviewDto {
     modelId: review.modelId,
     costUsd: review.costUsd,
     createdAt: review.createdAt.toISOString(),
+  };
+}
+
+export function localizeQaReview(review: QaReviewDto): QaReviewDto {
+  return {
+    ...review,
+    summary: localized(review.summary),
+    criteria: review.criteria.map((criterion) => ({
+      ...criterion,
+      evidence: localized(criterion.evidence),
+    })),
+  };
+}
+
+export function localizeResolution(resolution: MergeResolutionDto): MergeResolutionDto {
+  return {
+    ...resolution,
+    checks: localized(resolution.checks),
+    message: localized(resolution.message),
   };
 }
 

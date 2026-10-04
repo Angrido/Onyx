@@ -10,6 +10,7 @@ import {
 import type { PrismaClient } from "@onyx/db";
 import { CONTINUE_PROMPT_PREFIX } from "../domain/command-rules";
 import { compareMemoryArms } from "../domain/memory";
+import { currentLocale, type Locale } from "../i18n";
 import { experimentRuns, sqlDate } from "../infrastructure/run-totals";
 import type { MemoryService } from "./memory-service";
 import type { OptionsService } from "./options-service";
@@ -57,7 +58,7 @@ function round(value: number, digits = 6): number {
 }
 
 export class SavingsService {
-  private cached: { at: number; report: SavingsReport } | null = null;
+  private cached: { at: number; locale: Locale; report: SavingsReport } | null = null;
 
   constructor(private readonly deps: SavingsServiceDeps) {}
 
@@ -92,10 +93,16 @@ export class SavingsService {
   }
 
   async report(now?: Date): Promise<SavingsReport> {
-    if (now === undefined && this.cached && Date.now() - this.cached.at < REPORT_CACHE_MS)
+    const locale = currentLocale();
+    if (
+      now === undefined &&
+      this.cached &&
+      this.cached.locale === locale &&
+      Date.now() - this.cached.at < REPORT_CACHE_MS
+    )
       return this.cached.report;
     const report = await this.compute(now ?? new Date());
-    if (now === undefined) this.cached = { at: Date.now(), report };
+    if (now === undefined) this.cached = { at: Date.now(), locale, report };
     return report;
   }
 

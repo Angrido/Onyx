@@ -12,6 +12,7 @@ import type {
   SavingsLedgerRow,
   SavingsVerdict,
 } from "@onyx/contracts";
+import { msg, tx } from "../i18n";
 
 export const DEFAULT_EXPERIMENT: ContextExperimentSettings = {
   enabled: false,
@@ -260,8 +261,12 @@ export function compareArms(input: {
   };
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+function counted(count: number, one: string, many: string): string {
+  return tx(count === 1 ? one : many, { count });
+}
+
+function sentences(...parts: (string | null)[]): string {
+  return parts.filter((part): part is string => part !== null).join(" ");
 }
 
 function percent(ratio: number): string {
@@ -275,66 +280,123 @@ export function compactTokens(tokens: number): string {
 }
 
 function pText(pValue: number | null): string {
-  if (pValue === null) return "p = n/a";
+  if (pValue === null) return tx("p = n/a");
   return pValue < 0.001 ? "p < 0.001" : `p = ${pValue.toFixed(3)}`;
 }
 
-function successNote(experiment: ExperimentResult): string {
+function successNote(experiment: ExperimentResult): string | null {
   const gap = experiment.successGap;
-  if (gap === null || gap >= SUCCESS_GAP_WARNING) return "";
-  return ` Careful: ${percent(gap)} fewer runs succeed with the context.`;
+  if (gap === null || gap >= SUCCESS_GAP_WARNING) return null;
+  return tx("Careful: {percent} fewer runs succeed with the context.", { percent: percent(gap) });
 }
 
 function estimateText(pack: PackAccounting): string {
-  if (pack.netSaving === null) return "no estimate yet";
+  if (pack.netSaving === null) return tx("Until then the estimate says no estimate yet.");
   return pack.netSaving > 0
-    ? `an estimated ${percent(pack.netSaving)} fewer context tokens`
-    : "no saving even by the estimate";
+    ? tx("Until then the estimate says an estimated {percent} fewer context tokens.", {
+        percent: percent(pack.netSaving),
+      })
+    : tx("Until then the estimate says no saving even by the estimate.");
 }
 
 export function savingsVerdict(experiment: ExperimentResult, pack: PackAccounting): SavingsVerdict {
-  const counts = `${experiment.pack.runs} runs with the context and ${experiment.control.runs} without`;
+  const counts = {
+    pack: experiment.pack.runs,
+    control: experiment.control.runs,
+    p: pText(experiment.pValue),
+  };
+  const medians = tx(
+    "Median input tokens per run over {pack} runs with the context and {control} without ({p}).",
+    counts,
+  );
   switch (experiment.state) {
     case "SAVING":
       return {
         state: "CONFIRMED",
-        headline: `Measured: runs with the Onyx context use ${percent(experiment.tokenChange ?? 0)} fewer input tokens`,
-        detail: `Median input tokens per run over ${counts} (${pText(experiment.pValue)}).${experiment.costChange !== null ? ` Median cost per run ${experiment.costChange <= 0 ? "down" : "up"} ${percent(experiment.costChange)}.` : ""}${successNote(experiment)}`,
+        headline: tx("Measured: runs with the Onyx context use {percent} fewer input tokens", {
+          percent: percent(experiment.tokenChange ?? 0),
+        }),
+        detail: sentences(
+          medians,
+          experiment.costChange === null
+            ? null
+            : experiment.costChange <= 0
+              ? tx("Median cost per run down {percent}.", {
+                  percent: percent(experiment.costChange),
+                })
+              : tx("Median cost per run up {percent}.", {
+                  percent: percent(experiment.costChange),
+                }),
+          successNote(experiment),
+        ),
       };
     case "COSTS_MORE":
       return {
         state: "NOT_PAYING",
-        headline: `Measured: runs with the Onyx context use ${percent(experiment.tokenChange ?? 0)} more input tokens`,
-        detail: `Median input tokens per run over ${counts} (${pText(experiment.pValue)}). The pack is adding tokens instead of saving them: check the re-reads below and the pack budget.${successNote(experiment)}`,
+        headline: tx("Measured: runs with the Onyx context use {percent} more input tokens", {
+          percent: percent(experiment.tokenChange ?? 0),
+        }),
+        detail: sentences(
+          medians,
+          tx(
+            "The pack is adding tokens instead of saving them: check the re-reads below and the pack budget.",
+          ),
+          successNote(experiment),
+        ),
       };
     case "NO_DIFFERENCE":
       return {
         state: "NO_DIFFERENCE",
-        headline: "Measured: no significant difference yet",
-        detail: `Over ${counts} the median differs by ${experiment.tokenChange === null ? "an unknown amount" : percent(experiment.tokenChange)}, which could still be chance (${pText(experiment.pValue)}). Keep the experiment running for a clearer answer.${successNote(experiment)}`,
+        headline: tx("Measured: no significant difference yet"),
+        detail: sentences(
+          experiment.tokenChange === null
+            ? tx(
+                "Over {pack} runs with the context and {control} without the median differs by an unknown amount, which could still be chance ({p}).",
+                counts,
+              )
+            : tx(
+                "Over {pack} runs with the context and {control} without the median differs by {change}, which could still be chance ({p}).",
+                { ...counts, change: percent(experiment.tokenChange) },
+              ),
+          tx("Keep the experiment running for a clearer answer."),
+          successNote(experiment),
+        ),
       };
     case "COLLECTING":
       return {
         state: "COLLECTING",
-        headline: `Measuring: ${Math.min(experiment.pack.runs, experiment.control.runs)} of ${experiment.minRunsPerArm} runs per arm so far`,
-        detail: `The experiment needs ${experiment.minRunsPerArm} finished runs with and without the context before it can tell. Until then the estimate says ${estimateText(pack)}.`,
+        headline: tx("Measuring: {count} of {needed} runs per arm so far", {
+          count: Math.min(experiment.pack.runs, experiment.control.runs),
+          needed: experiment.minRunsPerArm,
+        }),
+        detail: sentences(
+          tx(
+            "The experiment needs {count} finished runs with and without the context before it can tell.",
+            { count: experiment.minRunsPerArm },
+          ),
+          estimateText(pack),
+        ),
       };
     case "OFF":
       if (pack.runsWithPack === 0)
         return {
           state: "NO_DATA",
-          headline: "No runs with an Onyx context yet",
-          detail:
+          headline: tx("No runs with an Onyx context yet"),
+          detail: tx(
             "Run a task on an indexed project with target paths to see what the context pack saves.",
+          ),
         };
       return {
         state: "ESTIMATE_ONLY",
         headline:
           pack.netSaving !== null && pack.netSaving > 0
-            ? `Estimated ${percent(pack.netSaving)} fewer context tokens, not measured`
-            : "Estimated: the context pack saves nothing",
-        detail:
+            ? tx("Estimated {percent} fewer context tokens, not measured", {
+                percent: percent(pack.netSaving),
+              })
+            : tx("Estimated: the context pack saves nothing"),
+        detail: tx(
           "The estimate assumes that without Onyx the agent would read every target and direct dependency in full, and subtracts the files it read again anyway. Turn on the experiment to measure the saving on real runs.",
+        ),
       };
   }
 }
@@ -350,14 +412,14 @@ export function savingsChecks(input: {
       ? {
           id: "context",
           state: "ok",
-          title: "Onyx context is on",
-          detail: "Runs get a context pack, a project map and the onyx MCP tools.",
+          title: tx("Onyx context is on"),
+          detail: tx("Runs get a context pack, a project map and the onyx MCP tools."),
         }
       : {
           id: "context",
           state: "fail",
-          title: "Onyx context is off",
-          detail: "ONYX_CONTEXT_ENABLED is false: runs get no pack and nothing is saved.",
+          title: tx("Onyx context is off"),
+          detail: tx("ONYX_CONTEXT_ENABLED is false: runs get no pack and nothing is saved."),
         },
   ];
 
@@ -366,20 +428,25 @@ export function savingsChecks(input: {
     checks.push({
       id: "coverage",
       state: "idle",
-      title: "No finished runs yet",
-      detail: `Nothing ran in the last ${pack.windowDays} days.`,
+      title: tx("No finished runs yet"),
+      detail: tx("Nothing ran in the last {days} days.", { days: pack.windowDays }),
     });
   } else {
     const covered = pack.runsWithPack / eligible >= COVERAGE_WARNING_SHARE;
+    const coverage = { count: pack.runsWithPack, total: eligible };
     checks.push({
       id: "coverage",
       state: covered ? "ok" : "warn",
       title: covered
-        ? `${pack.runsWithPack} of ${eligible} runs got a context pack`
-        : `Only ${pack.runsWithPack} of ${eligible} runs got a context pack`,
+        ? tx("{count} of {total} runs got a context pack", coverage)
+        : tx("Only {count} of {total} runs got a context pack", coverage),
       detail: covered
-        ? "The pack is built from the target paths of the task or the files named in the prompt."
-        : "A run gets no pack when the project is not indexed or the task names no files: set target paths or name files in the prompt.",
+        ? tx(
+            "The pack is built from the target paths of the task or the files named in the prompt.",
+          )
+        : tx(
+            "A run gets no pack when the project is not indexed or the task names no files: set target paths or name files in the prompt.",
+          ),
     });
   }
 
@@ -387,8 +454,8 @@ export function savingsChecks(input: {
     checks.push({
       id: "rereads",
       state: "idle",
-      title: "Re-reads not measured yet",
-      detail: "They are counted on runs that received a pack.",
+      title: tx("Re-reads not measured yet"),
+      detail: tx("They are counted on runs that received a pack."),
     });
   } else {
     const share = pack.baselineTokens > 0 ? pack.rereadTokens / pack.baselineTokens : 0;
@@ -396,82 +463,123 @@ export function savingsChecks(input: {
       .slice(0, 3)
       .map((file) => file.relPath)
       .join(", ");
-    const summary = `${pack.runsWithRereads} of ${pack.runsWithPack} runs read again ${plural(pack.rereadFiles, "file")} the pack already covered (~${compactTokens(pack.rereadTokens)} tokens, ${percent(share)} of the full-read baseline)`;
+    const rereads = {
+      runs: pack.runsWithRereads,
+      total: pack.runsWithPack,
+      count: pack.rereadFiles,
+      tokens: compactTokens(pack.rereadTokens),
+      share: percent(share),
+    };
+    const summary =
+      pack.rereadFiles === 1
+        ? tx(
+            "{runs} of {total} runs read again {count} file the pack already covered (~{tokens} tokens, {share} of the full-read baseline).",
+            rereads,
+          )
+        : tx(
+            "{runs} of {total} runs read again {count} files the pack already covered (~{tokens} tokens, {share} of the full-read baseline).",
+            rereads,
+          );
     checks.push(
       share > REREAD_WARNING_SHARE
         ? {
             id: "rereads",
             state: "warn",
-            title: "The agent re-reads files it already has",
-            detail: `${summary}. Claude Code reads a file before editing it, so edited targets are always read again.${top ? ` Most re-read: ${top}.` : ""}`,
+            title: tx("The agent re-reads files it already has"),
+            detail: sentences(
+              summary,
+              tx(
+                "Claude Code reads a file before editing it, so edited targets are always read again.",
+              ),
+              top ? tx("Most re-read: {paths}.", { paths: top }) : null,
+            ),
           }
         : {
             id: "rereads",
             state: "ok",
-            title: "Few re-reads",
-            detail: `${summary}.`,
+            title: tx("Few re-reads"),
+            detail: summary,
           },
     );
   }
 
+  const spent = {
+    spent: compactTokens(pack.deliveredTokens + pack.rereadTokens),
+    baseline: compactTokens(pack.baselineTokens),
+  };
   if (pack.netSaving === null) {
     checks.push({
       id: "net",
       state: "idle",
-      title: "No estimate yet",
-      detail: "It appears after the first run with a pack.",
+      title: tx("No estimate yet"),
+      detail: tx("It appears after the first run with a pack."),
     });
   } else if (pack.netSaving > 0) {
     checks.push({
       id: "net",
       state: "ok",
-      title: "The pack is smaller than what it replaces",
-      detail: `Pack, map, MCP expansions and re-reads add up to ${compactTokens(pack.deliveredTokens + pack.rereadTokens)} tokens against ${compactTokens(pack.baselineTokens)} for reading the same files in full.`,
+      title: tx("The pack is smaller than what it replaces"),
+      detail: tx(
+        "Pack, map, MCP expansions and re-reads add up to {spent} tokens against {baseline} for reading the same files in full.",
+        spent,
+      ),
     });
   } else {
     checks.push({
       id: "net",
       state: "fail",
-      title: "The pack costs more than it saves",
-      detail: `Pack, map, MCP expansions and re-reads add up to ${compactTokens(pack.deliveredTokens + pack.rereadTokens)} tokens against ${compactTokens(pack.baselineTokens)}: lower the pack budget or narrow the target paths.`,
+      title: tx("The pack costs more than it saves"),
+      detail: tx(
+        "Pack, map, MCP expansions and re-reads add up to {spent} tokens against {baseline}: lower the pack budget or narrow the target paths.",
+        spent,
+      ),
     });
   }
 
-  const arms = `${experiment.pack.runs} runs with the context and ${experiment.control.runs} without`;
-  const experimentCheck: Record<ExperimentState, SavingsCheck> = {
-    OFF: {
+  const arms = {
+    pack: experiment.pack.runs,
+    control: experiment.control.runs,
+    p: pText(experiment.pValue),
+  };
+  const armsWithP = () => tx("{pack} runs with the context and {control} without, {p}.", arms);
+  const experimentCheck: Record<ExperimentState, () => SavingsCheck> = {
+    OFF: () => ({
       id: "experiment",
       state: "warn",
-      title: "The saving is not measured",
-      detail:
+      title: tx("The saving is not measured"),
+      detail: tx(
         "Everything above is an estimate. Turn on the experiment to compare real runs with and without the Onyx context.",
-    },
-    COLLECTING: {
+      ),
+    }),
+    COLLECTING: () => ({
       id: "experiment",
       state: "idle",
-      title: "The experiment is collecting runs",
-      detail: `${arms} so far; ${experiment.minRunsPerArm} per arm are needed.`,
-    },
-    SAVING: {
+      title: tx("The experiment is collecting runs"),
+      detail: tx(
+        "{pack} runs with the context and {control} without so far; {count} per arm are needed.",
+        { ...arms, count: experiment.minRunsPerArm },
+      ),
+    }),
+    SAVING: () => ({
       id: "experiment",
       state: "ok",
-      title: "The experiment confirms the saving",
-      detail: `${arms}, ${pText(experiment.pValue)}.`,
-    },
-    NO_DIFFERENCE: {
+      title: tx("The experiment confirms the saving"),
+      detail: armsWithP(),
+    }),
+    NO_DIFFERENCE: () => ({
       id: "experiment",
       state: "warn",
-      title: "The experiment finds no clear difference",
-      detail: `${arms}, ${pText(experiment.pValue)}.`,
-    },
-    COSTS_MORE: {
+      title: tx("The experiment finds no clear difference"),
+      detail: armsWithP(),
+    }),
+    COSTS_MORE: () => ({
       id: "experiment",
       state: "fail",
-      title: "The experiment says the context costs more",
-      detail: `${arms}, ${pText(experiment.pValue)}.`,
-    },
+      title: tx("The experiment says the context costs more"),
+      detail: armsWithP(),
+    }),
   };
-  checks.push(experimentCheck[experiment.state]);
+  checks.push(experimentCheck[experiment.state]());
   return checks;
 }
 
@@ -565,7 +673,7 @@ export const MIN_PLANS = 3;
 export const MIN_BATCH_RUNS = 5;
 
 function signedPercent(ratio: number | null): string {
-  if (ratio === null) return "n/a";
+  if (ratio === null) return tx("n/a");
   const value = Math.round(ratio * 100);
   return `${value > 0 ? "+" : ""}${value}%`;
 }
@@ -584,7 +692,17 @@ export function conciseRow(input: ConciseInput): SavingsLedgerRow {
       tokens: null,
       usd: null,
       runs: input.after.length,
-      detail: `Output tokens per completed run: ${compactTokens(before)} before short summaries, ${compactTokens(after)} after (${signedPercent(relativeChange(after, before))}, medians over ${input.before.length} and ${input.after.length} runs of ${input.windowDays} days each side). Before and after, not an A/B: the tasks differ too.`,
+      detail: tx(
+        "Output tokens per completed run: {before} before short summaries, {after} after ({change}, medians over {beforeRuns} and {afterRuns} runs of {days} days each side). Before and after, not an A/B: the tasks differ too.",
+        {
+          before: compactTokens(before),
+          after: compactTokens(after),
+          change: signedPercent(relativeChange(after, before)),
+          beforeRuns: input.before.length,
+          afterRuns: input.after.length,
+          days: input.windowDays,
+        },
+      ),
     };
   return {
     source: "concise-answers",
@@ -593,8 +711,11 @@ export function conciseRow(input: ConciseInput): SavingsLedgerRow {
     usd: null,
     runs: input.after.length,
     detail: input.enabled
-      ? `Expected 20–40% fewer output tokens per run (output costs five times the input). Measured once there are ${MIN_BEFORE_AFTER_RUNS} completed runs before and after the switch: now ${input.before.length} and ${input.after.length}.`
-      : "Off: final summaries are as long as the agent makes them.",
+      ? tx(
+          "Expected 20–40% fewer output tokens per run (output costs five times the input). Measured once there are {count} completed runs before and after the switch: now {before} and {after}.",
+          { count: MIN_BEFORE_AFTER_RUNS, before: input.before.length, after: input.after.length },
+        )
+      : tx("Off: final summaries are as long as the agent makes them."),
   };
 }
 
@@ -613,7 +734,16 @@ export function explorationRow(input: ExplorationInput): SavingsLedgerRow {
       tokens: null,
       usd: null,
       runs: input.withExplorer.length + input.without.length,
-      detail: `Planner-model cost per plan: $${without.toFixed(3)} without the explorer, $${withExplorer.toFixed(3)} with it (${signedPercent(relativeChange(withExplorer, without))}, medians over ${input.without.length} and ${input.withExplorer.length} plans). On Claude Max this is the share that weighs on the Opus quota.`,
+      detail: tx(
+        "Planner-model cost per plan: {without} without the explorer, {with} with it ({change}, medians over {withoutPlans} and {withPlans} plans). On Claude Max this is the share that weighs on the Opus quota.",
+        {
+          without: `$${without.toFixed(3)}`,
+          with: `$${withExplorer.toFixed(3)}`,
+          change: signedPercent(relativeChange(withExplorer, without)),
+          withoutPlans: input.without.length,
+          withPlans: input.withExplorer.length,
+        },
+      ),
     };
   return {
     source: "exploration-models",
@@ -622,8 +752,11 @@ export function explorationRow(input: ExplorationInput): SavingsLedgerRow {
     usd: null,
     runs: input.withExplorer.length,
     detail: input.enabled
-      ? `The planner and the roadmap delegate searches to an explorer on Haiku and the roadmap runs on Sonnet, so less of the Opus quota goes to reading files. Measured once there are ${MIN_PLANS} plans with and ${MIN_PLANS} without it: now ${input.withExplorer.length} and ${input.without.length}.`
-      : "Off: the planner and the roadmap explore on their own model.",
+      ? tx(
+          "The planner and the roadmap delegate searches to an explorer on Haiku and the roadmap runs on Sonnet, so less of the Opus quota goes to reading files. Measured once there are {count} plans with and {count} without it: now {with} and {without}.",
+          { count: MIN_PLANS, with: input.withExplorer.length, without: input.without.length },
+        )
+      : tx("Off: the planner and the roadmap explore on their own model."),
   };
 }
 
@@ -644,7 +777,18 @@ export function batchingRow(input: BatchingInput): SavingsLedgerRow {
       tokens: Math.max(0, Math.round((single - batched) * input.batched.tasks)),
       usd: null,
       runs: input.batched.runs,
-      detail: `Tokens per completed small task: ${compactTokens(single)} alone, ${compactTokens(batched)} in a grouped run (${signedPercent(relativeChange(batched, single))}, ${input.batched.tasks} tasks in ${input.batched.runs} grouped runs against ${input.single.tasks} in ${input.single.runs} single runs).`,
+      detail: tx(
+        "Tokens per completed small task: {single} alone, {batched} in a grouped run ({change}, {batchedTasks} tasks in {batchedRuns} grouped runs against {singleTasks} in {singleRuns} single runs).",
+        {
+          single: compactTokens(single),
+          batched: compactTokens(batched),
+          change: signedPercent(relativeChange(batched, single)),
+          batchedTasks: input.batched.tasks,
+          batchedRuns: input.batched.runs,
+          singleTasks: input.single.tasks,
+          singleRuns: input.single.runs,
+        },
+      ),
     };
   return {
     source: "small-task-batching",
@@ -653,8 +797,13 @@ export function batchingRow(input: BatchingInput): SavingsLedgerRow {
     usd: null,
     runs: input.batched.runs,
     detail: input.enabled
-      ? `Expected 10–30% fewer tokens per completed small task. Measured after ${MIN_BATCH_RUNS} grouped and ${MIN_BATCH_RUNS} single runs of small tasks: now ${input.batched.runs} and ${input.single.runs}.`
-      : "Off: turn it on in Settings to let Onyx group small queued tasks of the same workspace.",
+      ? tx(
+          "Expected 10–30% fewer tokens per completed small task. Measured after {count} grouped and {count} single runs of small tasks: now {batched} and {single}.",
+          { count: MIN_BATCH_RUNS, batched: input.batched.runs, single: input.single.runs },
+        )
+      : tx(
+          "Off: turn it on in Settings to let Onyx group small queued tasks of the same workspace.",
+        ),
   };
 }
 
@@ -670,7 +819,10 @@ export function qaReviewRow(input: ReviewInput): SavingsLedgerRow {
       tokens: null,
       usd: null,
       runs: 0,
-      detail: `No plan used QA in the last ${input.windowDays} days. It is a cost, not a saving: each review reads the diff on the Builder model, an estimated 5–20K tokens per task, to avoid rework after the merge.`,
+      detail: tx(
+        "No plan used QA in the last {days} days. It is a cost, not a saving: each review reads the diff on the Builder model, an estimated 5–20K tokens per task, to avoid rework after the merge.",
+        { days: input.windowDays },
+      ),
     };
   return {
     source: "qa-review",
@@ -678,7 +830,18 @@ export function qaReviewRow(input: ReviewInput): SavingsLedgerRow {
     tokens: null,
     usd: null,
     runs: input.reviews,
-    detail: `A cost, not a saving: ${plural(input.reviews, "review")} of ${plural(input.nodes, "task")} used ${compactTokens(input.tokens)} tokens (${dollars(input.usd)}) in the last ${input.windowDays} days. They found problems in ${plural(input.caught, "task")} before the merge, and the agent fixed ${input.fixed} of them after the review. The rework this avoids after the merge is not measured.`,
+    detail: tx(
+      "A cost, not a saving: {reviews} of {tasks} used {tokens} tokens ({usd}) in the last {days} days. They found problems in {caught} before the merge, and the agent fixed {fixed} of them after the review. The rework this avoids after the merge is not measured.",
+      {
+        reviews: counted(input.reviews, msg("{count} review"), msg("{count} reviews")),
+        tasks: counted(input.nodes, msg("{count} task"), msg("{count} tasks")),
+        tokens: compactTokens(input.tokens),
+        usd: dollars(input.usd),
+        days: input.windowDays,
+        caught: counted(input.caught, msg("{count} task"), msg("{count} tasks")),
+        fixed: input.fixed,
+      },
+    ),
   };
 }
 
@@ -690,15 +853,35 @@ export function conflictResolutionRow(input: ResolutionInput): SavingsLedgerRow 
       tokens: null,
       usd: null,
       runs: 0,
-      detail: `No merge conflict was handed to Claude in the last ${input.windowDays} days. It costs tokens only when a plan with the option on hits a conflict.`,
+      detail: tx(
+        "No merge conflict was handed to Claude in the last {days} days. It costs tokens only when a plan with the option on hits a conflict.",
+        { days: input.windowDays },
+      ),
     };
+  const resolution = {
+    count: input.proposals,
+    usd: dollars(input.usd),
+    days: input.windowDays,
+    applied: input.applied,
+    refused: input.refused,
+    unusable: input.unusable,
+  };
   return {
     source: "conflict-resolution",
     evidence: "MEASURED",
     tokens: null,
     usd: null,
     runs: input.proposals,
-    detail: `A cost, not a saving: ${plural(input.proposals, "conflict")} handed to Claude for ${dollars(input.usd)} in the last ${input.windowDays} days; ${input.applied} applied, ${input.refused} refused and ${input.unusable} not usable (markers left or tests failing).`,
+    detail:
+      input.proposals === 1
+        ? tx(
+            "A cost, not a saving: {count} conflict handed to Claude for {usd} in the last {days} days; {applied} applied, {refused} refused and {unusable} not usable (markers left or tests failing).",
+            resolution,
+          )
+        : tx(
+            "A cost, not a saving: {count} conflicts handed to Claude for {usd} in the last {days} days; {applied} applied, {refused} refused and {unusable} not usable (markers left or tests failing).",
+            resolution,
+          ),
   };
 }
 
@@ -711,17 +894,43 @@ export function insightsRow(input: InsightsInput): SavingsLedgerRow {
       tokens: null,
       usd: null,
       runs: 0,
-      detail: `No question in the last ${input.windowDays} days. Questions about definitions, usages, imports, central files and cycles are answered from the index at no cost.`,
+      detail: tx(
+        "No question in the last {days} days. Questions about definitions, usages, imports, central files and cycles are answered from the index at no cost.",
+        { days: input.windowDays },
+      ),
     };
   const measured = median(input.modelTokens);
   const perAnswer = measured ?? DEFAULT_MODEL_ANSWER_TOKENS;
+  const answers = {
+    index: input.index,
+    count: total,
+    percent: `${Math.round((input.index / total) * 100)}%`,
+  };
   return {
     source: "insights",
     evidence: "ESTIMATED",
     tokens: Math.round(input.index * perAnswer),
     usd: null,
     runs: total,
-    detail: `${input.index} of ${plural(total, "answer")} came from the index without a model (${Math.round((input.index / total) * 100)}%, measured). ${measured === null ? `With no model answer yet, each is counted at ~${compactTokens(DEFAULT_MODEL_ANSWER_TOKENS)} tokens (estimate).` : `A model answer used a median of ${compactTokens(measured)} tokens (measured), so the index answers saved about that much each.`}`,
+    detail: sentences(
+      total === 1
+        ? tx(
+            "{index} of {count} answer came from the index without a model ({percent}, measured).",
+            answers,
+          )
+        : tx(
+            "{index} of {count} answers came from the index without a model ({percent}, measured).",
+            answers,
+          ),
+      measured === null
+        ? tx("With no model answer yet, each is counted at ~{tokens} tokens (estimate).", {
+            tokens: compactTokens(DEFAULT_MODEL_ANSWER_TOKENS),
+          })
+        : tx(
+            "A model answer used a median of {tokens} tokens (measured), so the index answers saved about that much each.",
+            { tokens: compactTokens(measured) },
+          ),
+    ),
   };
 }
 
@@ -735,10 +944,29 @@ export function ideationRow(input: IdeationInput): SavingsLedgerRow {
       runs: input.analyses,
       detail:
         input.analyses === 0
-          ? `No analysis in the last ${input.windowDays} days. The static part is free; Claude only reads the suspicious snippets when you ask.`
-          : `${input.analyses} ${input.analyses === 1 ? "analysis" : "analyses"} without a model in the last ${input.windowDays} days: rules, dependency audit and import graph cost no tokens.`,
+          ? tx(
+              "No analysis in the last {days} days. The static part is free; Claude only reads the suspicious snippets when you ask.",
+              { days: input.windowDays },
+            )
+          : input.analyses === 1
+            ? tx(
+                "{count} analysis without a model in the last {days} days: rules, dependency audit and import graph cost no tokens.",
+                { count: input.analyses, days: input.windowDays },
+              )
+            : tx(
+                "{count} analyses without a model in the last {days} days: rules, dependency audit and import graph cost no tokens.",
+                { count: input.analyses, days: input.windowDays },
+              ),
     };
   const saved = input.projectTokens - input.snippetTokens;
+  const review = {
+    count: input.reviews,
+    snippets: compactTokens(input.snippetTokens),
+    project: compactTokens(input.projectTokens),
+    total: compactTokens(input.modelTokens),
+    usd: `$${input.usd.toFixed(3)}`,
+  };
+  const single = input.reviews === 1;
   return {
     source: "ideation",
     evidence: "ESTIMATED",
@@ -747,8 +975,24 @@ export function ideationRow(input: IdeationInput): SavingsLedgerRow {
     runs: input.reviews,
     detail:
       saved > 0
-        ? `In ${plural(input.reviews, "review")} Claude read ${compactTokens(input.snippetTokens)} tokens of snippets instead of the ${compactTokens(input.projectTokens)} tokens of the analysed code (both measured), for ${compactTokens(input.modelTokens)} tokens in all ($${input.usd.toFixed(3)}). The saving assumes a review of the whole code would read all of it.`
-        : `In ${plural(input.reviews, "review")} the snippets (${compactTokens(input.snippetTokens)} tokens) were not smaller than the analysed code (${compactTokens(input.projectTokens)} tokens): on a project this small there is nothing to save. Cost ${compactTokens(input.modelTokens)} tokens ($${input.usd.toFixed(3)}).`,
+        ? single
+          ? tx(
+              "In {count} review Claude read {snippets} tokens of snippets instead of the {project} tokens of the analysed code (both measured), for {total} tokens in all ({usd}). The saving assumes a review of the whole code would read all of it.",
+              review,
+            )
+          : tx(
+              "In {count} reviews Claude read {snippets} tokens of snippets instead of the {project} tokens of the analysed code (both measured), for {total} tokens in all ({usd}). The saving assumes a review of the whole code would read all of it.",
+              review,
+            )
+        : single
+          ? tx(
+              "In {count} review the snippets ({snippets} tokens) were not smaller than the analysed code ({project} tokens): on a project this small there is nothing to save. Cost {total} tokens ({usd}).",
+              review,
+            )
+          : tx(
+              "In {count} reviews the snippets ({snippets} tokens) were not smaller than the analysed code ({project} tokens): on a project this small there is nothing to save. Cost {total} tokens ({usd}).",
+              review,
+            ),
   };
 }
 
@@ -766,7 +1010,9 @@ export function stackCommandsRow(input: LedgerInput["continuations"]): SavingsLe
       tokens: null,
       usd: null,
       runs: 0,
-      detail: `No run had to continue after a refused command in the last ${windowDays * 2} days.`,
+      detail: tx("No run had to continue after a refused command in the last {days} days.", {
+        days: windowDays * 2,
+      }),
     };
   const saved = previous.tokens - current.tokens;
   return {
@@ -775,7 +1021,16 @@ export function stackCommandsRow(input: LedgerInput["continuations"]): SavingsLe
     tokens: previous.runs > 0 && saved > 0 ? saved : null,
     usd: null,
     runs: current.runs,
-    detail: `Runs that continued after a refused command: ${current.runs} (${compactTokens(current.tokens)} tokens, measured) in the last ${windowDays} days, ${previous.runs} (${compactTokens(previous.tokens)}) in the ${windowDays} days before. Allowing the stack's commands in advance avoids them; the drop is counted as saved.`,
+    detail: tx(
+      "Runs that continued after a refused command: {current} ({currentTokens} tokens, measured) in the last {days} days, {previous} ({previousTokens}) in the {days} days before. Allowing the stack's commands in advance avoids them; the drop is counted as saved.",
+      {
+        current: current.runs,
+        currentTokens: compactTokens(current.tokens),
+        days: windowDays,
+        previous: previous.runs,
+        previousTokens: compactTokens(previous.tokens),
+      },
+    ),
   };
 }
 
@@ -789,21 +1044,38 @@ export function quotaRow(input: LedgerInput["quota"]): SavingsLedgerRow {
     runs: deferredRuns,
     detail:
       deferredRuns === 0 && limitedRuns === 0
-        ? `No task has waited for the subscription window and no run has hit the limit in the last ${windowDays} days.`
-        : `In the last ${windowDays} days ${deferredRuns} ${deferredRuns === 1 ? "run" : "runs"} waited for the subscription window to reset and ${limitedRuns} ${limitedRuns === 1 ? "run" : "runs"} hit the limit while working. Holding moves the spend after the reset instead of reducing it.`,
+        ? tx(
+            "No task has waited for the subscription window and no run has hit the limit in the last {days} days.",
+            { days: windowDays },
+          )
+        : tx(
+            "In the last {days} days {deferred} waited for the subscription window to reset and {limited} hit the limit while working. Holding moves the spend after the reset instead of reducing it.",
+            {
+              days: windowDays,
+              deferred: counted(deferredRuns, msg("{count} run"), msg("{count} runs")),
+              limited: counted(limitedRuns, msg("{count} run"), msg("{count} runs")),
+            },
+          ),
   };
 }
 
 function contextPackRow(pack: PackAccounting, experiment: ExperimentResult): SavingsLedgerRow {
   if (MEASURED_STATES.has(experiment.state) && experiment.tokenChange !== null) {
-    const change = Math.round(experiment.tokenChange * 100);
     return {
       source: "context-pack",
       evidence: "MEASURED",
       tokens: null,
       usd: null,
       runs: experiment.pack.runs + experiment.control.runs,
-      detail: `A/B experiment: ${change > 0 ? "+" : ""}${change}% input tokens per run with the Onyx context than without (median over ${experiment.pack.runs} and ${experiment.control.runs} runs, p ${experiment.pValue === null ? "n/a" : experiment.pValue.toFixed(3)}).`,
+      detail: tx(
+        "A/B experiment: {change} input tokens per run with the Onyx context than without (median over {pack} and {control} runs, p {p}).",
+        {
+          change: signedPercent(experiment.tokenChange),
+          pack: experiment.pack.runs,
+          control: experiment.control.runs,
+          p: experiment.pValue === null ? tx("n/a") : experiment.pValue.toFixed(3),
+        },
+      ),
     };
   }
   return {
@@ -813,8 +1085,9 @@ function contextPackRow(pack: PackAccounting, experiment: ExperimentResult): Sav
       pack.runsWithPack > 0 ? pack.baselineTokens - pack.deliveredTokens - pack.rereadTokens : null,
     usd: null,
     runs: pack.runsWithPack,
-    detail:
+    detail: tx(
       "Reading every target and direct dependency in full, minus what Onyx delivered and the files the agent read again anyway. Turn on the experiment to measure it.",
+    ),
   };
 }
 
@@ -828,16 +1101,28 @@ export function signaturesRow(
     MEASURED_STATES.has(experiment.variantState) &&
     experiment.variantTokenChange !== null
   ) {
-    const change = Math.round(experiment.variantTokenChange * 100);
     return {
       source: "target-signatures",
       evidence: "MEASURED",
       tokens: null,
       usd: null,
       runs: variant.runs + experiment.pack.runs,
-      detail: `A/B against the current pack: ${change > 0 ? "+" : ""}${change}% input tokens per run when the files to edit arrive as signatures (median over ${variant.runs} and ${experiment.pack.runs} runs, ${pText(experiment.variantPValue)}).`,
+      detail: tx(
+        "A/B against the current pack: {change} input tokens per run when the files to edit arrive as signatures (median over {variant} and {pack} runs, {p}).",
+        {
+          change: signedPercent(experiment.variantTokenChange),
+          variant: variant.runs,
+          pack: experiment.pack.runs,
+          p: pText(experiment.variantPValue),
+        },
+      ),
     };
   }
+  const delivered = {
+    days: signatures.windowDays,
+    count: signatures.runs,
+    tokens: compactTokens(signatures.tokens),
+  };
   return {
     source: "target-signatures",
     evidence: "ESTIMATED",
@@ -845,28 +1130,61 @@ export function signaturesRow(
     usd: null,
     runs: signatures.runs,
     detail:
-      signatures.runs > 0
-        ? `In the last ${signatures.windowDays} days ${plural(signatures.runs, "run")} of the variant received the files to edit as signatures: ${compactTokens(signatures.tokens)} tokens not sent (counted at delivery). Claude reads a file before editing it anyway; the experiment says whether it explores more.`
-        : "Not tried yet: choose the variant in the experiment to send the files a task will edit as signatures instead of in full.",
+      signatures.runs === 0
+        ? tx(
+            "Not tried yet: choose the variant in the experiment to send the files a task will edit as signatures instead of in full.",
+          )
+        : signatures.runs === 1
+          ? tx(
+              "In the last {days} days {count} run of the variant received the files to edit as signatures: {tokens} tokens not sent (counted at delivery). Claude reads a file before editing it anyway; the experiment says whether it explores more.",
+              delivered,
+            )
+          : tx(
+              "In the last {days} days {count} runs of the variant received the files to edit as signatures: {tokens} tokens not sent (counted at delivery). Claude reads a file before editing it anyway; the experiment says whether it explores more.",
+              delivered,
+            ),
   };
 }
 
+function memoryCost(input: LedgerInput["memory"]): string {
+  const { sessions, tokens, windowDays } = input;
+  if (sessions === 0)
+    return tx("No new session has started with it in the last {days} days.", { days: windowDays });
+  const params = { days: windowDays, count: sessions, tokens: compactTokens(tokens) };
+  return sessions === 1
+    ? tx(
+        "In the last {days} days {count} new session started with it, adding {tokens} tokens in all.",
+        params,
+      )
+    : tx(
+        "In the last {days} days {count} new sessions started with it, adding {tokens} tokens in all.",
+        params,
+      );
+}
+
 export function memoryRow(input: LedgerInput["memory"]): SavingsLedgerRow {
-  const { experiment, sessions, tokens, windowDays } = input;
-  const cost =
-    sessions > 0
-      ? ` In the last ${windowDays} days ${plural(sessions, "new session")} started with it, adding ${compactTokens(tokens)} tokens in all.`
-      : ` No new session has started with it in the last ${windowDays} days.`;
+  const { experiment, sessions } = input;
   if (MEASURED_STATES.has(experiment.state) && experiment.tokenChange !== null) {
-    const signed = (ratio: number | null) =>
-      ratio === null ? "n/a" : `${ratio > 0 ? "+" : ""}${Math.round(ratio * 100)}%`;
     return {
       source: "project-memory",
       evidence: "MEASURED",
       tokens: null,
       usd: null,
       runs: experiment.withMemory.runs + experiment.without.runs,
-      detail: `A/B on new sessions: ${signed(experiment.tokenChange)} input tokens, ${signed(experiment.readFilesChange)} files read and ${signed(experiment.turnsChange)} turns per run with the project memory than without (medians over ${experiment.withMemory.runs} and ${experiment.without.runs} runs, ${pText(experiment.pValue)}).${cost}`,
+      detail: sentences(
+        tx(
+          "A/B on new sessions: {tokens} input tokens, {files} files read and {turns} turns per run with the project memory than without (medians over {with} and {without} runs, {p}).",
+          {
+            tokens: signedPercent(experiment.tokenChange),
+            files: signedPercent(experiment.readFilesChange),
+            turns: signedPercent(experiment.turnsChange),
+            with: experiment.withMemory.runs,
+            without: experiment.without.runs,
+            p: pText(experiment.pValue),
+          },
+        ),
+        memoryCost(input),
+      ),
     };
   }
   return {
@@ -875,11 +1193,22 @@ export function memoryRow(input: LedgerInput["memory"]): SavingsLedgerRow {
     tokens: null,
     usd: null,
     runs: sessions,
-    detail: `Expected 10–30% fewer files read and turns in new sessions that start with the project memory; not measured yet. ${
+    detail: sentences(
+      tx(
+        "Expected 10–30% fewer files read and turns in new sessions that start with the project memory; not measured yet.",
+      ),
       experiment.state === "COLLECTING"
-        ? `The experiment is collecting runs: ${experiment.withMemory.runs} with and ${experiment.without.runs} without, ${experiment.minRunsPerArm} each needed.`
-        : "Turn on the memory experiment in Settings to measure it."
-    }${cost}`,
+        ? tx(
+            "The experiment is collecting runs: {with} with and {without} without, {count} each needed.",
+            {
+              with: experiment.withMemory.runs,
+              without: experiment.without.runs,
+              count: experiment.minRunsPerArm,
+            },
+          )
+        : tx("Turn on the memory experiment in Settings to measure it."),
+      memoryCost(input),
+    ),
   };
 }
 
@@ -895,8 +1224,13 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
       runs: input.prefix.runs,
       detail:
         input.prefix.runs > 0
-          ? `Resumed runs whose project map had changed but kept the one their session started with. They read ${compactTokens(input.prefix.readTokens)} tokens from Claude's cache (measured); with a new map Claude would have written them again at 1.25× instead of 0.1×.`
-          : "No resumed run has needed it yet: it counts the resumes whose project map changed during the session.",
+          ? tx(
+              "Resumed runs whose project map had changed but kept the one their session started with. They read {tokens} tokens from Claude's cache (measured); with a new map Claude would have written them again at 1.25× instead of 0.1×.",
+              { tokens: compactTokens(input.prefix.readTokens) },
+            )
+          : tx(
+              "No resumed run has needed it yet: it counts the resumes whose project map changed during the session.",
+            ),
     },
     {
       source: "pack-reuse",
@@ -906,8 +1240,10 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
       runs: input.reuse.runs,
       detail:
         input.reuse.runs > 0
-          ? "Context pack entries the conversation already had, unchanged: listed by name instead of being sent again in resumed runs."
-          : "No resumed run has reused the pack yet.",
+          ? tx(
+              "Context pack entries the conversation already had, unchanged: listed by name instead of being sent again in resumed runs.",
+            )
+          : tx("No resumed run has reused the pack yet."),
     },
     {
       source: "prompt-cache",
@@ -915,7 +1251,10 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
       tokens: Math.round(input.other.cacheReadTokens * CACHE_READ_DISCOUNT),
       usd: input.other.cacheSavedUsd,
       runs: 0,
-      detail: `${compactTokens(input.other.cacheReadTokens)} tokens Claude read from its cache in the last ${input.other.windowDays} days instead of at the full input rate.`,
+      detail: tx(
+        "{tokens} tokens Claude read from its cache in the last {days} days instead of at the full input rate.",
+        { tokens: compactTokens(input.other.cacheReadTokens), days: input.other.windowDays },
+      ),
     },
     {
       source: "routing",
@@ -925,8 +1264,11 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
       runs: 0,
       detail:
         input.other.routingSavingRatio === null
-          ? "Appears after the first completed task."
-          : `${Math.round(input.other.routingSavingRatio * 100)}% less than running every completed task on the reference model with the same tokens.`,
+          ? tx("Appears after the first completed task.")
+          : tx(
+              "{percent} less than running every completed task on the reference model with the same tokens.",
+              { percent: `${Math.round(input.other.routingSavingRatio * 100)}%` },
+            ),
     },
     stackCommandsRow(input.continuations),
     quotaRow(input.quota),

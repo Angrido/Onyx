@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FindingCategory, FindingSeverity, FindingVerdict, TaskKind } from "@onyx/contracts";
+import { interpolate, msg, tx } from "../i18n";
+import { translateKnown } from "./insights";
 
 export const IDEATION_MARKER = "ONYX_IDEATION_REVIEW";
 export const MAX_SCAN_BYTES = 200_000;
@@ -7,6 +9,8 @@ export const MAX_FINDINGS_PER_RULE = 25;
 export const MAX_REVIEWED = 20;
 export const SNIPPET_CONTEXT_LINES = 5;
 export const REVIEW_MAX_TURNS = 6;
+const VULNERABLE_TITLE = msg("Vulnerable dependency: {name}");
+const HOTSPOT_EXCERPT = msg("~{tokens} tokens, imported by {count} files");
 
 export interface StaticFinding {
   category: FindingCategory;
@@ -43,9 +47,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "HIGH",
     confidence: 0.7,
-    title: "Code built from strings at run time",
-    explanation:
+    title: msg("Code built from strings at run time"),
+    explanation: msg(
       "eval and new Function run arbitrary code; with outside input this is code injection.",
+    ),
     pattern: /\beval\s*\(|\bnew\s+Function\s*\(/,
     languages: JS,
   },
@@ -54,9 +59,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "HIGH",
     confidence: 0.6,
-    title: "Shell command built from variables",
-    explanation:
+    title: msg("Shell command built from variables"),
+    explanation: msg(
       "A shell command assembled with interpolated values can run whatever the value contains.",
+    ),
     pattern: /\b(exec|execSync)\s*\(\s*`[^`]*\$\{|\bshell\s*:\s*true\b/,
     languages: JS,
   },
@@ -65,9 +71,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "HIGH",
     confidence: 0.6,
-    title: "SQL built by concatenating values",
-    explanation:
+    title: msg("SQL built by concatenating values"),
+    explanation: msg(
       "Values joined into an SQL string instead of passed as parameters allow SQL injection.",
+    ),
     pattern:
       /\b(query|execute|raw|\$queryRawUnsafe|\$executeRawUnsafe)\s*\(\s*(`[^`]*\$\{|["'][^"']*\b(select|insert|update|delete)\b[^"']*["']\s*\+)/i,
   },
@@ -76,9 +83,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "MEDIUM",
     confidence: 0.5,
-    title: "Raw HTML written into the page",
-    explanation:
+    title: msg("Raw HTML written into the page"),
+    explanation: msg(
       "innerHTML and dangerouslySetInnerHTML render markup as is: unescaped user content becomes XSS.",
+    ),
     pattern: /dangerouslySetInnerHTML|\.innerHTML\s*=/,
     languages: JS,
   },
@@ -87,9 +95,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "HIGH",
     confidence: 0.55,
-    title: "Secret written in the source",
-    explanation:
+    title: msg("Secret written in the source"),
+    explanation: msg(
       "Keys and passwords in the code end up in git history and in every copy of the project.",
+    ),
     pattern:
       /\b(api[_-]?key|secret|password|passwd|access[_-]?token)\b\s*[:=]\s*["'][^"'\s]{12,}["']|AKIA[0-9A-Z]{16}/i,
     skipTests: true,
@@ -99,9 +108,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "HIGH",
     confidence: 0.7,
-    title: "TLS certificate checks turned off",
-    explanation:
+    title: msg("TLS certificate checks turned off"),
+    explanation: msg(
       "Without certificate checks anyone on the network path can read and change the traffic.",
+    ),
     pattern: /rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED|verify\s*=\s*False/,
     skipTests: true,
   },
@@ -110,9 +120,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "MEDIUM",
     confidence: 0.4,
-    title: "MD5 or SHA-1 hash",
-    explanation:
+    title: msg("MD5 or SHA-1 hash"),
+    explanation: msg(
       "MD5 and SHA-1 are broken for passwords and signatures; fine only for non-security checksums.",
+    ),
     pattern: /createHash\(\s*["'](md5|sha1)["']\)|hashlib\.(md5|sha1)\(/,
   },
   {
@@ -120,9 +131,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "MEDIUM",
     confidence: 0.45,
-    title: "Math.random for a secret value",
-    explanation:
+    title: msg("Math.random for a secret value"),
+    explanation: msg(
       "Math.random is predictable; tokens, ids and passwords need crypto.randomBytes or randomUUID.",
+    ),
     pattern: /(token|secret|password|nonce|salt|session)\w*\s*[:=][^;\n]*Math\.random\(\)/i,
     languages: JS,
   },
@@ -131,9 +143,10 @@ const LINE_RULES: readonly LineRule[] = [
     category: "SECURITY",
     severity: "HIGH",
     confidence: 0.6,
-    title: "Unsafe Python call",
-    explanation:
+    title: msg("Unsafe Python call"),
+    explanation: msg(
       "pickle, yaml.load without a safe loader, os.system and shell=True run what the input says.",
+    ),
     pattern:
       /\bpickle\.loads?\(|\byaml\.load\((?![^)]*Loader)|\bsubprocess\.\w+\([^)]*shell\s*=\s*True|\bos\.system\(/,
     languages: PY,
@@ -143,8 +156,8 @@ const LINE_RULES: readonly LineRule[] = [
     category: "PERFORMANCE",
     severity: "LOW",
     confidence: 0.4,
-    title: "Blocking file call in server code",
-    explanation: "Synchronous file calls block every request while they run.",
+    title: msg("Blocking file call in server code"),
+    explanation: msg("Synchronous file calls block every request while they run."),
     pattern: /\b(readFileSync|writeFileSync|readdirSync|statSync)\(/,
     languages: JS,
     paths: /(^|\/)(routes?|api|server|handlers?|controllers?)(\/|\.)/,
@@ -223,13 +236,17 @@ export function scanSource(
         category: "PERFORMANCE",
         severity: query ? "MEDIUM" : "LOW",
         rule: query ? "query-in-loop" : "await-in-loop",
-        title: query ? "Query or request inside a loop" : "Await inside a loop",
+        title: query ? msg("Query or request inside a loop") : msg("Await inside a loop"),
         file: relPath,
         line: index + 1,
         excerpt: trimmed.slice(0, 200),
         explanation: query
-          ? "One query or request per item (N+1): a single batched call is usually much faster."
-          : "Each iteration waits for the previous one; independent work can run with Promise.all.",
+          ? msg(
+              "One query or request per item (N+1): a single batched call is usually much faster.",
+            )
+          : msg(
+              "Each iteration waits for the previous one; independent work can run with Promise.all.",
+            ),
         confidence: query ? 0.55 : 0.4,
         source: "STATIC",
       });
@@ -246,12 +263,13 @@ export function graphFindings(input: {
     category: "MAINTAINABILITY",
     severity: "MEDIUM",
     rule: "import-cycle",
-    title: "Import cycle",
+    title: msg("Import cycle"),
     file: cycle[0] ?? null,
     line: null,
     excerpt: [...cycle, cycle[0]].join(" → "),
-    explanation:
+    explanation: msg(
       "Files that import each other load in a fragile order and cannot change independently.",
+    ),
     confidence: 0.8,
     source: "GRAPH",
   }));
@@ -259,12 +277,13 @@ export function graphFindings(input: {
     category: "MAINTAINABILITY",
     severity: "LOW",
     rule: "hotspot",
-    title: "Large file many others depend on",
+    title: msg("Large file many others depend on"),
     file: file.relPath,
     line: null,
-    excerpt: `~${file.rawTokens} tokens, imported by ${file.inDegree} files`,
-    explanation:
+    excerpt: interpolate(HOTSPOT_EXCERPT, { tokens: file.rawTokens, count: file.inDegree }),
+    explanation: msg(
       "Every change here risks many callers and costs agents a lot of context: splitting it helps both.",
+    ),
     confidence: 0.5,
     source: "GRAPH",
   }));
@@ -289,12 +308,13 @@ export function parseNpmAudit(raw: unknown, manifest: string): StaticFinding[] {
       category: "DEPENDENCY",
       severity: AUDIT_SEVERITY[severity] ?? "MEDIUM",
       rule: "vulnerable-dependency",
-      title: `Vulnerable dependency: ${name}`,
+      title: interpolate(VULNERABLE_TITLE, { name }),
       file: manifest,
       line: null,
       excerpt: detail.slice(0, 200),
-      explanation:
+      explanation: msg(
         "A known vulnerability is reported for this package version: update it or check whether the affected code is used.",
+      ),
       confidence: 0.9,
       source: "AUDIT",
     });
@@ -328,6 +348,23 @@ export function parseNpmAudit(raw: unknown, manifest: string): StaticFinding[] {
       );
     }
   return found.slice(0, MAX_FINDINGS_PER_RULE * 2);
+}
+
+export function translateFinding(finding: {
+  rule: string;
+  title: string;
+  excerpt: string | null;
+  explanation: string;
+}): { title: string; excerpt: string | null; explanation: string } {
+  const title = translateKnown(finding.title, [VULNERABLE_TITLE]);
+  return {
+    title: title === finding.title ? tx(title) : title,
+    excerpt:
+      finding.rule === "hotspot" && finding.excerpt !== null
+        ? translateKnown(finding.excerpt, [HOTSPOT_EXCERPT])
+        : finding.excerpt,
+    explanation: tx(finding.explanation),
+  };
 }
 
 export function capPerRule(findings: readonly StaticFinding[]): StaticFinding[] {

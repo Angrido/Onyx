@@ -1,4 +1,5 @@
 import type { QuotaLevel, QuotaSettings } from "@onyx/contracts";
+import { msg, tx, type Params } from "../i18n";
 
 export interface QuotaWindow {
   type: string;
@@ -19,16 +20,17 @@ export const DEFAULT_QUOTA_SETTINGS: QuotaSettings = {
 export const UNTIMED_WINDOW_MS = 30 * 60_000;
 
 const WINDOW_NAMES: Readonly<Record<string, string>> = {
-  five_hour: "5-hour window",
-  seven_day: "weekly limit",
-  seven_day_opus: "weekly Opus limit",
-  seven_day_sonnet: "weekly Sonnet limit",
-  overage: "extra usage",
-  subscription: "subscription limit",
+  five_hour: msg("5-hour window"),
+  seven_day: msg("weekly limit"),
+  seven_day_opus: msg("weekly Opus limit"),
+  seven_day_sonnet: msg("weekly Sonnet limit"),
+  overage: msg("extra usage"),
+  subscription: msg("subscription limit"),
 };
 
 export function windowName(type: string): string {
-  return WINDOW_NAMES[type] ?? type.replaceAll("_", " ");
+  const name = WINDOW_NAMES[type];
+  return name === undefined ? type.replaceAll("_", " ") : tx(name);
 }
 
 export function windowExpiry(window: QuotaWindow): Date {
@@ -117,10 +119,6 @@ export function quotaAdmission(
   return { decision: "go" };
 }
 
-function percent(value: number | null): string {
-  return value === null ? "" : ` (${Math.round(value * 100)}% used)`;
-}
-
 export function quotaMessage(
   level: QuotaLevel,
   windows: readonly QuotaWindow[],
@@ -129,21 +127,54 @@ export function quotaMessage(
   deferred: number,
 ): string {
   const binding = bindingWindows(windows, settings, now)[0];
-  const name = binding ? `${windowName(binding.type)}${percent(binding.utilization)}` : "";
+  const name = binding ? windowName(binding.type) : "";
+  const utilization = binding?.utilization ?? null;
+  const say = (plain: string, measured: string, params: Params = {}) =>
+    utilization === null
+      ? tx(plain, { name, ...params })
+      : tx(measured, { name, percent: Math.round(utilization * 100), ...params });
   switch (level) {
     case "UNKNOWN":
-      return "No limit reported yet: Claude reports the subscription limits during runs.";
+      return tx("No limit reported yet: Claude reports the subscription limits during runs.");
     case "OK":
-      return "Within the subscription limits.";
+      return tx("Within the subscription limits.");
     case "WARNING":
-      return `Getting close to the ${name}. Runs continue.`;
+      return say(
+        msg("Getting close to the {name}. Runs continue."),
+        msg("Getting close to the {name} ({percent}% used). Runs continue."),
+      );
     case "HOLDING":
       if (!settings.deferEnabled)
-        return `Almost at the ${name}. Holding tasks that can wait is off.`;
-      return deferred === 0
-        ? `Almost at the ${name}: tasks that can wait will be held until it resets.`
-        : `Almost at the ${name}: ${deferred} ${deferred === 1 ? "task that can wait is" : "tasks that can wait are"} held until it resets.`;
+        return say(
+          msg("Almost at the {name}. Holding tasks that can wait is off."),
+          msg("Almost at the {name} ({percent}% used). Holding tasks that can wait is off."),
+        );
+      if (deferred === 0)
+        return say(
+          msg("Almost at the {name}: tasks that can wait will be held until it resets."),
+          msg(
+            "Almost at the {name} ({percent}% used): tasks that can wait will be held until it resets.",
+          ),
+        );
+      if (deferred === 1)
+        return say(
+          msg("Almost at the {name}: {count} task that can wait is held until it resets."),
+          msg(
+            "Almost at the {name} ({percent}% used): {count} task that can wait is held until it resets.",
+          ),
+          { count: deferred },
+        );
+      return say(
+        msg("Almost at the {name}: {count} tasks that can wait are held until it resets."),
+        msg(
+          "Almost at the {name} ({percent}% used): {count} tasks that can wait are held until it resets.",
+        ),
+        { count: deferred },
+      );
     case "LIMITED":
-      return `The ${name} is reached: queued runs wait until it resets.`;
+      return say(
+        msg("The {name} is reached: queued runs wait until it resets."),
+        msg("The {name} ({percent}% used) is reached: queued runs wait until it resets."),
+      );
   }
 }

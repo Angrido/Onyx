@@ -1,4 +1,5 @@
 import type { NotificationEvent, NotificationEvents, QuotaLevel, RunStatus } from "@onyx/contracts";
+import { msg, tx } from "../i18n";
 
 export interface NotificationMessage {
   event: NotificationEvent;
@@ -27,6 +28,12 @@ function clip(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
+const RUN_ENDED: Record<"FAILED" | "TIMEOUT" | "INTERRUPTED", string> = {
+  FAILED: msg("Run failed · {task}"),
+  TIMEOUT: msg("Run timeout · {task}"),
+  INTERRUPTED: msg("Run interrupted · {task}"),
+};
+
 function money(value: number | null): string {
   return value === null ? "" : ` · $${value.toFixed(2)}`;
 }
@@ -40,12 +47,25 @@ export function runMessage(input: {
   blockedCommands: number;
 }): NotificationMessage | null {
   const where = `${input.projectName}: ${input.taskTitle}`;
+  const blocked = {
+    project: input.projectName,
+    task: input.taskTitle,
+    count: input.blockedCommands,
+  };
   if (input.blockedCommands > 0)
     return {
       event: "RUN_BLOCKED",
-      title: clip(`Waiting for you · ${input.taskTitle}`, MAX_TITLE),
+      title: clip(tx("Waiting for you · {task}", { task: input.taskTitle }), MAX_TITLE),
       body: clip(
-        `${where}. The agent was not allowed to run ${input.blockedCommands} ${input.blockedCommands === 1 ? "command" : "commands"}: allow them to continue.`,
+        input.blockedCommands === 1
+          ? tx(
+              "{project}: {task}. The agent was not allowed to run {count} command: allow them to continue.",
+              blocked,
+            )
+          : tx(
+              "{project}: {task}. The agent was not allowed to run {count} commands: allow them to continue.",
+              blocked,
+            ),
         MAX_BODY,
       ),
       path: `/runs/${input.runId}`,
@@ -55,7 +75,7 @@ export function runMessage(input: {
   if (input.status === "COMPLETED")
     return {
       event: "RUN_FINISHED",
-      title: clip(`Done · ${input.taskTitle}`, MAX_TITLE),
+      title: clip(tx("Done · {task}", { task: input.taskTitle }), MAX_TITLE),
       body: clip(`${where}${money(input.costUsd)}`, MAX_BODY),
       path: `/runs/${input.runId}`,
       tag: `run-${input.runId}`,
@@ -64,7 +84,7 @@ export function runMessage(input: {
   if (input.status === "FAILED" || input.status === "TIMEOUT" || input.status === "INTERRUPTED")
     return {
       event: "RUN_FAILED",
-      title: clip(`Run ${input.status.toLowerCase()} · ${input.taskTitle}`, MAX_TITLE),
+      title: clip(tx(RUN_ENDED[input.status], { task: input.taskTitle }), MAX_TITLE),
       body: clip(`${where}${money(input.costUsd)}`, MAX_BODY),
       path: `/runs/${input.runId}`,
       tag: `run-${input.runId}`,
@@ -81,20 +101,28 @@ export function checksMessage(input: {
   passed: boolean;
   failed: readonly string[];
 }): NotificationMessage {
-  const where = `${input.projectName} #${input.number}`;
+  const where = { project: input.projectName, number: input.number };
   return input.passed
     ? {
         event: "CHECKS",
-        title: clip(`Checks passed · ${input.title}`, MAX_TITLE),
-        body: clip(`${where}: every check is green.`, MAX_BODY),
+        title: clip(tx("Checks passed · {title}", { title: input.title }), MAX_TITLE),
+        body: clip(tx("{project} #{number}: every check is green.", where), MAX_BODY),
         path: `/projects/${input.projectId}/github`,
         tag: `checks-${input.projectId}-${input.number}`,
         urgent: false,
       }
     : {
         event: "CHECKS",
-        title: clip(`Checks failed · ${input.title}`, MAX_TITLE),
-        body: clip(`${where}: ${input.failed.join(", ") || "a check"} failed.`, MAX_BODY),
+        title: clip(tx("Checks failed · {title}", { title: input.title }), MAX_TITLE),
+        body: clip(
+          input.failed.length === 0
+            ? tx("{project} #{number}: a check failed.", where)
+            : tx("{project} #{number}: {checks} failed.", {
+                ...where,
+                checks: input.failed.join(", "),
+              }),
+          MAX_BODY,
+        ),
         path: `/projects/${input.projectId}/github`,
         tag: `checks-${input.projectId}-${input.number}`,
         urgent: true,
@@ -110,7 +138,7 @@ export function approvalMessage(input: {
   const budget = input.kind === "BUDGET";
   return {
     event: budget ? "BUDGET" : "APPROVAL",
-    title: clip(budget ? "Budget reached" : "Approval needed", MAX_TITLE),
+    title: clip(budget ? tx("Budget reached") : tx("Approval needed"), MAX_TITLE),
     body: clip(input.projectName ? `${input.projectName}: ${input.title}` : input.title, MAX_BODY),
     path: "/approvals",
     tag: `approval-${input.id}`,
@@ -121,7 +149,7 @@ export function approvalMessage(input: {
 export function budgetMessage(projectName: string | null, reason: string): NotificationMessage {
   return {
     event: "BUDGET",
-    title: "Runs stopped by a budget",
+    title: tx("Runs stopped by a budget"),
     body: clip(projectName ? `${projectName}: ${reason}` : reason, MAX_BODY),
     path: "/settings",
     tag: `budget-${projectName ?? "all"}`,
@@ -146,7 +174,7 @@ export function quotaNotice(
     if (QUOTA_RANK[previous] < 2 || QUOTA_RANK[next] > 0) return null;
     return {
       event: "QUOTA",
-      title: "Claude limits reset",
+      title: tx("Claude limits reset"),
       body: clip(message, MAX_BODY),
       path: "/telemetry#quota",
       tag: "quota",
@@ -156,13 +184,13 @@ export function quotaNotice(
   const titles: Record<QuotaLevel, string> = {
     UNKNOWN: "",
     OK: "",
-    WARNING: "Claude limits: getting close",
-    HOLDING: "Claude limits: tasks that can wait are held",
-    LIMITED: "Claude limits reached",
+    WARNING: msg("Claude limits: getting close"),
+    HOLDING: msg("Claude limits: tasks that can wait are held"),
+    LIMITED: msg("Claude limits reached"),
   };
   return {
     event: "QUOTA",
-    title: titles[next],
+    title: titles[next] === "" ? "" : tx(titles[next]),
     body: clip(message, MAX_BODY),
     path: "/telemetry#quota",
     tag: "quota",
@@ -209,7 +237,7 @@ export function telegramRequest(
 ): { url: string; body: Record<string, unknown> } {
   const link = linkFor(base, message.path);
   const lines = [`<b>${escapeHtml(message.title)}</b>`, escapeHtml(message.body)];
-  if (link) lines.push(`<a href="${escapeHtml(link)}">Open in Onyx</a>`);
+  if (link) lines.push(`<a href="${escapeHtml(link)}">${escapeHtml(tx("Open in Onyx"))}</a>`);
   return {
     url: `${settings.apiUrl.replace(/\/$/, "")}/bot${settings.token}/sendMessage`,
     body: {
