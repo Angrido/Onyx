@@ -5,6 +5,7 @@ import type {
   RunTaskResponse,
   TaskDetailDto,
   TaskDto,
+  TaskKind,
   TaskStatus,
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
@@ -28,6 +29,7 @@ export class TaskService {
       projectId: string,
       targetPaths: readonly string[],
       prompt: string,
+      kind: TaskKind,
     ) => Promise<string | null>,
     private readonly abortLoop: (taskId: string, actor: string) => Promise<boolean> = () =>
       Promise.resolve(false),
@@ -59,11 +61,14 @@ export class TaskService {
   async create(input: CreateTaskInput): Promise<TaskDto> {
     const workspaceId =
       input.workspaceId ??
-      (await this.inferWorkspace(input.projectId, input.targetPaths, input.prompt));
+      (await this.inferWorkspace(
+        input.projectId,
+        input.targetPaths,
+        `${input.title}\n${input.prompt}`,
+        input.kind,
+      ));
     if (workspaceId === null) {
-      throw badRequest(
-        "No workspace owns the target paths: choose a workspace or add target paths it covers",
-      );
+      throw badRequest("This project has no workspaces: add one from the project page");
     }
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
     if (!workspace || workspace.projectId !== input.projectId) {

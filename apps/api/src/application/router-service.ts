@@ -20,11 +20,12 @@ import {
   type ScoreComponents,
   type TaskKind,
   type TokenUsage,
+  type WorkspaceSource,
 } from "@onyx/contracts";
 import type { ModelProfile, Prisma, PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import type { z } from "zod";
-import { ZoneMap } from "../domain/compartments";
+import { chooseWorkspace, ZoneMap, type WorkspaceChoice } from "../domain/compartments";
 import {
   modelForTier,
   planRouting,
@@ -284,6 +285,7 @@ export class RouterService {
     evaluation: RoutingEvaluation;
     workspace: RoutingWorkspace | null;
     inferred: boolean;
+    source: WorkspaceSource | null;
   }> {
     const { prisma } = this.deps;
     const project = await prisma.project.findUnique({
@@ -297,10 +299,18 @@ export class RouterService {
     if (input.workspaceId && !workspace)
       throw badRequest("Workspace does not belong to the project");
     let inferred = false;
+    let source: WorkspaceSource | null = workspace ? "chosen" : null;
     if (!workspace) {
-      const resolved = await this.inferWorkspace(input.projectId, input.targetPaths, input.prompt);
-      workspace = project.workspaces.find((candidate) => candidate.id === resolved) ?? null;
+      const resolved = await this.resolveWorkspace(
+        input.projectId,
+        input.targetPaths,
+        `${input.title}\n${input.prompt}`,
+        input.kind,
+      );
+      workspace =
+        project.workspaces.find((candidate) => candidate.id === resolved?.workspaceId) ?? null;
       inferred = workspace !== null;
+      source = workspace ? (resolved?.source ?? null) : null;
     }
     const target = workspace
       ? { id: workspace.id, name: workspace.name, domain: workspace.domain }
@@ -316,14 +326,15 @@ export class RouterService {
       override: null,
       purpose: "router.preview",
     });
-    return { evaluation, workspace: target, inferred };
+    return { evaluation, workspace: target, inferred, source };
   }
 
-  async inferWorkspace(
+  async resolveWorkspace(
     projectId: string,
     targetPaths: readonly string[],
     prompt: string,
-  ): Promise<string | null> {
+    kind: TaskKind | null = null,
+  ): Promise<WorkspaceChoice | null> {
     const workspaces = await this.deps.prisma.workspace.findMany({
       where: { projectId },
       orderBy: { position: "asc" },
@@ -337,7 +348,16 @@ export class RouterService {
       })),
     );
     const targets = await this.targetPaths(projectId, targetPaths, prompt);
-    return zones.infer(targets).workspaceId;
+    return chooseWorkspace({ workspaces, inference: zones.infer(targets), text: prompt, kind });
+  }
+
+  async inferWorkspace(
+    projectId: string,
+    targetPaths: readonly string[],
+    prompt: string,
+    kind: TaskKind | null = null,
+  ): Promise<string | null> {
+    return (await this.resolveWorkspace(projectId, targetPaths, prompt, kind))?.workspaceId ?? null;
   }
 
   async evaluate(request: RoutingRequest): Promise<RoutingEvaluation> {

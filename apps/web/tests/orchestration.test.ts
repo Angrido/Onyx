@@ -161,4 +161,10 @@ describe("command palette shortcut", () => {
     expect(isPaletteShortcut({ key: "k", ctrlKey: false, metaKey: false })).toBe(false);
     expect(isPaletteShortcut({ key: "j", ctrlKey: true, metaKey: false })).toBe(false);
   });
+
+  it("ignores keyboard events without a key, like browser autofill", () => {
+    expect(isPaletteShortcut({ ctrlKey: true, metaKey: false })).toBe(false);
+    expect(isPaletteShortcut({ key: undefined, ctrlKey: true })).toBe(false);
+    expect(isPaletteShortcut(new Event("keydown") as unknown as KeyboardEvent)).toBe(false);
+  });
 });

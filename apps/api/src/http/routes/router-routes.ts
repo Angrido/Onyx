@@ -58,7 +58,7 @@ export function registerRouterRoutes(app: FastifyInstance, container: Container)
   });
 
   app.post("/api/router/preview", async (request): Promise<RouterPreviewResponse> => {
-    const { evaluation, workspace, inferred } = await router.preview(
+    const { evaluation, workspace, inferred, source } = await router.preview(
       RouterPreviewRequestSchema.parse(request.body),
     );
     return {
@@ -81,6 +81,7 @@ export function registerRouterRoutes(app: FastifyInstance, container: Container)
       workspaceId: workspace?.id ?? null,
       workspaceName: workspace?.name ?? null,
       workspaceInferred: inferred,
+      workspaceSource: source,
       classifierUsed: evaluation.classifierUsed,
     };
   });

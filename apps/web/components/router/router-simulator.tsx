@@ -24,7 +24,14 @@ import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS } from "@/lib/domains";
 import { formatTokens } from "@/lib/format";
-import { KIND_LABELS, WEIGHT_KEYS, WEIGHT_LABELS, splitList, weightSum } from "@/lib/router";
+import {
+  KIND_LABELS,
+  WEIGHT_KEYS,
+  WEIGHT_LABELS,
+  WORKSPACE_SOURCE_LABELS,
+  splitList,
+  weightSum,
+} from "@/lib/router";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 import { TIER_STYLES } from "@/lib/tiers";
 
@@ -84,7 +91,7 @@ function PreviewResult({
         <p className="mt-2 text-xs text-muted-foreground">
           Workspace{" "}
           <span className="font-medium text-foreground">{preview.workspaceName ?? "none"}</span>
-          {preview.workspaceInferred ? " · inferred from the target paths" : ""}
+          {preview.workspaceSource ? ` · ${WORKSPACE_SOURCE_LABELS[preview.workspaceSource]}` : ""}
         </p>
       </div>
       {decision.components ? (

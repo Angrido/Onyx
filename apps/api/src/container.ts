@@ -319,7 +319,8 @@ export async function createContainer(
     prisma,
     scheduler,
     hub,
-    (projectId, targetPaths, prompt) => router.inferWorkspace(projectId, targetPaths, prompt),
+    (projectId, targetPaths, prompt, kind) =>
+      router.inferWorkspace(projectId, targetPaths, prompt, kind),
     (taskId, actor) => loops.service?.abortForTask(taskId, actor) ?? Promise.resolve(false),
   );
   const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {

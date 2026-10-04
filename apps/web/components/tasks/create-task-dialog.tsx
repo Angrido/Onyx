@@ -29,7 +29,7 @@ import {
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-import { KIND_LABELS } from "@/lib/router";
+import { KIND_LABELS, workspaceHint } from "@/lib/router";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -53,9 +53,7 @@ function RoutingHint({ preview }: { preview: RouterPreviewResponse }) {
       <ModelBadge modelId={decision.modelId} />
       <span className="text-muted-foreground">
         {ROUTING_STRATEGY_LABELS[decision.strategy]}
-        {preview.workspaceName
-          ? ` · ${preview.workspaceName}${preview.workspaceInferred ? " (inferred)" : ""}`
-          : " · no workspace matches the targets"}
+        {` · ${workspaceHint(preview.workspaceName, preview.workspaceSource)}`}
       </span>
       <p className="basis-full text-muted-foreground">{decision.rationale}</p>
     </div>
@@ -160,7 +158,8 @@ export function CreateTaskDialog({
           <DialogTitle>Delegate a task</DialogTitle>
           <DialogDescription>
             The agent runs headless in a workspace compartment. With Auto, Onyx picks the workspace
-            from the target files and the model tier from its routing rules.
+            that owns the target files, otherwise the one the prompt talks about, otherwise the
+            first one; the model tier comes from the routing rules.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>

@@ -240,17 +240,10 @@ export class RoadmapService {
       priority: PRIORITY_WEIGHT[item.priority],
       targetPaths,
     };
-    let task: TaskDto;
-    try {
-      task = await this.deps.tasks.create({
-        ...base,
-        workspaceId: workspaceId ?? named?.id ?? null,
-      });
-    } catch (error) {
-      const fallback = workspaces[0];
-      if (workspaceId !== null || named || !fallback) throw error;
-      task = await this.deps.tasks.create({ ...base, workspaceId: fallback.id });
-    }
+    const task = await this.deps.tasks.create({
+      ...base,
+      workspaceId: workspaceId ?? named?.id ?? null,
+    });
     await prisma.roadmapItem.update({
       where: { id: item.id },
       data: { status: "ACCEPTED", taskId: task.id },

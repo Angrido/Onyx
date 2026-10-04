@@ -4,6 +4,7 @@ import type {
   RuleMatcher,
   ScoreComponents,
   TaskKind,
+  WorkspaceSource,
 } from "@onyx/contracts";
 import { DOMAIN_LABELS } from "./domains";
 
@@ -17,6 +18,21 @@ export const KIND_LABELS: Record<TaskKind, string> = {
   DOCS: "Docs",
   CHORE: "Chore",
 };
+
+export const WORKSPACE_SOURCE_LABELS: Record<WorkspaceSource, string> = {
+  chosen: "chosen by you",
+  targets: "owns the target files",
+  prompt: "from the prompt",
+  default: "default workspace",
+};
+
+export function workspaceHint(
+  name: string | null,
+  source: WorkspaceSource | null | undefined,
+): string {
+  if (name === null) return "no workspace";
+  return source ? `${name} (${WORKSPACE_SOURCE_LABELS[source]})` : name;
+}
 
 export const WEIGHT_LABELS: Record<keyof RouterWeights, { label: string; hint: string }> = {
   blastRadius: { label: "Blast radius", hint: "Files that import the targets, capped at 25" },

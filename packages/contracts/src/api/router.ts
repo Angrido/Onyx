@@ -139,11 +139,15 @@ export const RouterPreviewRequestSchema = z.object({
 });
 export type RouterPreviewRequest = z.input<typeof RouterPreviewRequestSchema>;
 
+export const WorkspaceSourceSchema = z.enum(["chosen", "targets", "prompt", "default"]);
+export type WorkspaceSource = z.infer<typeof WorkspaceSourceSchema>;
+
 export const RouterPreviewResponseSchema = z.object({
   decision: RoutingDecisionDtoSchema,
   workspaceId: z.string().nullable(),
   workspaceName: z.string().nullable(),
   workspaceInferred: z.boolean(),
+  workspaceSource: WorkspaceSourceSchema.nullable(),
   classifierUsed: z.boolean(),
 });
 export type RouterPreviewResponse = z.infer<typeof RouterPreviewResponseSchema>;

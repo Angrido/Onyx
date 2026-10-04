@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ZoneMap } from "../../src/domain/compartments";
+import { chooseWorkspace, domainFromText, ZoneMap } from "../../src/domain/compartments";
 import { composeHandoff, openItems, type RunDigest } from "../../src/domain/handoff";
 
 const zones = new ZoneMap([
@@ -40,6 +40,56 @@ describe("ZoneMap", () => {
     });
     expect(zones.infer(["apps/web/a.tsx", "apps/api/b.ts"]).workspaceId).toBe("fe");
     expect(zones.zoneOf("apps/api/prisma/schema.prisma")?.name).toBe("Backend");
+  });
+});
+
+describe("workspace choice", () => {
+  const workspaces = [
+    { id: "fe", domain: "FRONTEND" as const },
+    { id: "be", domain: "BACKEND" as const },
+    { id: "db", domain: "DATABASE" as const },
+  ];
+
+  it("prefers the workspace that owns the target files", () => {
+    expect(
+      chooseWorkspace({
+        workspaces,
+        inference: zones.infer(["apps/api/src/a.ts"]),
+        text: "Restyle the login page",
+      }),
+    ).toEqual({ workspaceId: "be", source: "targets" });
+  });
+
+  it("falls back to the domain the prompt talks about", () => {
+    expect(
+      chooseWorkspace({
+        workspaces,
+        inference: zones.infer(["README.md"]),
+        text: "Add a migration for the orders table",
+      }),
+    ).toEqual({ workspaceId: "db", source: "prompt" });
+    expect(
+      chooseWorkspace({
+        workspaces,
+        inference: zones.infer([]),
+        text: "Aggiungi un endpoint per l'autenticazione",
+      }),
+    ).toEqual({ workspaceId: "be", source: "prompt" });
+  });
+
+  it("uses the first workspace when nothing points anywhere", () => {
+    expect(
+      chooseWorkspace({ workspaces, inference: zones.infer([]), text: "Tidy up the README" }),
+    ).toEqual({ workspaceId: "fe", source: "default" });
+    expect(chooseWorkspace({ workspaces: [], inference: zones.infer([]), text: "x" })).toBeNull();
+  });
+
+  it("reads the domain from keywords and the task kind", () => {
+    expect(domainFromText("Fix the CSS of the settings page and the button")).toBe("FRONTEND");
+    expect(domainFromText("Deploy with Docker on the CI pipeline")).toBe("INFRA");
+    expect(domainFromText("Rendi più chiara la pagina delle impostazioni")).toBe("FRONTEND");
+    expect(domainFromText("Explain the next steps")).toBeNull();
+    expect(domainFromText("Polish it", "UI_STYLE")).toBe("FRONTEND");
   });
 });
 

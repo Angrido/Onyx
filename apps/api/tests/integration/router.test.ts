@@ -199,6 +199,7 @@ describe("model routing", () => {
     expect(preview.body).toMatchObject({
       workspaceName: "Backend",
       workspaceInferred: true,
+      workspaceSource: "targets",
       classifierUsed: false,
       decision: { strategy: "HEURISTIC", tier: "BUILDER", modelId: "claude-sonnet-5-5" },
     });
@@ -398,13 +399,35 @@ describe("session compartments", () => {
     });
     expect(created.status).toBe(201);
     expect(created.body.workspaceId).toBe(workspaceId("Backend"));
-    const orphan = await api.post("/api/tasks", {
+    const byPrompt = await api.post<TaskDto>("/api/tasks", {
+      projectId: project.id,
+      title: "Orders table",
+      prompt: "Add a migration that creates the orders table",
+      targetPaths: ["nowhere/file.txt"],
+    });
+    expect(byPrompt.status).toBe(201);
+    expect(byPrompt.body.workspaceId).toBe(workspaceId("Database"));
+    const orphan = await api.post<TaskDto>("/api/tasks", {
       projectId: project.id,
       title: "Somewhere",
       prompt: "Do something vague",
       targetPaths: ["nowhere/file.txt"],
     });
-    expect(orphan.status).toBe(400);
+    expect(orphan.status).toBe(201);
+    expect(orphan.body.workspaceId).toBe(workspaceId("Frontend"));
+
+    const preview = await api.post<RouterPreviewResponse>("/api/router/preview", {
+      projectId: project.id,
+      title: "Somewhere",
+      prompt: "Do something vague",
+    });
+    expect(preview.body).toMatchObject({ workspaceName: "Frontend", workspaceSource: "default" });
+    const chosen = await api.post<RouterPreviewResponse>("/api/router/preview", {
+      projectId: project.id,
+      workspaceId: workspaceId("Infra"),
+      prompt: "Do something vague",
+    });
+    expect(chosen.body).toMatchObject({ workspaceName: "Infra", workspaceSource: "chosen" });
   });
 });
 

@@ -126,7 +126,7 @@ Ogni workspace è un compartimento con la sua catena di sessioni Claude:
 - quando un altro workspace modifica file, la sessione successiva parte da zero con una **nota di handoff** (≤ 1.500 token) su cosa è cambiato e cosa resta aperto, secondo la strategia `HARD`, `HANDOFF` o `SOFT`;
 - oltre `maxSessionTokens` la sessione ruota con la nota;
 - i file degli altri workspace sono in sola lettura (anche via Bash);
-- un task con workspace "Auto" va al workspace che possiede i suoi file.
+- un task con workspace "Auto" va al workspace che possiede i suoi file; se nessun workspace li possiede (o non ci sono file target) va a quello di cui parla il prompt (interfaccia, API, database, deploy…), altrimenti al primo. Il dialogo del task mostra quale sceglierà e perché.
 
 Dalla pagina del workspace si apre un **terminale interattivo** di Claude Code (xterm.js) nello stesso compartimento: Onyx inietta `/compact` quando il contesto supera il limite e `/clear` con la nota di handoff dopo un cambio di dominio; i pulsanti fanno lo stesso a richiesta. La catena delle sessioni mostra perché ognuna è finita e la nota con cui è partita la successiva.
 
