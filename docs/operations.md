@@ -18,7 +18,7 @@ I comandi `onyx` riconoscono la modalità da soli (servizio se `onyx-api.service
 | `onyx-start` / `onyx-stop` / `onyx-restart` | Avvia, ferma, riavvia |
 | `onyx-status` | Stato, CLI Claude in uso e indirizzi della console |
 | `onyx-logs` | Segue i log (`journalctl` in servizio, `.onyx-data/logs/onyx-dev.log` in sviluppo) |
-| `onyx-update` | Aggiorna Onyx: `git pull`, dipendenze, **backup `pre-update`**, migrazioni, build, riavvio |
+| `onyx-update` | Aggiorna Onyx: arresto, `git pull`, dipendenze, **backup `pre-update`**, migrazioni, build, riavvio |
 | `onyx-backup` | Scrive subito un backup del database |
 | `onyx backups` | Elenca i backup, dal più recente |
 | `onyx-restore [nome\|latest]` | Ripristina un backup (vedi §4); senza argomenti elenca i backup |
@@ -104,7 +104,7 @@ Lo script invia cinque prompt minimi con Haiku (risposta breve, uso di un tool, 
 
 ## 6. Aggiornare Onyx
 
-`onyx-update` prende il codice nuovo, installa le dipendenze, fa un backup `pre-update`, applica le migrazioni e riavvia. In modalità servizio costruisce una release in `/opt/onyx/releases/` e sposta il collegamento `/opt/onyx/current`; per tornare alla release precedente basta riportare il collegamento e riavviare (con `onyx-restore` del backup `pre-update` se le migrazioni nuove vanno annullate).
+`onyx-update` ferma Onyx, prende il codice nuovo, installa le dipendenze, fa un backup `pre-update`, applica le migrazioni e lo riavvia se era acceso. Le migrazioni girano sempre a Onyx spento: con l'API accesa SQLite può rifiutarle con *database is locked*. Se un passo fallisce, Onyx resta fermo e il messaggio dice cosa rifare. In modalità servizio costruisce una release in `/opt/onyx/releases/` e sposta il collegamento `/opt/onyx/current`; se le migrazioni falliscono riavvia la release precedente. Per tornare alla release precedente basta riportare il collegamento e riavviare (con `onyx-restore` del backup `pre-update` se le migrazioni nuove vanno annullate).
 
 ## 7. Sicurezza
 
@@ -145,6 +145,7 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | Piano fermo su *Waiting for a merge decision* | Conflitto di merge | **Approvals**: *Retry the merge* dopo averlo risolto sul branch del task, oppure *Drop this task* |
 | Piano *Stopped* dopo un riavvio | Onyx riavviato durante l'esecuzione | *Resume* nella pagina del piano |
 | `/api/ready` non pronto per `disk` | Meno del 10% di spazio libero | Libera spazio (backup vecchi, worktree di piani annullati in `worktrees/`) |
+| `onyx-update` si ferma su *database is locked* | Versione di `onyx-update` precedente al 4 ottobre 2026, che migrava con Onyx acceso | `onyx-stop`, poi `onyx-update`, poi `onyx-start`: il database non è stato toccato e il backup `pre-update` c'è |
 | Console *Offline* | API ferma o WebSocket bloccato dal proxy | `onyx-status`, `onyx-logs`; con Caddy controlla la rotta `/ws` |
 | **Savings**: *Only N of M runs got a context pack* | Progetto non indicizzato o task senza file target | Imposta i *target paths* del task o nomina i file nel prompt; controlla l'indice nella pagina del progetto |
 | **Savings**: *The agent re-reads files it already has* | L'agente rilegge i file del pacchetto (sempre, prima di modificarli) | Guarda *Most read again*; abbassa `ONYX_CONTEXT_BUDGET_TOKENS` o restringi i target |

@@ -20,6 +20,20 @@ set -a
 . /etc/onyx/onyx.env
 set +a
 
+was_running=false
+if systemctl is-active --quiet onyx-api.service || systemctl is-active --quiet onyx-web.service; then
+  was_running=true
+  systemctl stop onyx-web.service onyx-api.service
+fi
+
+restart_previous() {
+  if $was_running; then
+    printf 'error: the update failed: starting the previous release again\n' >&2
+    systemctl start onyx-api.service onyx-web.service || true
+  fi
+}
+trap restart_previous ERR
+
 install -d -o onyx -g onyx -m 700 "${ONYX_BACKUP_DIR:-/var/backups/onyx}"
 if [ -f "${DATABASE_URL#file:}" ]; then
   runuser -u onyx -- bash -c 'set -a; . /etc/onyx/onyx.env; set +a; exec node "$1/api/dist/cli.js" backup --reason pre-update' onyx-cli "$TARGET" \
@@ -27,6 +41,7 @@ if [ -f "${DATABASE_URL#file:}" ]; then
 fi
 
 (cd "$TARGET/db" && runuser -u onyx -- env DATABASE_URL="$DATABASE_URL" ./node_modules/.bin/prisma migrate deploy)
+trap - ERR
 
 ln -sfn "$TARGET" "$BASE/current"
 install -m 644 "$TARGET"/deploy/systemd/*.service /etc/systemd/system/

@@ -45,7 +45,7 @@ onyx-start
 | `onyx-start` | Avvia Onyx in background e stampa gli indirizzi della console |
 | `onyx-stop` | Ferma Onyx e tutti i suoi processi |
 | `onyx-restart` | Ferma e riavvia |
-| `onyx-update` | Scarica l'ultima versione (`git pull`), aggiorna le dipendenze, applica le migrazioni del database, ricompila e riavvia se era acceso |
+| `onyx-update` | Ferma Onyx, scarica l'ultima versione (`git pull`), aggiorna le dipendenze, applica le migrazioni del database, ricompila e lo riavvia se era acceso |
 | `onyx-status` | Dice se Onyx è acceso e dove raggiungerlo |
 | `onyx-logs` | Segue i log |
 | `onyx-use-claude` | Passa alla CLI Claude Code vera (la installa se manca) e riavvia Onyx: serve per collegare il tuo account Claude da Settings. `onyx use-stub` torna al simulatore |

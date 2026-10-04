@@ -389,28 +389,40 @@ dev_status() {
   lan_urls ":3000"
 }
 
-dev_update() {
-  local was_running=false
-  if dev_pid >/dev/null; then was_running=true; fi
+dev_update_steps() {
   step "Updating the code"
   if git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-    git -C "$ROOT" pull --ff-only
+    git -C "$ROOT" pull --ff-only || return 1
   else
     warn "the current branch has no upstream: skipping git pull"
   fi
   step "Installing dependencies"
-  (cd "$ROOT" && pnpm install --frozen-lockfile)
+  (cd "$ROOT" && pnpm install --frozen-lockfile) || return 1
   load_dev_env
   if [ -n "${DATABASE_URL:-}" ] && [ -f "${DATABASE_URL#file:}" ]; then
     backup_now pre-update || warn "the backup before the update failed: continuing"
   fi
   step "Migrating the database"
-  [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is not set in apps/api/.env"
-  (cd "$ROOT" && DATABASE_URL="$DATABASE_URL" pnpm --filter @onyx/db migrate:deploy)
+  if [ -z "${DATABASE_URL:-}" ]; then
+    warn "DATABASE_URL is not set in apps/api/.env"
+    return 1
+  fi
+  (cd "$ROOT" && DATABASE_URL="$DATABASE_URL" pnpm --filter @onyx/db migrate:deploy) || return 1
   step "Building the MCP server"
-  (cd "$ROOT" && pnpm --filter @onyx/mcp-server build)
-  if $was_running; then
+  (cd "$ROOT" && pnpm --filter @onyx/mcp-server build) || return 1
+}
+
+dev_update() {
+  local was_running=false
+  if dev_pid >/dev/null; then
+    was_running=true
     dev_stop
+  fi
+  if ! dev_update_steps; then
+    if $was_running; then warn "Onyx was stopped for the update and is still stopped"; fi
+    fail "the update did not finish: fix the error above and run onyx-update again (the backup written before the update is listed by onyx backups)"
+  fi
+  if $was_running; then
     dev_start
   else
     ok "Updated. Start Onyx with: onyx-start"
