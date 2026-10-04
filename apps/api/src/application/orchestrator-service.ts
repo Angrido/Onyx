@@ -16,7 +16,7 @@ import {
   type RunItemOf,
   type TaskStatus,
 } from "@onyx/contracts";
-import type { Approval, Orchestration, PrismaClient } from "@onyx/db";
+import { Prisma, type Approval, type Orchestration, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import type { z } from "zod";
 import type { AppConfig } from "../config";
@@ -38,6 +38,7 @@ import {
   type PlanNode,
   type ValidatedPlan,
 } from "../domain/orchestration/plan";
+import { untilAborted } from "../domain/abortable";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { QA_MAX_REWORKS, qaFeedbackPrompt } from "../domain/qa";
 import { badRequest, conflict, notFound } from "../errors";
@@ -119,7 +120,18 @@ interface Planner {
   runId: string;
   activity: PlanActivity;
   done: Promise<void>;
+  controller: AbortController;
 }
+
+export interface PlanRecovery {
+  failed: number;
+  resumable: string[];
+  releasedNodes: number;
+}
+
+const IN_FLIGHT_NODE_STATES = ["running", "verifying", "reviewing", "merging"];
+const ACTIVE_NODE_STATUSES: TaskStatus[] = ["QUEUED", "RUNNING", "TDD_LOOP"];
+const RECOVERY_ACTOR = "system:recovery";
 
 interface NodeWork {
   driver: Driver;
@@ -357,6 +369,7 @@ export class OrchestratorService {
         runId: `plan-${orchestration.id}`,
         activity: { turns: 0, toolCalls: 0, lastAction: "Reading the project index" },
         done: Promise.resolve(),
+        controller: new AbortController(),
       };
       this.planners.set(orchestration.id, planner);
       planner.done = this.plan(orchestration, planner)
@@ -410,6 +423,7 @@ export class OrchestratorService {
       throw conflict(`The plan is already ${orchestration.status.toLowerCase()}`);
     const planner = this.planners.get(id);
     if (planner) {
+      planner.controller.abort();
       await this.deps.pool.abort(planner.runId);
       await planner.done;
     }
@@ -447,15 +461,18 @@ export class OrchestratorService {
       if (node.state === "merged") continue;
       await this.resetNode(orchestration, node.taskId, node.key);
     }
-    const repo = await this.repoOf(orchestration.projectId);
-    if (orchestration.integrationPath) {
-      await repo.removeWorktree(orchestration.integrationPath);
-      await repo.addWorktree(
-        orchestration.integrationPath,
-        orchestration.workBranch,
-        orchestration.workBranch,
-      );
-      await linkDependencies(repo.root, orchestration.integrationPath);
+    await this.restart(orchestration, actor, {});
+    return this.publish(id);
+  }
+
+  private async restart(orchestration: Orchestration, actor: string, meta: object): Promise<void> {
+    const { prisma } = this.deps;
+    const { id, workBranch, integrationPath } = orchestration;
+    if (integrationPath && workBranch) {
+      const repo = await this.repoOf(orchestration.projectId);
+      await repo.removeWorktree(integrationPath);
+      await repo.addWorktree(integrationPath, workBranch, workBranch);
+      await linkDependencies(repo.root, integrationPath);
     }
     await prisma.orchestration.update({
       where: { id },
@@ -465,9 +482,8 @@ export class OrchestratorService {
       where: { id: orchestration.rootTaskId },
       data: { status: "RUNNING", resultSummary: null },
     });
-    await this.audit(actor, "plan.resumed", id, {});
+    await this.audit(actor, "plan.resumed", id, meta);
     this.startDriver(id);
-    return this.publish(id);
   }
 
   async pushWorkBranch(id: string, actor: string): Promise<PublishPlanResult> {
@@ -483,13 +499,20 @@ export class OrchestratorService {
     return { branch: orchestration.workBranch, ...result };
   }
 
-  async recover(): Promise<void> {
+  async recover(options: { resume: boolean } = { resume: false }): Promise<PlanRecovery> {
     const { prisma } = this.deps;
     const stale = await prisma.orchestration.findMany({
       where: { status: { in: ["PLANNING", "RUNNING", "VERIFYING"] } },
     });
+    const recovery: PlanRecovery = { failed: 0, resumable: [], releasedNodes: 0 };
     for (const orchestration of stale) {
       const planning = orchestration.status === "PLANNING";
+      if (!planning) recovery.releasedNodes += await this.releaseNodes(orchestration.rootTaskId);
+      if (!planning && options.resume && orchestration.workBranch) {
+        recovery.resumable.push(orchestration.id);
+        continue;
+      }
+      recovery.failed += 1;
       await prisma.orchestration.update({
         where: { id: orchestration.id },
         data: {
@@ -505,11 +528,54 @@ export class OrchestratorService {
         data: { status: "FAILED" },
       });
     }
+    return recovery;
+  }
+
+  async resumeRecovered(ids: readonly string[]): Promise<number> {
+    const { prisma, logger } = this.deps;
+    let resumed = 0;
+    for (const id of ids) {
+      if (this.stopped || this.drivers.has(id)) continue;
+      try {
+        const orchestration = await prisma.orchestration.findUniqueOrThrow({ where: { id } });
+        await this.restart(orchestration, RECOVERY_ACTOR, { automatic: true });
+        await this.publish(id);
+        resumed += 1;
+        logger.info({ orchestrationId: id }, "Resumed a plan interrupted by a restart");
+      } catch (error) {
+        logger.warn({ err: error, orchestrationId: id }, "Could not resume an interrupted plan");
+        await this.finish(
+          id,
+          "FAILED",
+          "Interrupted by an Onyx restart: resume it to continue",
+          "FAILED",
+        ).catch(() => undefined);
+      }
+    }
+    return resumed;
+  }
+
+  private async releaseNodes(rootTaskId: string): Promise<number> {
+    const released = await this.deps.prisma.task.updateMany({
+      where: {
+        parentTaskId: rootTaskId,
+        mergeState: { not: "merged" },
+        OR: [
+          { mergeState: { in: IN_FLIGHT_NODE_STATES } },
+          { status: { in: ACTIVE_NODE_STATUSES } },
+        ],
+      },
+      data: { mergeState: "pending", status: "DRAFT", pendingRun: Prisma.DbNull },
+    });
+    return released.count;
   }
 
   async shutdown(): Promise<void> {
     this.stopped = true;
-    for (const planner of this.planners.values()) await this.deps.pool.abort(planner.runId);
+    for (const planner of this.planners.values()) {
+      planner.controller.abort();
+      await this.deps.pool.abort(planner.runId);
+    }
     for (const driver of this.drivers.values()) {
       driver.cancelled = true;
       for (const taskId of driver.running.keys())
@@ -538,9 +604,12 @@ export class OrchestratorService {
       domain: workspace.domain,
       pathGlobs: toStringArray(workspace.pathGlobs),
     }));
-    const context = await this.deps.indexes
-      .waitForIndex(project.id, config.context.indexWaitMs)
-      .catch(() => null);
+    const signal = planner.controller.signal;
+    const context = await untilAborted(
+      this.deps.indexes.waitForIndex(project.id, config.context.indexWaitMs).catch(() => null),
+      signal,
+    );
+    if (signal.aborted) return fail("Planning was interrupted");
     const scope = await this.deps.surgeon.runScope(project.id, null);
     planner.activity.lastAction = "Collecting the README, the tests and the history";
     const [readme, gitLog, defaults] = await Promise.all([
@@ -594,6 +663,12 @@ export class OrchestratorService {
     planner.activity.lastAction = "Claude is studying the project";
     void this.publish(orchestration.id);
     try {
+      const env = {
+        ...this.passthroughEnv(),
+        ...(await this.deps.credentials.childEnv()),
+        [RUN_TOKEN_ENV]: token,
+      };
+      if (signal.aborted) return await fail("Planning was interrupted");
       exit = await pool.run(
         {
           runId: planner.runId,
@@ -618,11 +693,7 @@ export class OrchestratorService {
           mcpConfigFile: files.mcpConfigFile,
           appendSystemPromptFile: null,
           includePartialMessages: false,
-          env: {
-            ...this.passthroughEnv(),
-            ...(await this.deps.credentials.childEnv()),
-            [RUN_TOKEN_ENV]: token,
-          },
+          env,
           timeouts: this.deps.plannerTimeouts ?? DEFAULT_PLANNER_TIMEOUTS,
           jsonSchema: JSON.stringify(PLAN_JSON_SCHEMA),
         },
@@ -1623,6 +1694,8 @@ export class OrchestratorService {
     taskId: string,
     key: string,
   ): Promise<void> {
+    await this.stopNodeWork(taskId);
+    await this.deps.scheduler.settledTask(taskId);
     const repo = await this.repoOf(orchestration.projectId);
     const path = join(this.worktreesRoot(orchestration.projectId), orchestration.id, key);
     await repo.removeWorktree(path);

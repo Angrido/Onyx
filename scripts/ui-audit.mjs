@@ -74,6 +74,7 @@ async function discover(cookie) {
     "/projects",
     "/agents",
     "/approvals",
+    "/logs",
     "/router",
     "/savings",
     "/settings",

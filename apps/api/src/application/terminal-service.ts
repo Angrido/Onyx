@@ -5,6 +5,7 @@ import {
   ClaudeTerminal,
   TextTail,
   type ClaudeBinary,
+  type ProcessTracker,
   type TerminalExit,
 } from "@onyx/agent-runtime";
 import {
@@ -91,6 +92,7 @@ export interface TerminalServiceDeps {
   memory?: Pick<MemoryService, "compose">;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
+  tracker?: ProcessTracker | null;
 }
 
 interface PendingInjection {
@@ -124,6 +126,7 @@ interface TerminalRecord {
   claudeSessionId: string | null;
   resumed: boolean;
   confirmed: boolean;
+  stopRequested: boolean;
   startupNote: string | null;
   terminal: ClaudeTerminal;
   state: "running" | "exited";
@@ -394,6 +397,8 @@ export class TerminalService {
           ...(this.deps.killGraceMs === undefined ? {} : { killGraceMs: this.deps.killGraceMs }),
           ...(this.deps.sourceEnv ? { sourceEnv: this.deps.sourceEnv } : {}),
           sandbox: config.agentSandbox,
+          tracker: this.deps.tracker ?? null,
+          label: `terminal:${id}`,
         },
       );
       record = {
@@ -413,6 +418,7 @@ export class TerminalService {
         claudeSessionId: resume ? (session.claudeSessionId ?? session.id) : null,
         resumed: resume,
         confirmed: false,
+        stopRequested: false,
         startupNote: plan.item.handoff?.text ?? null,
         terminal,
         state: "running",
@@ -515,6 +521,7 @@ export class TerminalService {
   async close(terminalId: string, actor: string): Promise<TerminalDto> {
     const record = this.require(terminalId);
     if (record.state === "running") {
+      record.stopRequested = true;
       await record.terminal.stop();
       await this.audit(actor, "terminal.closed", terminalId, { workspaceId: record.workspace.id });
     }
@@ -525,7 +532,10 @@ export class TerminalService {
     await Promise.allSettled(
       [...this.records.values()]
         .filter((record) => record.state === "running")
-        .map((record) => record.terminal.stop()),
+        .map((record) => {
+          record.stopRequested = true;
+          return record.terminal.stop();
+        }),
     );
   }
 
@@ -794,7 +804,8 @@ export class TerminalService {
     const lost =
       record.resumed &&
       (!record.confirmed ||
-        (exit.exitCode !== 0 &&
+        (!record.stopRequested &&
+          exit.exitCode !== 0 &&
           record.prompts.length === 0 &&
           endedAt.getTime() - record.startedAt.getTime() < LOST_SESSION_WINDOW_MS));
     if (lost)

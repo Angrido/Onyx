@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { appendFile, chmod, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { PtySession, TextTail } from "@onyx/agent-runtime";
+import { PtySession, TextTail, type ProcessTracker } from "@onyx/agent-runtime";
 import type {
   StartTddLoopRequestSchema,
   TaskStatus,
@@ -78,6 +78,7 @@ export interface TddServiceDeps {
   onGreen?: (loop: { projectId: string; fullCommand: string; runId: string | null }) => void;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
+  tracker?: ProcessTracker | null;
 }
 
 interface CommandResult {
@@ -713,23 +714,7 @@ export class TddService {
             loop,
             `${ACCENT}▶ Fix attempt ${progress.fixes + 1}${RESET} · the agent is working…\r\n`,
           );
-          const result = await this.deps.scheduler.runAndWait({
-            request: {
-              taskId: loop.taskId,
-              modelId: null,
-              agentConfigId: null,
-              prompt,
-              newSession: false,
-              tdd: { loopId: loop.id, guard: loop.guard, escalation },
-            },
-            workspaceId: loop.workspaceId,
-            projectId: loop.projectId,
-            lockKey: loop.lockKey,
-            priority: 100,
-            kind: "TDD",
-            enqueuedAt: Date.now(),
-            holdId: loop.holdId,
-          });
+          const result = await this.fixRun(loop, prompt, escalation);
           progress = recordFix(progress);
           const run = await this.afterFix(loop, currentIteration, result);
           if (run) lastRunId = run.id;
@@ -773,6 +758,47 @@ export class TddService {
         logger.error({ err: finishError, loopId: loop.id }, "TDD loop could not be closed"),
       );
     }
+  }
+
+  private async fixRun(
+    loop: ActiveLoop,
+    prompt: string,
+    escalation: RoutingEscalation | null,
+  ): Promise<ExecutionResult | null> {
+    const run = (newSession: boolean) =>
+      this.deps.scheduler.runAndWait({
+        request: {
+          taskId: loop.taskId,
+          modelId: null,
+          agentConfigId: null,
+          prompt,
+          newSession,
+          tdd: { loopId: loop.id, guard: loop.guard, escalation },
+        },
+        workspaceId: loop.workspaceId,
+        projectId: loop.projectId,
+        lockKey: loop.lockKey,
+        priority: 100,
+        kind: "TDD",
+        enqueuedAt: Date.now(),
+        holdId: loop.holdId,
+      });
+    const first = await run(false);
+    if (!first?.lostSession || loop.aborted || this.stopped) return first;
+    const lost = await this.deps.prisma.agentRun.findUnique({
+      where: { id: first.runId },
+      select: { costUsd: true },
+    });
+    loop.spentUsd += lost?.costUsd ?? 0;
+    this.deps.logger.warn(
+      { loopId: loop.id, runId: first.runId },
+      "Claude Code lost the session of a TDD fix run: retrying in a new session",
+    );
+    this.write(
+      loop,
+      `${YELLOW}Claude Code no longer has this session: retrying the fix attempt in a new one${RESET}\r\n`,
+    );
+    return run(true);
   }
 
   private async evaluate(loop: ActiveLoop): Promise<Evaluation> {
@@ -1020,6 +1046,8 @@ export class TddService {
           ...(this.deps.killGraceMs === undefined ? {} : { killGraceMs: this.deps.killGraceMs }),
           sourceEnv: { ...process.env, ...this.deps.sourceEnv },
           sandbox: this.deps.config.agentSandbox,
+          tracker: this.deps.tracker ?? null,
+          label: `test:${loop.id}`,
         },
       );
       const timer = setTimeout(() => {

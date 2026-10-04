@@ -8,6 +8,7 @@ import { registerErrorHandling } from "./http/error-handler";
 import { registerAuthRoutes } from "./http/routes/auth-routes";
 import { registerBackupRoutes } from "./http/routes/backup-routes";
 import { registerContextRoutes } from "./http/routes/context-routes";
+import { registerDiagnosticsRoutes } from "./http/routes/diagnostics-routes";
 import { registerGitRoutes } from "./http/routes/git-routes";
 import { registerGitHubRoutes } from "./http/routes/github-routes";
 import { registerHookRoutes } from "./http/routes/hook-routes";
@@ -66,6 +67,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerTddRoutes(app, container);
   registerOrchestrationRoutes(app, container);
   registerBackupRoutes(app, container);
+  registerDiagnosticsRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

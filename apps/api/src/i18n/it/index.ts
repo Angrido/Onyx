@@ -3,6 +3,7 @@ import { PLANS } from "./plans";
 import { PROJECTS } from "./projects";
 import { SAVINGS } from "./savings";
 import { STATUS } from "./status";
+import { SYSTEM } from "./system";
 
 export const IT: Record<string, string> = {
   ...SAVINGS,
@@ -10,4 +11,5 @@ export const IT: Record<string, string> = {
   ...INSIGHTS,
   ...PLANS,
   ...PROJECTS,
+  ...SYSTEM,
 };

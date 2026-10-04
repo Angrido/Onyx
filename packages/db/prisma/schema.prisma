@@ -404,6 +404,7 @@ model Task {
   mergedAt      DateTime?
   canWait       Boolean    @default(false)
   batchRunId    String?
+  pendingRun    Json?
   createdAt     DateTime   @default(now())
   startedAt     DateTime?
   completedAt   DateTime?

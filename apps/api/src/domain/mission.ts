@@ -1,5 +1,6 @@
 import type { GitSummary, ProjectHealth, RunStatus, TddStatus } from "@onyx/contracts";
 import { tx } from "../i18n";
+import { HEALTH_RANK, gitCheck, indexCheck, type HealthFinding } from "./health";
 
 export interface HealthInput {
   indexError: string | null;
@@ -7,24 +8,20 @@ export interface HealthInput {
   lastRun: { status: RunStatus } | null;
   lastTdd: { status: TddStatus } | null;
   pendingApprovals: number;
+  checks?: readonly HealthFinding[];
 }
 
-const RANK: Record<ProjectHealth, number> = { OK: 0, ATTENTION: 1, ERROR: 2 };
+export function baseFindings(indexError: string | null, git: GitSummary): HealthFinding[] {
+  return [
+    ...(indexError
+      ? [indexCheck({ state: "failed", error: indexError, indexedAt: null }, new Date())]
+      : []),
+    gitCheck(git),
+  ];
+}
 
 export function projectHealth(input: HealthInput): { health: ProjectHealth; reasons: string[] } {
   const found: { level: ProjectHealth; reason: string }[] = [];
-  if (input.indexError)
-    found.push({
-      level: "ERROR",
-      reason: tx("The code index failed: {error}", { error: input.indexError }),
-    });
-  if (input.git.error)
-    found.push({
-      level: "ERROR",
-      reason: tx("Git could not read the project: {error}", { error: input.git.error }),
-    });
-  else if (!input.git.isRepo)
-    found.push({ level: "ATTENTION", reason: tx("Not a git repository") });
   if (input.lastRun?.status === "FAILED" || input.lastRun?.status === "TIMEOUT")
     found.push({ level: "ATTENTION", reason: tx("The last run failed") });
   else if (input.lastRun?.status === "INTERRUPTED")
@@ -44,23 +41,17 @@ export function projectHealth(input: HealthInput): { health: ProjectHealth; reas
           ? tx("{count} approval waiting", { count: input.pendingApprovals })
           : tx("{count} approvals waiting", { count: input.pendingApprovals }),
     });
-  const behind = { count: input.git.behind, upstream: input.git.upstream ?? "upstream" };
-  if (input.git.behind > 0)
-    found.push({
-      level: "ATTENTION",
-      reason:
-        input.git.behind === 1
-          ? tx("{count} commit behind {upstream}", behind)
-          : tx("{count} commits behind {upstream}", behind),
-    });
+  for (const check of input.checks ?? baseFindings(input.indexError, input.git))
+    if (check.level !== "OK")
+      found.push({ level: check.level, reason: tx(check.message, check.params) });
   const health = found.reduce<ProjectHealth>(
-    (worst, entry) => (RANK[entry.level] > RANK[worst] ? entry.level : worst),
+    (worst, entry) => (HEALTH_RANK[entry.level] > HEALTH_RANK[worst] ? entry.level : worst),
     "OK",
   );
   return {
     health,
     reasons: [...found]
-      .sort((left, right) => RANK[right.level] - RANK[left.level])
+      .sort((left, right) => HEALTH_RANK[right.level] - HEALTH_RANK[left.level])
       .map((entry) => entry.reason),
   };
 }

@@ -142,6 +142,11 @@ export class IndexService {
     }
   }
 
+  readyBeforeRun(projectId: string, timeoutMs: number): Promise<void> | null {
+    if (this.stopped || this.contexts.has(projectId)) return null;
+    return this.waitForIndex(projectId, timeoutMs).then(() => undefined);
+  }
+
   scheduleRefresh(projectId: string): void {
     if (this.stopped) return;
     clearTimeout(this.refreshTimers.get(projectId));

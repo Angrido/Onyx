@@ -58,5 +58,8 @@ export const queryKeys = {
   memory: (projectId: string) => ["memory", projectId] as const,
   memorySettings: ["settings", "memory"] as const,
   mission: ["mission"] as const,
+  projectHealth: (projectId: string) => ["projects", projectId, "health"] as const,
+  logs: (filter: object) => ["logs", filter] as const,
+  diagnostics: ["diagnostics"] as const,
   backups: ["backups"] as const,
 };

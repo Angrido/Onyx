@@ -13,6 +13,7 @@ import {
   LogOut,
   PiggyBank,
   Route,
+  ScrollText,
   Search,
   Settings,
 } from "lucide-react";
@@ -33,14 +34,15 @@ import { cn } from "@/lib/utils";
 import { useChannel, useConnectionState } from "@/lib/ws/context";
 
 const NAV = [
-  { href: "/", label: msg("Mission control"), icon: LayoutDashboard },
-  { href: "/projects", label: msg("Projects"), icon: FolderGit2 },
-  { href: "/agents", label: msg("Agent grid"), icon: LayoutGrid },
-  { href: "/approvals", label: msg("Approvals"), icon: Inbox },
-  { href: "/router", label: msg("Router"), icon: Route },
-  { href: "/telemetry", label: msg("Telemetry"), icon: Activity },
-  { href: "/savings", label: msg("Savings"), icon: PiggyBank },
-  { href: "/settings", label: msg("Settings"), icon: Settings },
+  { href: "/", label: msg("Mission control"), icon: LayoutDashboard, compact: true },
+  { href: "/projects", label: msg("Projects"), icon: FolderGit2, compact: true },
+  { href: "/agents", label: msg("Agent grid"), icon: LayoutGrid, compact: true },
+  { href: "/approvals", label: msg("Approvals"), icon: Inbox, compact: true },
+  { href: "/router", label: msg("Router"), icon: Route, compact: true },
+  { href: "/telemetry", label: msg("Telemetry"), icon: Activity, compact: true },
+  { href: "/savings", label: msg("Savings"), icon: PiggyBank, compact: true },
+  { href: "/logs", label: msg("Logs"), icon: ScrollText, compact: false },
+  { href: "/settings", label: msg("Settings"), icon: Settings, compact: true },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
@@ -159,7 +161,7 @@ export function Sidebar({ user }: { user: UserDto }) {
       <header className="glass sticky top-0 z-30 flex items-center gap-2 border-b border-border px-4 py-2.5 md:hidden">
         <Wordmark condensed />
         <nav className="ml-auto flex items-center">
-          {NAV.map((item) => (
+          {NAV.filter((item) => item.compact).map((item) => (
             <Link
               key={item.href}
               href={item.href}

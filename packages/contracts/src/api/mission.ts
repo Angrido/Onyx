@@ -1,11 +1,29 @@
 import { z } from "zod";
-import { PROJECT_HEALTH } from "../client";
+import { HEALTH_CHECK_IDS, PROJECT_HEALTH } from "../client";
 import { RunStatusSchema } from "../domain";
 import { IsoDateSchema } from "./common";
 import { TddStatusSchema } from "./tdd";
 
 export const ProjectHealthSchema = z.enum(PROJECT_HEALTH);
 export type ProjectHealth = z.infer<typeof ProjectHealthSchema>;
+
+export const HealthCheckIdSchema = z.enum(HEALTH_CHECK_IDS);
+export type HealthCheckId = z.infer<typeof HealthCheckIdSchema>;
+
+export const HealthCheckDtoSchema = z.object({
+  id: HealthCheckIdSchema,
+  level: ProjectHealthSchema,
+  reason: z.string(),
+});
+export type HealthCheckDto = z.infer<typeof HealthCheckDtoSchema>;
+
+export const ProjectHealthReportSchema = z.object({
+  projectId: z.string(),
+  health: ProjectHealthSchema,
+  checks: z.array(HealthCheckDtoSchema),
+  checkedAt: IsoDateSchema,
+});
+export type ProjectHealthReport = z.infer<typeof ProjectHealthReportSchema>;
 
 export const GitSummarySchema = z.object({
   isRepo: z.boolean(),
@@ -64,6 +82,7 @@ export const MissionProjectDtoSchema = z.object({
   lastActivityAt: IsoDateSchema,
   health: ProjectHealthSchema,
   reasons: z.array(z.string()),
+  checks: z.array(HealthCheckDtoSchema),
 });
 export type MissionProjectDto = z.infer<typeof MissionProjectDtoSchema>;
 

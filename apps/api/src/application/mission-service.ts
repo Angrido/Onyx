@@ -7,8 +7,10 @@ import type {
   TddStatus,
 } from "@onyx/contracts";
 import { Prisma, type PrismaClient } from "@onyx/db";
-import { mapLimited, projectHealth } from "../domain/mission";
+import { renderFinding, type HealthFinding } from "../domain/health";
+import { baseFindings, mapLimited, projectHealth } from "../domain/mission";
 import { sqlDate } from "../infrastructure/run-totals";
+import type { HealthProject } from "./health-service";
 import type { RunScheduler } from "./run-scheduler";
 
 const DAY_MS = 86_400_000;
@@ -30,6 +32,7 @@ export interface MissionServiceDeps {
   scheduler: () => RunScheduler | null;
   gitSummary: (rootPath: string, now: Date) => Promise<GitSummary>;
   limitOf: (projectId: string) => number | null;
+  health?: (project: HealthProject, git: GitSummary, now: Date) => Promise<HealthFinding[]>;
   maxConcurrent: number;
   now?: () => Date;
 }
@@ -110,6 +113,9 @@ export class MissionService {
           rootPath: true,
           defaultBranch: true,
           indexError: true,
+          indexedAt: true,
+          gitRemote: true,
+          allowedTools: true,
           updatedAt: true,
         },
         orderBy: { name: "asc" },
@@ -172,6 +178,14 @@ export class MissionService {
     const gitSummaries = await mapLimited(projects, GIT_CONCURRENCY, (project) =>
       this.gitOf(project.id, project.rootPath, now),
     );
+    const checks = await mapLimited(
+      projects.map((project, index) => ({ project, git: gitSummaries[index] as GitSummary })),
+      GIT_CONCURRENCY,
+      ({ project, git }) =>
+        this.deps.health
+          ? this.deps.health(project, git, now)
+          : Promise.resolve(baseFindings(project.indexError, git)),
+    );
 
     const spendBy = new Map(spend.map((row) => [String(row.projectId), row]));
     const runBy = new Map(lastRuns.map((row) => [String(row["projectId"]), row]));
@@ -205,12 +219,14 @@ export class MissionService {
         : null;
       const pendingApprovals = approvalsBy.get(project.id) ?? 0;
       const mine = active.filter((entry) => entry.projectId === project.id);
+      const findings = checks[index] ?? [];
       const { health, reasons } = projectHealth({
         indexError: project.indexError,
         git,
         lastRun,
         lastTdd,
         pendingApprovals,
+        checks: findings,
       });
       const moments = [project.updatedAt.toISOString(), lastRun?.endedAt, lastRun?.startedAt];
       return {
@@ -251,6 +267,7 @@ export class MissionService {
           .reduce((latest, moment) => (moment > latest ? moment : latest)),
         health,
         reasons,
+        checks: findings.map(renderFinding),
       };
     });
 
@@ -266,7 +283,7 @@ export class MissionService {
     };
   }
 
-  private async gitOf(projectId: string, rootPath: string, now: Date): Promise<GitSummary> {
+  async gitOf(projectId: string, rootPath: string, now: Date): Promise<GitSummary> {
     const cached = this.git.get(projectId);
     if (cached && cached.rootPath === rootPath && now.getTime() - cached.at < GIT_TTL_MS)
       return cached.summary;

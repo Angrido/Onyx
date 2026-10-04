@@ -1,6 +1,7 @@
 import type { PermissionMode } from "@onyx/contracts";
 import { spawn, type IPty } from "node-pty";
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from "./environment";
+import type { ProcessTracker } from "./process-tools";
 import type { ClaudeBinary, SessionDirective } from "./run-spec";
 import { sandboxCommand, signalSandboxedGroup, type AgentSandbox } from "./sandbox";
 
@@ -34,6 +35,8 @@ export interface TerminalOptions {
   killGraceMs?: number;
   sourceEnv?: NodeJS.ProcessEnv;
   sandbox?: AgentSandbox | null;
+  tracker?: ProcessTracker | null;
+  label?: string;
 }
 
 const DEFAULT_KILL_GRACE_MS = 3_000;
@@ -108,10 +111,12 @@ export class PtySession {
       env: launch.env,
     });
     this.pty = pty;
+    this.track((tracker) => tracker.started(pty.pid, this.options.label ?? "pty"));
     pty.onData((data) => this.handlers.onData(data));
     pty.onExit(({ exitCode, signal }) => {
       const exit = { exitCode, signal: signal === undefined || signal === 0 ? null : signal };
       this.exitInfo = exit;
+      this.track((tracker) => tracker.ended(pty.pid));
       this.handlers.onExit(exit);
       for (const waiter of this.exitWaiters.splice(0)) waiter(exit);
     });
@@ -137,6 +142,16 @@ export class PtySession {
     const exit = await exited;
     clearTimeout(timer);
     return exit;
+  }
+
+  private track(update: (tracker: ProcessTracker) => void): void {
+    const tracker = this.options.tracker;
+    if (!tracker) return;
+    try {
+      update(tracker);
+    } catch {
+      return;
+    }
   }
 
   private signal(pty: IPty, signal: NodeJS.Signals): void {

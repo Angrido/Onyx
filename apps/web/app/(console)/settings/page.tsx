@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { BackupsCard } from "@/components/settings/backups-card";
 import { BudgetsCard } from "@/components/settings/budgets-card";
 import { ClaudeAccountCard } from "@/components/settings/claude-account-card";
+import { DiagnosticsCard } from "@/components/settings/diagnostics-card";
 import { GitHubAccountCard } from "@/components/settings/github-account-card";
 import { GitIdentityCard } from "@/components/settings/git-identity-card";
 import { LanguageCard } from "@/components/settings/language-card";
@@ -92,6 +93,7 @@ export default async function SettingsPage() {
           <MemoryCard initial={memory} />
           <SavingsOptionsCard initial={savingsOptions} />
           <BackupsCard initial={backups} />
+          <DiagnosticsCard />
         </div>
       </div>
     </>

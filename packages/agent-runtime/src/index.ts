@@ -23,9 +23,12 @@ export { DEFAULT_MAX_LINE_LENGTH, LineSplitter } from "./line-splitter";
 export {
   isProcessAlive,
   isProcessGroupAlive,
+  processGroupOf,
+  processStartTicks,
   readProcessCommandLine,
   signalProcessGroup,
   terminateStaleProcess,
+  type ProcessTracker,
 } from "./process-tools";
 export { TextTail } from "./ring-buffer";
 export {

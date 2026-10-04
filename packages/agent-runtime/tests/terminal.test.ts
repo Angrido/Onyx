@@ -78,6 +78,26 @@ describe("ClaudeTerminal", () => {
     expect(exitCode).toBe(0);
   }, 20_000);
 
+  it("reports the terminal process to the tracker", async () => {
+    const seen: string[] = [];
+    const terminal = new ClaudeTerminal(
+      stubBinary(),
+      spec(),
+      { onData: () => {}, onExit: () => {} },
+      {
+        killGraceMs: 200,
+        label: "terminal:t1",
+        tracker: {
+          started: (pid, label) => seen.push(`started ${pid} ${label}`),
+          ended: (pid) => seen.push(`ended ${pid}`),
+        },
+      },
+    );
+    const pid = terminal.start();
+    await terminal.stop();
+    expect(seen).toEqual([`started ${pid} terminal:t1`, `ended ${pid}`]);
+  }, 20_000);
+
   it("stops a running terminal", async () => {
     const terminal = new ClaudeTerminal(
       stubBinary(),

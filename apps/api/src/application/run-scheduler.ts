@@ -69,6 +69,7 @@ export interface RunSchedulerDeps {
   afterRun?: (taskId: string, outcome: ExecutionResult) => void;
   policy?: () => QueuePolicy;
   now?: () => number;
+  prepare?: (item: QueuedRun) => Promise<void> | null;
 }
 
 export class RunScheduler {
@@ -81,6 +82,8 @@ export class RunScheduler {
   private readonly holds = new Map<string, string>();
   private readonly waiting = new Map<string, QueueWaitReason>();
   private readonly startedAt = new Map<string, number>();
+  private readonly preparing = new Map<QueuedRun, Promise<void>>();
+  private readonly prepared = new WeakSet<QueuedRun>();
   private nextHoldId = 1;
   private inFlight = 0;
   private reserved = 0;
@@ -278,8 +281,8 @@ export class RunScheduler {
   }
 
   async idle(): Promise<void> {
-    while (this.executions.size > 0) {
-      await Promise.allSettled([...this.executions.values()]);
+    while (this.executions.size > 0 || this.preparing.size > 0) {
+      await Promise.allSettled([...this.executions.values(), ...this.preparing.values()]);
     }
   }
 
@@ -335,6 +338,7 @@ export class RunScheduler {
     this.waiting.clear();
     for (const item of this.ordered()) {
       if (!this.queue.includes(item)) continue;
+      if (!this.ready(item)) continue;
       const taskId = item.request.taskId;
       if (this.inFlight + this.reserved >= this.deps.maxConcurrent) {
         this.waiting.set(taskId, "SLOTS");
@@ -372,6 +376,30 @@ export class RunScheduler {
       if (policy.batching) this.gather(item);
       this.start(item);
     }
+  }
+
+  private ready(item: QueuedRun): boolean {
+    if (this.prepared.has(item)) return true;
+    if (this.preparing.has(item)) return false;
+    const wait = this.deps.prepare?.(item) ?? null;
+    if (wait === null) {
+      this.prepared.add(item);
+      return true;
+    }
+    const settled = wait
+      .catch((error: unknown) =>
+        this.deps.logger.warn(
+          { err: error, taskId: item.request.taskId },
+          "Run preparation failed before it took a slot",
+        ),
+      )
+      .finally(() => {
+        this.preparing.delete(item);
+        this.prepared.add(item);
+        this.dispatch();
+      });
+    this.preparing.set(item, settled);
+    return false;
   }
 
   private gather(item: QueuedRun): void {

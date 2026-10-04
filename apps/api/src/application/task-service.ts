@@ -10,10 +10,11 @@ import type {
   TaskStatus,
   UpdateTaskRequestSchema,
 } from "@onyx/contracts";
-import type { PrismaClient } from "@onyx/db";
+import { Prisma, type PrismaClient } from "@onyx/db";
 import type { z } from "zod";
 import { RUNNABLE_STATUSES, isActive, isRunnable } from "../domain/task-state";
 import { isSmallTask } from "../domain/batch";
+import { pendingRunOf } from "../domain/pending-run";
 import { badRequest, conflict, notFound } from "../errors";
 import type { WsHub } from "../infrastructure/ws-hub";
 import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toStringArray, toTaskDto } from "./mappers";
@@ -152,9 +153,20 @@ export class TaskService {
 
     if (this.scheduler.isQueued(id) || this.scheduler.activeRunOf(id) !== null)
       throw conflict("Task is already queued or running");
+    const request = {
+      taskId: id,
+      modelId: input.modelId ?? null,
+      agentConfigId: input.agentConfigId ?? null,
+      prompt: input.prompt ?? null,
+      newSession: input.newSession,
+    };
     const claimed = await this.prisma.task.updateMany({
       where: { id, status: { in: [...RUNNABLE_STATUSES] } },
-      data: { status: "QUEUED", ...(input.modelId ? { modelOverride: input.modelId } : {}) },
+      data: {
+        status: "QUEUED",
+        pendingRun: pendingRunOf(request),
+        ...(input.modelId ? { modelOverride: input.modelId } : {}),
+      },
     });
     if (claimed.count !== 1) throw conflict("Task is already queued or running");
     const updated = await this.prisma.task.findUniqueOrThrow({
@@ -163,13 +175,7 @@ export class TaskService {
     });
     this.publish(updated.id, updated.projectId, "QUEUED");
     const queuePosition = this.scheduler.enqueue({
-      request: {
-        taskId: id,
-        modelId: input.modelId ?? null,
-        agentConfigId: input.agentConfigId ?? null,
-        prompt: input.prompt ?? null,
-        newSession: input.newSession,
-      },
+      request,
       workspaceId: task.workspaceId,
       projectId: task.projectId,
       lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
@@ -189,7 +195,7 @@ export class TaskService {
   async requeue(id: string): Promise<void> {
     const task = await this.prisma.task.update({
       where: { id },
-      data: { status: "QUEUED", batchRunId: null },
+      data: { status: "QUEUED", batchRunId: null, pendingRun: Prisma.DbNull },
     });
     if (!task.workspaceId) return;
     this.publish(task.id, task.projectId, "QUEUED");

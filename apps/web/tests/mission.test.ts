@@ -32,6 +32,7 @@ function project(name: string, overrides: Partial<MissionProjectDto> = {}): Miss
     lastActivityAt: "2026-10-01T10:00:00.000Z",
     health: "OK",
     reasons: [],
+    checks: [],
     ...overrides,
   };
 }

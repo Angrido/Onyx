@@ -81,7 +81,7 @@ export class CompartmentService {
     const active = workspace.activeSessionId
       ? await prisma.session.findUnique({
           where: { id: workspace.activeSessionId },
-          include: { _count: { select: { runs: true } } },
+          include: { _count: { select: { runs: { where: { pid: { not: null } } } } } },
         })
       : null;
     const foreignChangeAt = active

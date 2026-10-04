@@ -21,6 +21,7 @@ import {
   LogOut,
   PiggyBank,
   Map as MapIcon,
+  ScrollText,
   Play,
   Plus,
   Route,
@@ -53,6 +54,7 @@ const PAGES = [
   { href: "/router", label: msg("Router"), icon: Route },
   { href: "/telemetry", label: msg("Telemetry"), icon: Activity },
   { href: "/savings", label: msg("Savings"), icon: PiggyBank },
+  { href: "/logs", label: msg("Logs"), icon: ScrollText },
   { href: "/settings", label: msg("Settings"), icon: Settings },
 ] as const;
 

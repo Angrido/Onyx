@@ -8,6 +8,7 @@ import {
   type RunSpec,
 } from "@onyx/agent-runtime";
 import {
+  ONYX_EVENT_TYPE,
   PermissionModeSchema,
   type ContextArm,
   type MemoryArm,
@@ -23,12 +24,7 @@ import {
   type SessionItem,
   type TaskStatus,
 } from "@onyx/contracts";
-import {
-  DEFAULT_AGENT_CONFIG_NAME,
-  type AgentConfig,
-  type Prisma,
-  type PrismaClient,
-} from "@onyx/db";
+import { DEFAULT_AGENT_CONFIG_NAME, Prisma, type AgentConfig, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config";
 import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
@@ -38,6 +34,7 @@ import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { batchPrompt, isSmallTask, parseBatchOutcome } from "../domain/batch";
 import { drawMemoryArm } from "../domain/memory";
+import { pendingRunOf } from "../domain/pending-run";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { classifyCacheLoss, DEFAULT_PROMPT_CACHE_TTL_MS, prefixHash } from "../domain/prompt-cache";
 import { lostSession, resolveRunOutcome } from "../domain/run-outcome";
@@ -89,6 +86,7 @@ export interface RunRequest {
   tierHint?: RoutingEscalation | null;
   quotaDeferred?: boolean;
   batch?: string[];
+  indexWaited?: boolean;
 }
 
 export interface RunLifecycleHooks {
@@ -99,6 +97,7 @@ export interface ExecutionResult {
   runId: string;
   status: RunStatus;
   followUp: RunRequest | null;
+  lostSession?: boolean;
 }
 
 export interface RunExecutorDeps {
@@ -165,6 +164,12 @@ interface PreparedRun {
   fence: WriteFence;
   workspaceName: string;
   batch: string[];
+}
+
+interface PreparationTrace {
+  runId: string | null;
+  sessionId: string | null;
+  mates: string[];
 }
 
 interface PrimerMap {
@@ -256,10 +261,11 @@ export class RunExecutor {
 
   async execute(request: RunRequest, hooks: RunLifecycleHooks): Promise<ExecutionResult | null> {
     let prepared: PreparedRun;
+    const trace: PreparationTrace = { runId: null, sessionId: null, mates: [] };
     try {
-      prepared = await this.prepare(request);
+      prepared = await this.prepare(request, trace);
     } catch (error) {
-      await this.failBeforeStart(request.taskId, error);
+      await this.failBeforeStart(request.taskId, error, trace);
       return null;
     }
     hooks.onRunCreated(prepared.runId, prepared.taskId);
@@ -556,6 +562,7 @@ export class RunExecutor {
           where: { id: prepared.taskId },
           data: {
             status: taskStatus,
+            ...(followUp ? { pendingRun: pendingRunOf(followUp) } : {}),
             ...(taskStatus === "COMPLETED" ? { completedAt: endedAt } : {}),
             ...(result?.resultText
               ? { resultSummary: result.resultText.slice(0, MAX_RESULT_SUMMARY_CHARS) }
@@ -601,7 +608,12 @@ export class RunExecutor {
       { runId: prepared.runId, status: outcome.runStatus, reason: exit.reason },
       "Run finished",
     );
-    return { runId: prepared.runId, status: outcome.runStatus, followUp };
+    return {
+      runId: prepared.runId,
+      status: outcome.runStatus,
+      followUp,
+      ...(lostResume ? { lostSession: true } : {}),
+    };
   }
 
   private async settleBatch(
@@ -699,7 +711,7 @@ export class RunExecutor {
     return auditReads(files, prepared.context.entries);
   }
 
-  private async prepare(request: RunRequest): Promise<PreparedRun> {
+  private async prepare(request: RunRequest, trace: PreparationTrace): Promise<PreparedRun> {
     const { prisma, config, cliVersion, router, compartments } = this.deps;
     const task = await prisma.task.findUnique({
       where: { id: request.taskId },
@@ -791,6 +803,7 @@ export class RunExecutor {
           forceNew: request.newSession,
         });
     const session = plan.session;
+    trace.sessionId = session.id;
     const permissionMode = PermissionModeSchema.parse(agentConfig.permissionMode);
     const arm = drawArm({
       settings: await this.deps.experiment().catch(() => DEFAULT_EXPERIMENT),
@@ -830,6 +843,7 @@ export class RunExecutor {
         where: { id: task.id },
         data: {
           status: request.tdd ? "TDD_LOOP" : "RUNNING",
+          pendingRun: Prisma.DbNull,
           ...(task.startedAt ? {} : { startedAt: new Date() }),
         },
       });
@@ -840,6 +854,8 @@ export class RunExecutor {
         });
       return { run: created, startedAt: created.startedAt.getTime() };
     });
+    trace.runId = run.id;
+    trace.mates = mates.map((mate) => mate.id);
 
     const scope = await this.deps.surgeon.runScope(task.projectId, workspace.id, task.worktreePath);
     const protectedPaths = [
@@ -871,7 +887,11 @@ export class RunExecutor {
     };
     const context = await this.prepareContext(
       run.id,
-      { projectId: task.projectId, targetPaths: groupedTargets },
+      {
+        projectId: task.projectId,
+        targetPaths: groupedTargets,
+        indexWaited: request.indexWaited === true,
+      },
       prompt,
       scope.policy,
       runToken,
@@ -1062,7 +1082,7 @@ export class RunExecutor {
 
   private async prepareContext(
     runId: string,
-    task: { projectId: string; targetPaths: unknown },
+    task: { projectId: string; targetPaths: unknown; indexWaited: boolean },
     prompt: string,
     policy: ContextPolicy,
     runToken: string,
@@ -1101,7 +1121,7 @@ export class RunExecutor {
       return empty("Control run of the savings experiment: the Onyx context is withheld");
 
     const project = await indexes
-      .waitForIndex(task.projectId, config.context.indexWaitMs)
+      .waitForIndex(task.projectId, task.indexWaited ? 0 : config.context.indexWaitMs)
       .catch((error: unknown) => {
         logger.warn({ err: error, runId }, "Project index unavailable");
         return null;
@@ -1190,14 +1210,61 @@ export class RunExecutor {
     return env;
   }
 
-  private async failBeforeStart(taskId: string, error: unknown): Promise<void> {
-    const { prisma, logger } = this.deps;
+  private async failBeforeStart(
+    taskId: string,
+    error: unknown,
+    trace: PreparationTrace,
+  ): Promise<void> {
+    const { prisma, logger, runTokens } = this.deps;
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn({ taskId, err: error }, "Run could not start");
+    logger.warn({ taskId, runId: trace.runId, err: error }, "Run could not start");
+    if (trace.runId !== null) {
+      const runId = trace.runId;
+      runTokens.revoke(runId);
+      this.abortRequests.delete(runId);
+      const status = statusItem("FAILED", { message });
+      await prisma
+        .$transaction([
+          prisma.agentEvent.create({
+            data: { runId, seq: 1, type: ONYX_EVENT_TYPE, subtype: "status", payload: status },
+          }),
+          prisma.agentRun.update({
+            where: { id: runId },
+            data: { status: "FAILED", isError: true, errorMessage: message, endedAt: new Date() },
+          }),
+        ])
+        .catch((cleanupError: unknown) =>
+          logger.error(
+            { err: cleanupError, runId },
+            "Could not close the run that failed to start",
+          ),
+        );
+    }
+    if (trace.sessionId !== null)
+      await prisma.session
+        .updateMany({
+          where: { id: trace.sessionId, status: "ACTIVE" },
+          data: { status: "IDLE", lastActivityAt: new Date() },
+        })
+        .catch((cleanupError: unknown) =>
+          logger.error(
+            { err: cleanupError, sessionId: trace.sessionId },
+            "Could not release the session of a run that failed to start",
+          ),
+        );
     const task = await prisma.task
-      .update({ where: { id: taskId }, data: { status: "FAILED", resultSummary: message } })
+      .update({
+        where: { id: taskId },
+        data: { status: "FAILED", resultSummary: message, pendingRun: Prisma.DbNull },
+      })
       .catch(() => null);
-    if (task) this.publishStatus(task.id, task.projectId, "FAILED", null);
+    if (task) this.publishStatus(task.id, task.projectId, "FAILED", trace.runId);
+    for (const mate of trace.mates)
+      await this.deps
+        .onBatchLeftover?.(mate)
+        .catch((cleanupError: unknown) =>
+          logger.error({ err: cleanupError, taskId: mate }, "Could not requeue a grouped task"),
+        );
   }
 
   private publishStatus(

@@ -2,7 +2,13 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ClaudeProcess, isProcessAlive, type ProcessExit, type StreamJsonEvent } from "../src";
+import {
+  ClaudeProcess,
+  isProcessAlive,
+  type ProcessExit,
+  type ProcessTracker,
+  type StreamJsonEvent,
+} from "../src";
 import { makeRunSpec, stubBinary, stubEnv, type StubScenario } from "../src/testing";
 
 interface Harness {
@@ -31,6 +37,7 @@ function launch(
     escalationGraceMs?: number;
     baseEnv?: NodeJS.ProcessEnv;
     command?: string;
+    tracker?: ProcessTracker;
   } = {},
 ): Harness {
   const harness: Omit<Harness, "claude"> = { events: [], invalid: [], stderr: [], pids: [] };
@@ -53,6 +60,7 @@ function launch(
       escalationGraceMs: options.escalationGraceMs ?? 500,
       closeGraceMs: 300,
       ...(options.baseEnv ? { baseEnv: options.baseEnv } : {}),
+      ...(options.tracker ? { tracker: options.tracker } : {}),
     },
   );
   claude.start();
@@ -90,6 +98,31 @@ describe("ClaudeProcess", () => {
     const args = JSON.parse(readFileSync(argsFile, "utf8")) as string[];
     expect(args).toContain("--input-format");
     expect(args[args.indexOf("--session-id") + 1]).toBe("00000000-0000-4000-8000-00000000abcd");
+  });
+
+  it("reports the process it starts and its end to the tracker", async () => {
+    const seen: string[] = [];
+    const tracker: ProcessTracker = {
+      started: (pid, label) => seen.push(`started ${pid} ${label}`),
+      ended: (pid) => seen.push(`ended ${pid}`),
+    };
+    const harness = launch("quick", { tracker });
+    await harness.claude.done;
+    const pid = harness.pids[0];
+    expect(seen).toEqual([`started ${pid} run:run-1`, `ended ${pid}`]);
+  });
+
+  it("keeps running when the tracker fails", async () => {
+    const tracker: ProcessTracker = {
+      started: () => {
+        throw new Error("disk full");
+      },
+      ended: () => {
+        throw new Error("disk full");
+      },
+    };
+    const exit = await launch("quick", { tracker }).claude.done;
+    expect(exit.reason).toBe("completed");
   });
 
   it("reassembles events written in arbitrary chunks", async () => {

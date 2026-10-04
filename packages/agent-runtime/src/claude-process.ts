@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import { buildUserInputMessage } from "@onyx/contracts";
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from "./environment";
 import { DEFAULT_MAX_LINE_LENGTH, LineSplitter } from "./line-splitter";
-import { isProcessGroupAlive, signalProcessGroup } from "./process-tools";
+import { isProcessGroupAlive, signalProcessGroup, type ProcessTracker } from "./process-tools";
 import { TextTail } from "./ring-buffer";
 import { sandboxCommand, signalSandboxedGroup, type AgentSandbox } from "./sandbox";
 import { buildClaudeArgs, type ClaudeBinary, type RunSpec } from "./run-spec";
@@ -42,6 +42,7 @@ export interface ClaudeProcessOptions {
   maxLineLength?: number;
   stderrTailChars?: number;
   sandbox?: AgentSandbox | null;
+  tracker?: ProcessTracker | null;
 }
 
 const ESCALATION_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGKILL"];
@@ -134,6 +135,8 @@ export class ClaudeProcess {
       if (child.pid === undefined) this.finish("spawn_error", error.message);
     });
     if (child.pid === undefined) return;
+    const pid = child.pid;
+    this.track((tracker) => tracker.started(pid, `run:${this.spec.runId}`));
 
     this.attachStdout(child);
     this.attachStderr(child);
@@ -253,6 +256,16 @@ export class ClaudeProcess {
     this.notify(() => this.handlers.onEvent(parsed));
   }
 
+  private track(update: (tracker: ProcessTracker) => void): void {
+    const tracker = this.options.tracker;
+    if (!tracker) return;
+    try {
+      update(tracker);
+    } catch {
+      return;
+    }
+  }
+
   private notify(callback: () => void): void {
     try {
       callback();
@@ -278,6 +291,8 @@ export class ClaudeProcess {
   private finish(reason: ExitReason, error: string | null): void {
     if (this.exited) return;
     this.exited = true;
+    const pid = this.child?.pid;
+    if (pid !== undefined) this.track((tracker) => tracker.ended(pid));
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
     this.resolveDone({

@@ -1,12 +1,14 @@
 import { buildApp } from "./app";
 import { ConfigError, loadConfig } from "./config";
 import { createContainer } from "./container";
+import { LogBuffer } from "./infrastructure/log-buffer";
 import { createLogger } from "./logger";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const logger = createLogger(config);
-  const container = await createContainer(config, logger);
+  const logs = new LogBuffer();
+  const logger = createLogger(config, { buffer: logs });
+  const container = await createContainer(config, logger, { logs });
   await container.start();
   const app = await buildApp(container);
 

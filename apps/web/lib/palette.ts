@@ -36,6 +36,7 @@ export const SETTINGS_LINKS: readonly PaletteLink[] = [
   { id: "memory", label: msg("Project memory"), href: "/settings#memory" },
   { id: "savings-options", label: msg("Token saving options"), href: "/settings#savings-options" },
   { id: "backups", label: msg("Backups"), href: "/settings#backups" },
+  { id: "diagnostics", label: msg("Diagnostics"), href: "/settings#diagnostics" },
 ];
 
 export const PROJECT_PAGES: readonly { suffix: string; label: string }[] = [

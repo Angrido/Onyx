@@ -19,6 +19,7 @@ import type { PrismaClient, RoadmapGeneration, RoadmapItem } from "@onyx/db";
 import type { Logger } from "pino";
 import type { z } from "zod";
 import type { AppConfig } from "../config";
+import { untilAborted } from "../domain/abortable";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import {
   buildRoadmapPrompt,
@@ -77,6 +78,7 @@ interface ActiveGeneration {
   runId: string;
   activity: RoadmapActivity;
   done: Promise<void>;
+  controller: AbortController;
 }
 
 const execFileAsync = promisify(execFile);
@@ -216,6 +218,7 @@ export class RoadmapService {
       runId: `roadmap-${generation.id}`,
       activity: { turns: 0, toolCalls: 0, lastAction: "Reading the project index" },
       done: Promise.resolve(),
+      controller: new AbortController(),
     };
     this.active.set(generation.id, entry);
     entry.done = this.run(generation, entry)
@@ -297,6 +300,7 @@ export class RoadmapService {
   async shutdown(): Promise<void> {
     await Promise.allSettled(
       [...this.active.values()].map(async (entry) => {
+        entry.controller.abort();
         await this.deps.pool.abort(entry.runId);
         await entry.done;
       }),
@@ -315,8 +319,14 @@ export class RoadmapService {
         data: { status: "FAILED", error: message.slice(0, 1_000), endedAt: new Date() },
       });
     };
+    const signal = entry.controller.signal;
+    const interrupted = "The roadmap was interrupted";
     try {
-      const context = await this.deps.indexes.waitForIndex(project.id, config.context.indexWaitMs);
+      const context = await untilAborted(
+        this.deps.indexes.waitForIndex(project.id, config.context.indexWaitMs),
+        signal,
+      );
+      if (signal.aborted) return await fail(interrupted);
       const scope = await this.deps.surgeon.runScope(project.id, null);
       entry.activity.lastAction = "Collecting README, manifests, TODOs and history";
       const [readme, manifests, todos, gitLog, existing] = await Promise.all([
@@ -380,6 +390,12 @@ export class RoadmapService {
       entry.activity.lastAction = "Claude is studying the project";
       let exit: ProcessExit;
       try {
+        const env = {
+          ...this.passthroughEnv(),
+          ...(await this.deps.credentials.childEnv()),
+          [RUN_TOKEN_ENV]: token,
+        };
+        if (signal.aborted) return await fail(interrupted);
         exit = await pool.run(
           {
             runId: entry.runId,
@@ -404,11 +420,7 @@ export class RoadmapService {
             mcpConfigFile: files.mcpConfigFile,
             appendSystemPromptFile: null,
             includePartialMessages: false,
-            env: {
-              ...this.passthroughEnv(),
-              ...(await this.deps.credentials.childEnv()),
-              [RUN_TOKEN_ENV]: token,
-            },
+            env,
             timeouts: this.deps.timeouts ?? DEFAULT_TIMEOUTS,
           },
           {
@@ -441,7 +453,7 @@ export class RoadmapService {
       if (exit.reason !== "completed" || !finalResult) {
         await fail(
           exit.reason === "aborted" || exit.reason === "shutdown"
-            ? "The roadmap was interrupted"
+            ? interrupted
             : `Claude Code stopped before answering (${exit.reason})`,
         );
         return;

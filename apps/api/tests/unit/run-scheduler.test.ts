@@ -18,7 +18,11 @@ interface Harness {
   events: string[];
 }
 
-function harness(maxConcurrent: number, policy: Partial<QueuePolicy> = {}): Harness {
+function harness(
+  maxConcurrent: number,
+  policy: Partial<QueuePolicy> = {},
+  prepare?: (item: QueuedRun) => Promise<void> | null,
+): Harness {
   const started: string[] = [];
   const pending = new Map<string, (result: ExecutionResult) => void>();
   const executor = {
@@ -48,6 +52,7 @@ function harness(maxConcurrent: number, policy: Partial<QueuePolicy> = {}): Harn
     maxConcurrent,
     policy: () => current,
     now: () => clock.now,
+    ...(prepare ? { prepare } : {}),
   });
   return {
     scheduler,
@@ -181,6 +186,38 @@ describe("global run queue", () => {
     expect(started).toEqual(["blocker", "a"]);
     expect(first.request.batch).toEqual(["b", "d"]);
     expect(scheduler.queuedRuns().map((entry) => entry.request.taskId)).toEqual(["c", "big"]);
+  });
+
+  it("waits for the first index without holding a slot (M17)", async () => {
+    let indexed: () => void = () => undefined;
+    const ready = new Promise<void>((resolve) => {
+      indexed = resolve;
+    });
+    const prepared: string[] = [];
+    const { scheduler, started, finish } = harness(1, {}, (entry) => {
+      prepared.push(entry.request.taskId);
+      return entry.projectId === "fresh" ? ready : null;
+    });
+    scheduler.enqueue(item("waits", { projectId: "fresh", priority: 5 }));
+    scheduler.enqueue(item("other", { projectId: "indexed" }));
+    expect(started).toEqual(["other"]);
+    expect(scheduler.activeCount).toBe(1);
+    expect(scheduler.queuedCount).toBe(1);
+
+    indexed();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(started).toEqual(["other"]);
+    await finish("other");
+    expect(started).toEqual(["other", "waits"]);
+    expect(prepared.filter((taskId) => taskId === "waits")).toHaveLength(1);
+  });
+
+  it("starts a run whose index wait failed", async () => {
+    const { scheduler, started } = harness(1, {}, () => Promise.reject(new Error("no index")));
+    scheduler.enqueue(item("unlucky", { projectId: "broken" }));
+    expect(started).toEqual([]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(started).toEqual(["unlucky"]);
   });
 
   it("refuses to queue the same task twice", () => {

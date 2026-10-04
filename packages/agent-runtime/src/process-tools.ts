@@ -51,3 +51,30 @@ export function terminateStaleProcess(pid: number, expectedFragment: string): bo
   signalProcessGroup(pid, "SIGKILL");
   return true;
 }
+
+export interface ProcessTracker {
+  started(pid: number, label: string): void;
+  ended(pid: number): void;
+}
+
+function statFields(pid: number): string[] | null {
+  let stat: string;
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  } catch {
+    return null;
+  }
+  return stat
+    .slice(stat.lastIndexOf(")") + 1)
+    .trim()
+    .split(/\s+/);
+}
+
+export function processStartTicks(pid: number): string | null {
+  return statFields(pid)?.[19] ?? null;
+}
+
+export function processGroupOf(pid: number): number | null {
+  const group = Number(statFields(pid)?.[2]);
+  return Number.isInteger(group) && group > 0 ? group : null;
+}

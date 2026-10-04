@@ -117,7 +117,7 @@ function readPrompt(): Promise<string> {
 function scenarioFor(prompt: string): string {
   const marker = /\[stub:([a-z-]+)\]/.exec(taskSection(prompt));
   const name = marker?.[1] ?? "";
-  if (/^(fail-task|skip-task|qa-|resolve-)/.test(name)) return "success";
+  if (/^(fail-task|skip-task|qa-|resolve-|tdd-)/.test(name)) return "success";
   return marker?.[1] ?? process.env.CLAUDE_STUB_SCENARIO ?? "success";
 }
 
@@ -1233,7 +1233,36 @@ function isTddEdit(edit: unknown): edit is TddEdit {
   return isRecord(edit) && (typeof edit.file === "string" || typeof edit.command === "string");
 }
 
+async function exitWithLostSession(): Promise<never> {
+  process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
+  await writeLine(
+    JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      duration_ms: 0,
+      duration_api_ms: 0,
+      is_error: true,
+      num_turns: 0,
+      stop_reason: null,
+      session_id: sessionId,
+      total_cost_usd: 0,
+      usage: {
+        input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 0,
+      },
+      modelUsage: {},
+      permission_denials: [],
+      errors: [`No conversation found with session ID: ${sessionId}`],
+    }),
+  );
+  process.exit(1);
+}
+
 async function runTddScenario(prompt: string): Promise<void> {
+  if (flagValue("--resume") !== null && prompt.includes("[stub:tdd-lost-session]"))
+    await exitWithLostSession();
   await writeLine(editInitLine());
   const step = takeTddStep();
   const firstFailure = /^### 1\. (.+)$/m.exec(prompt)?.[1] ?? "the failures";
@@ -1798,32 +1827,7 @@ async function main(): Promise<void> {
       await replay(renderFixture(scenario, prompt));
       return;
     case "lost-session":
-      if (flagValue("--resume") !== null) {
-        process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
-        await writeLine(
-          JSON.stringify({
-            type: "result",
-            subtype: "error_during_execution",
-            duration_ms: 0,
-            duration_api_ms: 0,
-            is_error: true,
-            num_turns: 0,
-            stop_reason: null,
-            session_id: sessionId,
-            total_cost_usd: 0,
-            usage: {
-              input_tokens: 0,
-              cache_creation_input_tokens: 0,
-              cache_read_input_tokens: 0,
-              output_tokens: 0,
-            },
-            modelUsage: {},
-            permission_denials: [],
-            errors: [`No conversation found with session ID: ${sessionId}`],
-          }),
-        );
-        process.exit(1);
-      }
+      if (flagValue("--resume") !== null) await exitWithLostSession();
       await replay(renderFixture("quick", prompt));
       return;
     case "compact": {

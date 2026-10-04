@@ -31,4 +31,5 @@ export * from "./api/pulls";
 export * from "./api/issues";
 export * from "./api/changelog";
 export * from "./api/insights";
+export * from "./api/system";
 export * from "./ws";

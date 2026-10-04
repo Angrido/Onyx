@@ -23,7 +23,10 @@ function git(args: string[]): string {
 }
 
 beforeAll(async () => {
-  context = await createTestContext();
+  context = await createTestContext({
+    env: { CLAUDE_CODE_OAUTH_TOKEN: "stub-oauth-token" },
+    diskSpace: async () => ({ bavail: 900, blocks: 1_000, bsize: 1024 ** 3 }),
+  });
   git(["init", "--quiet", "--initial-branch=main"]);
   git(["-c", "user.email=t@onyx", "-c", "user.name=t", "add", "-A"]);
   git(["-c", "user.email=t@onyx", "-c", "user.name=t", "commit", "--quiet", "-m", "init"]);

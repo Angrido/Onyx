@@ -7,6 +7,7 @@ import { plans } from "./plans";
 import { projects } from "./projects";
 import { savings } from "./savings";
 import { shell } from "./shell";
+import { system } from "./system";
 import { tasks } from "./tasks";
 
 export const IT: Readonly<Record<string, string>> = {
@@ -20,4 +21,5 @@ export const IT: Readonly<Record<string, string>> = {
   ...context,
   ...tasks,
   ...plans,
+  ...system,
 };

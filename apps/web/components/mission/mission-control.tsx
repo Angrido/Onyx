@@ -3,6 +3,7 @@
 import type { MissionControlDto, MissionProjectDto } from "@onyx/contracts";
 import {
   Bot,
+  ChevronDown,
   CircleDollarSign,
   FlaskConical,
   FolderGit2,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { HealthCheckList, HealthLights } from "@/components/system/health-checks";
 import { RunStatusBadge } from "@/components/tasks/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -34,6 +36,7 @@ import {
   type MissionFilter,
   type MissionSort,
 } from "@/lib/mission";
+import { checksSummary, otherReasons } from "@/lib/system";
 import { TDD_STATUS_LABELS, TDD_STATUS_TONES } from "@/lib/tdd";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +52,7 @@ function Row({ icon, children }: { icon: ReactNode; children: ReactNode }) {
 function ProjectCard({ project }: { project: MissionProjectDto }) {
   const t = useT();
   const health = HEALTH_STYLES[project.health];
+  const reasons = otherReasons(project);
   return (
     <Card className="flex h-full flex-col gap-3 p-4" data-testid="mission-card">
       <div className="flex items-start justify-between gap-3">
@@ -155,18 +159,34 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
           </Row>
         ) : null}
       </div>
-      {project.reasons.length > 0 ? (
-        <ul
-          className="mt-auto space-y-0.5 border-t border-border pt-2 text-xs text-muted-foreground"
-          aria-label={t("Why {project} needs attention", { project: project.name })}
-        >
-          {project.reasons.map((reason) => (
-            <li key={reason} className="break-words">
-              {reason}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <div className="mt-auto space-y-2 border-t border-border pt-2 text-xs">
+        {reasons.length > 0 ? (
+          <ul
+            className="space-y-0.5 text-muted-foreground"
+            aria-label={t("Why {project} needs attention", { project: project.name })}
+          >
+            {reasons.map((reason) => (
+              <li key={reason} className="break-words">
+                {reason}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {project.checks.length > 0 ? (
+          <details className="group" data-testid="mission-checks">
+            <summary className="-mx-1 flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <HealthLights checks={project.checks} />
+              <span className="sr-only">{t("Health checks")}:</span>
+              <span className="min-w-0 truncate">{checksSummary(project.checks, t)}</span>
+              <ChevronDown
+                className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180"
+                aria-hidden
+              />
+            </summary>
+            <HealthCheckList checks={project.checks} className="mt-2" />
+          </details>
+        ) : null}
+      </div>
     </Card>
   );
 }
