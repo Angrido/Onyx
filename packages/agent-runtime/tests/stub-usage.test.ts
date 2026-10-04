@@ -108,3 +108,29 @@ describe("stub usage model", () => {
     );
   });
 });
+
+describe("stub scenario markers", () => {
+  it("reads the scenario from the task, not from the handoff note or the pack above it", () => {
+    const started = Date.now();
+    const output = execFileSync(
+      process.execPath,
+      [
+        CLAUDE_STUB_PATH,
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        SESSION,
+        "# Handoff\n\nEarlier: One [stub:hang]\n\n---\n\n# Task\n\nTwo [stub:quick]",
+      ],
+      {
+        encoding: "utf8",
+        timeout: 10_000,
+        env: { PATH: process.env.PATH ?? "", CLAUDE_STUB_DELAY_MS: "0" },
+      },
+    );
+    expect(output).toContain('"type":"result"');
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+});

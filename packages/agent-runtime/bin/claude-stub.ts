@@ -107,7 +107,7 @@ function readPrompt(): Promise<string> {
 }
 
 function scenarioFor(prompt: string): string {
-  const marker = /\[stub:([a-z-]+)\]/.exec(prompt);
+  const marker = /\[stub:([a-z-]+)\]/.exec(taskSection(prompt));
   return marker?.[1] ?? process.env.CLAUDE_STUB_SCENARIO ?? "success";
 }
 
