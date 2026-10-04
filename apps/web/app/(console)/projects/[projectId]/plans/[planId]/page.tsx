@@ -1,11 +1,16 @@
 import type { OrchestrationDto, ProjectDetailDto } from "@onyx/contracts";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { PlanView } from "@/components/orchestration/plan-view";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 
-export const metadata = { title: "Plan" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("Plan") };
+}
 
 export default async function PlanPage({
   params,
@@ -13,6 +18,7 @@ export default async function PlanPage({
   params: Promise<{ projectId: string; planId: string }>;
 }) {
   const { projectId, planId } = await params;
+  const t = await getT();
   const [project, plan] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<OrchestrationDto>(`/api/orchestrations/${planId}`),
@@ -26,7 +32,7 @@ export default async function PlanPage({
             ← {project.name}
           </Link>
         }
-        title="Feature plan"
+        title={t("Feature plan")}
         description={plan.goal}
       />
       <PlanView initial={plan} />

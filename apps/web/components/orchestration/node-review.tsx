@@ -4,6 +4,7 @@ import type { MergeResolutionDto, QaReviewDto } from "@onyx/contracts";
 import { Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import {
   QA_VERDICT_LABELS,
   QA_VERDICT_TONES,
@@ -13,17 +14,20 @@ import {
 import { cn } from "@/lib/utils";
 
 export function NodeReview({ review, reviews }: { review: QaReviewDto; reviews: number }) {
+  const t = useT();
   return (
     <details
       className="group rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs"
       data-testid="node-review"
     >
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5">
-        <Badge tone={QA_VERDICT_TONES[review.verdict]}>{QA_VERDICT_LABELS[review.verdict]}</Badge>
+        <Badge tone={QA_VERDICT_TONES[review.verdict]}>
+          {t(QA_VERDICT_LABELS[review.verdict])}
+        </Badge>
         <span className="text-muted-foreground">
-          {reviews === 1 ? "1 review" : `${reviews} reviews`}
+          {reviews === 1 ? t("1 review") : t("{count} reviews", { count: reviews })}
           {review.costUsd !== null ? ` · ${formatUsd(review.costUsd)}` : ""}
-          {review.diffTruncated ? " · diff shortened" : ""}
+          {review.diffTruncated ? ` · ${t("diff shortened")}` : ""}
         </span>
       </summary>
       <div className="mt-2 space-y-2">
@@ -33,9 +37,12 @@ export function NodeReview({ review, reviews }: { review: QaReviewDto; reviews: 
             {review.criteria.map((criterion) => (
               <li key={criterion.index} className="flex gap-1.5">
                 {criterion.met ? (
-                  <Check className="mt-0.5 size-3 shrink-0 text-success" aria-label="met" />
+                  <Check className="mt-0.5 size-3 shrink-0 text-success" aria-label={t("met")} />
                 ) : (
-                  <X className="mt-0.5 size-3 shrink-0 text-destructive" aria-label="not met" />
+                  <X
+                    className="mt-0.5 size-3 shrink-0 text-destructive"
+                    aria-label={t("not met")}
+                  />
                 )}
                 <span>
                   {criterion.text}
@@ -70,6 +77,7 @@ function diffLineClass(line: string): string {
 }
 
 export function NodeResolution({ resolution }: { resolution: MergeResolutionDto }) {
+  const t = useT();
   return (
     <details
       className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs"
@@ -78,7 +86,7 @@ export function NodeResolution({ resolution }: { resolution: MergeResolutionDto 
     >
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5">
         <Badge tone={RESOLUTION_TONES[resolution.state]}>
-          {RESOLUTION_LABELS[resolution.state]}
+          {t(RESOLUTION_LABELS[resolution.state])}
         </Badge>
         <span className="text-muted-foreground">
           {resolution.files.join(", ")}
@@ -100,7 +108,7 @@ export function NodeResolution({ resolution }: { resolution: MergeResolutionDto 
           <pre
             className="max-h-72 overflow-auto rounded border border-border bg-background p-2 font-mono text-xs leading-relaxed"
             tabIndex={0}
-            aria-label="Proposed resolution diff"
+            aria-label={t("Proposed resolution diff")}
           >
             {resolution.diff.split("\n").map((line, index) => (
               <span key={index} className={cn("block whitespace-pre", diffLineClass(line))}>

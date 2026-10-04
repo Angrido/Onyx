@@ -34,6 +34,7 @@ import {
   sourceKey,
   type PanelSource,
 } from "@/lib/grid";
+import { useT } from "@/lib/i18n/client";
 import { useQueue } from "@/lib/live";
 import { useVisible } from "@/lib/use-visible";
 import { cn } from "@/lib/utils";
@@ -41,17 +42,19 @@ import { cn } from "@/lib/utils";
 const OPEN_TASK_STATUSES = new Set(["DRAFT", "QUEUED", "INTERRUPTED", "FAILED", "COMPLETED"]);
 
 function Paused() {
+  const t = useT();
   return (
     <div className="grid h-full min-h-64 place-items-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <Pause className="size-3.5" />
-        Paused while out of view
+        {t("Paused while out of view")}
       </span>
     </div>
   );
 }
 
 function TaskContextPicker({ terminal }: { terminal: TerminalDto }) {
+  const t = useT();
   const [taskId, setTaskId] = useState("");
   const tasks = useQuery({
     queryKey: queryKeys.tasks({ projectId: terminal.projectId }),
@@ -64,18 +67,18 @@ function TaskContextPicker({ terminal }: { terminal: TerminalDto }) {
   const paste = useMutation({
     mutationFn: () =>
       api.post<TerminalDto>(`/api/terminals/${terminal.id}/task-context`, { taskId }),
-    onSuccess: () => toast.success("Task pasted: review it in the terminal and press Enter"),
+    onSuccess: () => toast.success(t("Task pasted: review it in the terminal and press Enter")),
     onError: (error) => toast.error(errorMessage(error)),
   });
   return (
     <div className="flex min-w-0 flex-1 basis-full items-center gap-1.5 sm:basis-auto">
       <Select
-        aria-label={`Task to paste into ${terminal.workspaceName}`}
+        aria-label={t("Task to paste into {workspace}", { workspace: terminal.workspaceName })}
         className="h-8 min-w-0 flex-1 text-xs"
         value={taskId}
         onChange={(event) => setTaskId(event.target.value)}
       >
-        <option value="">Paste a task…</option>
+        <option value="">{t("Paste a task…")}</option>
         {options.map((task) => (
           <option key={task.id} value={task.id}>
             {task.title}
@@ -90,13 +93,14 @@ function TaskContextPicker({ terminal }: { terminal: TerminalDto }) {
         data-testid="grid-paste-task"
       >
         {paste.isPending ? <Loader2 className="animate-spin" /> : <ClipboardPaste />}
-        Paste
+        {t("Paste")}
       </Button>
     </div>
   );
 }
 
 function TerminalPanelBody({ workspace, visible }: { workspace: WorkspaceRef; visible: boolean }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const key = queryKeys.terminals(workspace.id);
   const { data: terminal = null } = useQuery({
@@ -140,12 +144,14 @@ function TerminalPanelBody({ workspace, visible }: { workspace: WorkspaceRef; vi
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
             {terminal
-              ? `The terminal exited${terminal.exitCode === null ? "" : ` with code ${terminal.exitCode}`}.`
-              : "No terminal open in this workspace."}
+              ? terminal.exitCode === null
+                ? t("The terminal exited.")
+                : t("The terminal exited with code {code}.", { code: terminal.exitCode })
+              : t("No terminal open in this workspace.")}
           </p>
           <Button size="sm" onClick={() => open.mutate()} disabled={open.isPending}>
             {open.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-            {terminal ? "Open again" : "Open terminal"}
+            {terminal ? t("Open again") : t("Open terminal")}
           </Button>
         </div>
       </div>
@@ -156,13 +162,13 @@ function TerminalPanelBody({ workspace, visible }: { workspace: WorkspaceRef; vi
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <TaskContextPicker terminal={terminal} />
-        <Badge title="Context of the last turn">
+        <Badge title={t("Context of the last turn")}>
           {formatTokens(terminal.contextTokens)} / {formatTokens(terminal.maxSessionTokens)}
         </Badge>
         <Button
           size="sm"
           variant="ghost"
-          aria-label={`Close the ${workspace.name} terminal`}
+          aria-label={t("Close the {workspace} terminal", { workspace: workspace.name })}
           disabled={close.isPending}
           onClick={() => close.mutate()}
         >
@@ -215,6 +221,7 @@ function Panel({
   queue: QueueDto;
   onChange: (source: PanelSource | null) => void;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const visible = useVisible(ref);
   const workspace =
@@ -230,17 +237,17 @@ function Panel({
     <Card ref={ref} className="flex h-[32rem] min-w-0 flex-col gap-3 p-3" data-testid="grid-panel">
       <div className="flex items-center gap-2">
         <Select
-          aria-label={`Panel ${index + 1}`}
+          aria-label={t("Panel {number}", { number: index + 1 })}
           className="h-8 min-w-0 flex-1 text-xs"
           value={selected}
           onChange={(event) => onChange(sourceFromKey(event.target.value))}
           data-testid="grid-source"
         >
-          <option value="">Empty panel</option>
+          <option value="">{t("Empty panel")}</option>
           {runs.length > 0 || (source?.kind === "run" && !listedRun) ? (
-            <optgroup label="Live runs">
+            <optgroup label={t("Live runs")}>
               {source?.kind === "run" && !listedRun ? (
-                <option value={selected}>Run {source.runId.slice(0, 8)}</option>
+                <option value={selected}>{t("Run {id}", { id: source.runId.slice(0, 8) })}</option>
               ) : null}
               {runs.map((run) => (
                 <option key={run.runId} value={`run:${run.runId}`}>
@@ -251,7 +258,7 @@ function Panel({
             </optgroup>
           ) : null}
           {projects.map((project) => (
-            <optgroup key={project} label={`Terminal · ${project}`}>
+            <optgroup key={project} label={`${t("Terminal")} · ${project}`}>
               {workspaces
                 .filter((entry) => entry.projectName === project)
                 .map((entry) => (
@@ -267,7 +274,7 @@ function Panel({
             size="icon"
             variant="ghost"
             className="size-8"
-            aria-label={`Empty panel ${index + 1}`}
+            aria-label={t("Empty panel {number}", { number: index + 1 })}
             onClick={() => onChange(null)}
           >
             <X />
@@ -281,7 +288,7 @@ function Panel({
           <TerminalPanelBody workspace={workspace} visible={visible} />
         ) : (
           <div className="grid h-full place-items-center rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            Pick a live run or a workspace terminal above.
+            {t("Pick a live run or a workspace terminal above.")}
           </div>
         )}
       </div>
@@ -298,6 +305,7 @@ export function AgentGrid({
   terminals: TerminalDto[];
   initialQueue: QueueDto;
 }) {
+  const t = useT();
   const { data: queue = initialQueue } = useQueue(initialQueue);
   const fallbackCount = clampCount(initialQueue.maxConcurrent);
   const [count, setCount] = useState(fallbackCount);
@@ -340,17 +348,20 @@ export function AgentGrid({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground" data-testid="grid-summary">
-          {running} of {queue.maxConcurrent} agent {queue.maxConcurrent === 1 ? "slot" : "slots"} in
-          use
-          {queue.reservedSlots > 0 ? `, ${queue.reservedSlots} by terminals` : ""}. Each open
-          terminal takes a slot and draws on the same Claude limits as the runs.{" "}
+          {queue.maxConcurrent === 1
+            ? t("{running} of 1 agent slot in use", { running })
+            : t("{running} of {max} agent slots in use", { running, max: queue.maxConcurrent })}
+          {queue.reservedSlots > 0
+            ? `, ${t("{count} by terminals", { count: queue.reservedSlots })}`
+            : ""}
+          . {t("Each open terminal takes a slot and draws on the same Claude limits as the runs.")}{" "}
           <Link href="/telemetry#quota" className="text-primary hover:underline">
-            Limits
+            {t("Limits")}
           </Link>
         </p>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <LayoutGrid className="size-3.5" />
-          Panels
+          {t("Panels")}
           <Select
             className="h-8 w-20"
             value={String(count)}

@@ -1,11 +1,17 @@
 import type { QueueDto, TerminalListResponse, WorkspaceRefListResponse } from "@onyx/contracts";
+import type { Metadata } from "next";
 import { AgentGrid } from "@/components/agents/agent-grid";
 import { PageHeader } from "@/components/layout/page-header";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 
-export const metadata = { title: "Agent grid" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("Agent grid") };
+}
 
 export default async function AgentsPage() {
+  const t = await getT();
   const [workspaces, terminals, queue] = await Promise.all([
     serverFetch<WorkspaceRefListResponse>("/api/workspaces"),
     serverFetch<TerminalListResponse>("/api/terminals"),
@@ -14,9 +20,11 @@ export default async function AgentsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Agents"
-        title="Agent grid"
-        description="Live runs and interactive terminals side by side. Panels out of view pause and catch up when you scroll back."
+        eyebrow={t("Agents")}
+        title={t("Agent grid")}
+        description={t(
+          "Live runs and interactive terminals side by side. Panels out of view pause and catch up when you scroll back.",
+        )}
       />
       <AgentGrid workspaces={workspaces.items} terminals={terminals.items} initialQueue={queue} />
     </>

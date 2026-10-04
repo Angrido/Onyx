@@ -5,6 +5,7 @@ import type {
   TaskListResponse,
   TelemetrySummary,
 } from "@onyx/contracts";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { PendingApprovals } from "@/components/approvals/pending-approvals";
 import { NetworkCard } from "@/components/layout/network-card";
@@ -16,10 +17,15 @@ import { KpiTiles } from "@/components/telemetry/kpi-tiles";
 import { Button } from "@/components/ui/button";
 import { GitHubMark } from "@/components/ui/github-mark";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 
-export const metadata = { title: "Mission control" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("Mission control") };
+}
 
 export default async function ConsolePage() {
+  const t = await getT();
   const [telemetry, tasks, approvals, queue, mission] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
     serverFetch<TaskListResponse>("/api/tasks?limit=20"),
@@ -30,18 +36,20 @@ export default async function ConsolePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Overview"
-        title="Mission control"
-        description="Every project at a glance: branch and changes, agents and queue, last results, spend and health."
+        eyebrow={t("Overview")}
+        title={t("Mission control")}
+        description={t(
+          "Every project at a glance: branch and changes, agents and queue, last results, spend and health.",
+        )}
         actions={
           <>
             <Button asChild variant="secondary">
-              <Link href="/projects">Open projects</Link>
+              <Link href="/projects">{t("Open projects")}</Link>
             </Button>
             <Button asChild>
               <Link href="/projects?new=github">
                 <GitHubMark />
-                Import from GitHub
+                {t("Import from GitHub")}
               </Link>
             </Button>
           </>
@@ -53,19 +61,19 @@ export default async function ConsolePage() {
         initial={mission}
         emptyAction={
           <Button asChild size="sm">
-            <Link href="/projects?new=github">Pick a project</Link>
+            <Link href="/projects?new=github">{t("Pick a project")}</Link>
           </Button>
         }
       />
       <QueuePanel initial={queue} />
       <NetworkCard />
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">Recent tasks</h2>
+        <h2 className="text-sm font-semibold tracking-tight">{t("Recent tasks")}</h2>
         <TaskList
           initial={tasks.items}
           emptyAction={
             <Button asChild size="sm">
-              <Link href="/projects?new=github">Pick a project</Link>
+              <Link href="/projects?new=github">{t("Pick a project")}</Link>
             </Button>
           }
         />

@@ -19,6 +19,7 @@ import { Input, Select } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { EmptyState } from "@/components/ui/skeleton";
 import { formatTokens, formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { useMission } from "@/lib/live";
 import {
   FILTER_LABELS,
@@ -46,6 +47,7 @@ function Row({ icon, children }: { icon: ReactNode; children: ReactNode }) {
 }
 
 function ProjectCard({ project }: { project: MissionProjectDto }) {
+  const t = useT();
   const health = HEALTH_STYLES[project.health];
   return (
     <Card className="flex h-full flex-col gap-3 p-4" data-testid="mission-card">
@@ -58,25 +60,32 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
         </Link>
         <Badge tone={health.tone} data-testid="mission-health">
           <span className={cn("size-1.5 rounded-full", health.dot)} aria-hidden />
-          {health.label}
+          {t(health.label)}
         </Badge>
       </div>
       <div className="space-y-2">
         <Row icon={<GitBranch />}>
           <span className="block truncate font-mono" title={project.git.error ?? undefined}>
-            {gitLine(project)}
+            {gitLine(project, t)}
           </span>
         </Row>
         <Row icon={<Bot />}>
           <span>
             {project.running > 0 ? (
-              <span className="font-medium text-foreground">{project.running} running</span>
+              <span className="font-medium text-foreground">
+                {t("{count} running", { count: project.running })}
+              </span>
             ) : (
-              <span className="text-muted-foreground">No agent running</span>
+              <span className="text-muted-foreground">{t("No agent running")}</span>
             )}
-            {project.queued > 0 ? ` · ${project.queued} queued` : ""}
-            {project.runLimit !== null ? ` · limit ${project.runLimit}` : ""}
-            {project.openTasks > 0 ? ` · ${project.openTasks} open tasks` : ""}
+            {project.queued > 0 ? ` · ${t("{count} queued", { count: project.queued })}` : ""}
+            {project.runLimit !== null
+              ? ` · ${t("limit {count}", { count: project.runLimit })}`
+              : ""}
+            {project.openTasks === 1 ? ` · ${t("1 open task")}` : ""}
+            {project.openTasks > 1
+              ? ` · ${t("{count} open tasks", { count: project.openTasks })}`
+              : ""}
           </span>
           {project.activeTasks.length > 0 ? (
             <ul className="mt-1 space-y-0.5">
@@ -114,7 +123,7 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
           <Row icon={<FlaskConical />}>
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
               <Badge tone={TDD_STATUS_TONES[project.lastTdd.status]}>
-                TDD {TDD_STATUS_LABELS[project.lastTdd.status].toLowerCase()}
+                TDD {t(TDD_STATUS_LABELS[project.lastTdd.status]).toLowerCase()}
               </Badge>
               <Link
                 href={`/tasks/${project.lastTdd.taskId}`}
@@ -127,15 +136,21 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
         ) : null}
         <Row icon={<CircleDollarSign />}>
           <span className="tabular">
-            Today {formatUsd(project.today.costUsd)} · {formatTokens(project.today.tokens)} tokens
-            <span className="text-muted-foreground"> · week {formatUsd(project.week.costUsd)}</span>
+            {t("Today {cost} · {tokens} tokens", {
+              cost: formatUsd(project.today.costUsd),
+              tokens: formatTokens(project.today.tokens),
+            })}
+            <span className="text-muted-foreground">
+              {` · ${t("week {cost}", { cost: formatUsd(project.week.costUsd) })}`}
+            </span>
           </span>
         </Row>
         {project.pendingApprovals > 0 ? (
           <Row icon={<Inbox />}>
             <Link href="/approvals" className="font-medium text-warning hover:underline">
-              {project.pendingApprovals} {project.pendingApprovals === 1 ? "approval" : "approvals"}{" "}
-              waiting
+              {project.pendingApprovals === 1
+                ? t("1 approval waiting")
+                : t("{count} approvals waiting", { count: project.pendingApprovals })}
             </Link>
           </Row>
         ) : null}
@@ -143,7 +158,7 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
       {project.reasons.length > 0 ? (
         <ul
           className="mt-auto space-y-0.5 border-t border-border pt-2 text-xs text-muted-foreground"
-          aria-label={`Why ${project.name} needs attention`}
+          aria-label={t("Why {project} needs attention", { project: project.name })}
         >
           {project.reasons.map((reason) => (
             <li key={reason} className="break-words">
@@ -163,6 +178,7 @@ export function MissionControl({
   initial: MissionControlDto;
   emptyAction: ReactNode;
 }) {
+  const t = useT();
   const { data = initial } = useMission(initial);
   const [filter, setFilter] = useState<MissionFilter>("all");
   const [sort, setSort] = useState<MissionSort>("activity");
@@ -174,8 +190,10 @@ export function MissionControl({
     return (
       <EmptyState
         icon={<FolderGit2 className="size-5" />}
-        title="No projects yet"
-        description="Register a repository or import one from GitHub: each project gets a card here with its branch, agents, spend and health."
+        title={t("No projects yet")}
+        description={t(
+          "Register a repository or import one from GitHub: each project gets a card here with its branch, agents, spend and health.",
+        )}
         action={emptyAction}
       />
     );
@@ -186,11 +204,19 @@ export function MissionControl({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 id="mission-heading" className="text-sm font-semibold tracking-tight">
-            Projects
+            {t("Projects")}
           </h2>
           <p className="text-xs text-muted-foreground" data-testid="mission-summary">
-            {data.running} of {data.maxConcurrent} agents running · {data.queued} queued · today{" "}
-            {formatUsd(data.today.costUsd)} · this week {formatUsd(data.week.costUsd)}
+            {t(
+              "{running} of {max} agents running · {queued} queued · today {today} · this week {week}",
+              {
+                running: data.running,
+                max: data.maxConcurrent,
+                queued: data.queued,
+                today: formatUsd(data.today.costUsd),
+                week: formatUsd(data.week.costUsd),
+              },
+            )}
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -198,15 +224,15 @@ export function MissionControl({
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              aria-label="Find a project"
-              placeholder="Find a project"
+              aria-label={t("Find a project")}
+              placeholder={t("Find a project")}
               className="h-9 pl-8"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
           <Select
-            aria-label="Sort projects"
+            aria-label={t("Sort projects")}
             className="h-9 w-auto"
             value={sort}
             onChange={(event) => setSort(event.target.value as MissionSort)}
@@ -214,13 +240,13 @@ export function MissionControl({
           >
             {MISSION_SORTS.map((entry) => (
               <option key={entry} value={entry}>
-                {SORT_LABELS[entry]}
+                {t(SORT_LABELS[entry])}
               </option>
             ))}
           </Select>
         </div>
       </div>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Show projects">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("Show projects")}>
         {MISSION_FILTERS.map((entry) => (
           <button
             key={entry}
@@ -235,14 +261,14 @@ export function MissionControl({
                 : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground",
             )}
           >
-            {FILTER_LABELS[entry]}
+            {t(FILTER_LABELS[entry])}
             <span className="tabular opacity-80">{counts[entry]}</span>
           </button>
         ))}
       </div>
       {shown.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          No project matches. Clear the search or pick another filter.
+          {t("No project matches. Clear the search or pick another filter.")}
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

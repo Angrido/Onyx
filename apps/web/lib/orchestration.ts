@@ -11,6 +11,7 @@ import type {
   OrchestrationStatus,
 } from "@onyx/contracts";
 import type { BadgeProps } from "@/components/ui/badge";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 type Tone = NonNullable<BadgeProps["tone"]>;
 
@@ -25,13 +26,13 @@ export const PLAN_STATUS_TONES: Record<OrchestrationStatus, Tone> = {
 };
 
 export const PLAN_STATUS_LABELS: Record<OrchestrationStatus, string> = {
-  PLANNING: "Planning",
-  AWAITING_APPROVAL: "Waiting for approval",
-  RUNNING: "Running",
-  VERIFYING: "Final tests",
-  COMPLETED: "Merged",
-  FAILED: "Stopped",
-  CANCELLED: "Cancelled",
+  PLANNING: msg("Planning"),
+  AWAITING_APPROVAL: msg("Waiting for approval"),
+  RUNNING: msg("Running"),
+  VERIFYING: msg("Final tests"),
+  COMPLETED: msg("Merged"),
+  FAILED: msg("Stopped"),
+  CANCELLED: msg("Cancelled"),
 };
 
 export const NODE_STATE_TONES: Record<NodeStateName, Tone> = {
@@ -49,23 +50,23 @@ export const NODE_STATE_TONES: Record<NodeStateName, Tone> = {
 };
 
 export const NODE_STATE_LABELS: Record<NodeStateName, string> = {
-  pending: "Waiting",
-  running: "Agent working",
-  verifying: "Running tests",
-  reviewing: "QA review",
-  review: "QA found problems",
-  merging: "Merging",
-  merged: "Merged",
-  conflict: "Merge conflict",
-  failed: "Failed",
-  blocked: "Blocked",
-  cancelled: "Cancelled",
+  pending: msg("Waiting"),
+  running: msg("Agent working"),
+  verifying: msg("Running tests"),
+  reviewing: msg("QA review"),
+  review: msg("QA found problems"),
+  merging: msg("Merging"),
+  merged: msg("Merged"),
+  conflict: msg("Merge conflict"),
+  failed: msg("Failed"),
+  blocked: msg("Blocked"),
+  cancelled: msg("Cancelled"),
 };
 
 export const QA_VERDICT_LABELS: Record<QaVerdict, string> = {
-  PASS: "QA passed",
-  FAIL: "QA found problems",
-  ERROR: "QA did not finish",
+  PASS: msg("QA passed"),
+  FAIL: msg("QA found problems"),
+  ERROR: msg("QA did not finish"),
 };
 
 export const QA_VERDICT_TONES: Record<QaVerdict, Tone> = {
@@ -75,10 +76,10 @@ export const QA_VERDICT_TONES: Record<QaVerdict, Tone> = {
 };
 
 export const RESOLUTION_LABELS: Record<ResolutionState, string> = {
-  PROPOSED: "Resolution proposed",
-  APPLIED: "Resolution applied",
-  DISCARDED: "Resolution refused",
-  FAILED: "Resolution not usable",
+  PROPOSED: msg("Resolution proposed"),
+  APPLIED: msg("Resolution applied"),
+  DISCARDED: msg("Resolution refused"),
+  FAILED: msg("Resolution not usable"),
 };
 
 export const RESOLUTION_TONES: Record<ResolutionState, Tone> = {
@@ -89,12 +90,12 @@ export const RESOLUTION_TONES: Record<ResolutionState, Tone> = {
 };
 
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
-  PLAN: "Plan",
-  MERGE: "Merge",
-  BUDGET: "Budget",
-  ESCALATION: "Escalation",
-  PERMISSION: "Permission",
-  QA: "QA",
+  PLAN: msg("Plan"),
+  MERGE: msg("Merge"),
+  BUDGET: msg("Budget"),
+  ESCALATION: msg("Escalation"),
+  PERMISSION: msg("Permission"),
+  QA: msg("QA"),
 };
 
 export const APPROVAL_KIND_TONES: Record<ApprovalKind, Tone> = {
@@ -176,8 +177,8 @@ export function budgetUsage(budget: Pick<BudgetDto, "spentUsd" | "softUsd" | "ha
   return { ratio, softRatio };
 }
 
-export function periodLabel(period: BudgetDto["period"]): string {
-  if (period === "DAY") return "per day";
-  if (period === "MONTH") return "per month";
-  return "in total";
+export function periodLabel(period: BudgetDto["period"], t: Translate = english): string {
+  if (period === "DAY") return t("per day");
+  if (period === "MONTH") return t("per month");
+  return t("in total");
 }

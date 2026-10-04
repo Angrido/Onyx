@@ -1,4 +1,5 @@
 import type { MissionProjectDto, ProjectHealth } from "@onyx/contracts";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 export const MISSION_FILTERS = ["all", "working", "attention", "idle"] as const;
 export type MissionFilter = (typeof MISSION_FILTERS)[number];
@@ -7,26 +8,26 @@ export const MISSION_SORTS = ["activity", "name", "today", "week"] as const;
 export type MissionSort = (typeof MISSION_SORTS)[number];
 
 export const FILTER_LABELS: Record<MissionFilter, string> = {
-  all: "All",
-  working: "Working",
-  attention: "Needs attention",
-  idle: "Idle",
+  all: msg("All"),
+  working: msg("Working"),
+  attention: msg("Needs attention"),
+  idle: msg("Idle"),
 };
 
 export const SORT_LABELS: Record<MissionSort, string> = {
-  activity: "Recent activity",
-  name: "Name",
-  today: "Spend today",
-  week: "Spend this week",
+  activity: msg("Recent activity"),
+  name: msg("Name"),
+  today: msg("Spend today"),
+  week: msg("Spend this week"),
 };
 
 export const HEALTH_STYLES: Record<
   ProjectHealth,
   { label: string; tone: "success" | "warning" | "danger"; dot: string }
 > = {
-  OK: { label: "Healthy", tone: "success", dot: "bg-success" },
-  ATTENTION: { label: "Needs attention", tone: "warning", dot: "bg-warning" },
-  ERROR: { label: "Error", tone: "danger", dot: "bg-destructive" },
+  OK: { label: msg("Healthy"), tone: "success", dot: "bg-success" },
+  ATTENTION: { label: msg("Needs attention"), tone: "warning", dot: "bg-warning" },
+  ERROR: { label: msg("Error"), tone: "danger", dot: "bg-destructive" },
 };
 
 const HEALTH_RANK: Record<ProjectHealth, number> = { OK: 0, ATTENTION: 1, ERROR: 2 };
@@ -86,13 +87,13 @@ export function worstHealth(projects: readonly MissionProjectDto[]): ProjectHeal
   );
 }
 
-export function gitLine(project: MissionProjectDto): string {
+export function gitLine(project: MissionProjectDto, t: Translate = english): string {
   const { git } = project;
-  if (git.error) return "Git unavailable";
-  if (!git.isRepo) return "Not a git repository";
-  const parts = [git.branch ?? "detached"];
-  parts.push(git.changeCount === 0 ? "clean" : `${git.changeCount} changed`);
-  if (git.ahead > 0) parts.push(`${git.ahead} ahead`);
-  if (git.behind > 0) parts.push(`${git.behind} behind`);
+  if (git.error) return t("Git unavailable");
+  if (!git.isRepo) return t("Not a git repository");
+  const parts = [git.branch ?? t("detached")];
+  parts.push(git.changeCount === 0 ? t("clean") : t("{count} changed", { count: git.changeCount }));
+  if (git.ahead > 0) parts.push(t("{count} ahead", { count: git.ahead }));
+  if (git.behind > 0) parts.push(t("{count} behind", { count: git.behind }));
   return parts.join(" · ");
 }
