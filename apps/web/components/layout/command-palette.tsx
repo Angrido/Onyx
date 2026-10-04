@@ -1,11 +1,17 @@
 "use client";
 
-import type { ApprovalListResponse, ProjectListResponse, TaskListResponse } from "@onyx/contracts";
-import { useQuery } from "@tanstack/react-query";
-import { Command } from "cmdk";
+import type {
+  ApprovalListResponse,
+  ProjectListResponse,
+  SearchResponse,
+  TaskListResponse,
+} from "@onyx/contracts";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Command, defaultFilter } from "cmdk";
 import {
   Activity,
   DatabaseBackup,
+  FileCode2,
   FolderGit2,
   Inbox,
   LayoutDashboard,
@@ -14,6 +20,7 @@ import {
   LogOut,
   PiggyBank,
   Map as MapIcon,
+  Play,
   Route,
   Search,
   Settings,
@@ -26,6 +33,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { isPaletteShortcut, OPEN_PALETTE_EVENT } from "@/lib/palette";
+import { SEARCH_PREFIX, searchHint, searchMinLength, snippetParts } from "@/lib/search";
 
 const PAGES = [
   { href: "/", label: "Mission control", icon: LayoutDashboard },
@@ -64,12 +72,42 @@ function Item({
   );
 }
 
+function Snippet({ text }: { text: string }) {
+  return (
+    <span className="block truncate text-[11px] text-muted-foreground">
+      {snippetParts(text).map((part, index) =>
+        part.mark ? (
+          <mark key={index} className="rounded-sm bg-primary/20 px-0.5 text-foreground">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
+    </span>
+  );
+}
+
+function paletteFilter(value: string, search: string, keywords?: string[]): number {
+  if (value.startsWith(SEARCH_PREFIX)) return 1;
+  return defaultFilter(value, search, keywords);
+}
+
+const SEARCH_ICONS = { TASK: ListTodo, RUN: Play, FILE: FileCode2 } as const;
+
 const GROUP =
   "px-1 py-1.5 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground";
 
 export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(initiallyOpen);
+  const [input, setInput] = useState("");
+  const [term, setTerm] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTerm(input.trim()), 150);
+    return () => clearTimeout(timer);
+  }, [input]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -97,6 +135,13 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
     queryFn: () => api.get<TaskListResponse>("/api/tasks?limit=12"),
     enabled: open,
   });
+  const found = useQuery({
+    queryKey: ["search", term],
+    queryFn: () => api.get<SearchResponse>(`/api/search?limit=12&q=${encodeURIComponent(term)}`),
+    enabled: open && term.length >= searchMinLength,
+    placeholderData: keepPreviousData,
+  });
+  const results = term.length >= searchMinLength ? (found.data?.items ?? []) : [];
   const approvals = useQuery({
     queryKey: queryKeys.approvalsPending,
     queryFn: () =>
@@ -133,12 +178,14 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
         <DialogDescription className="sr-only">
           Search pages, projects and tasks, or run an action
         </DialogDescription>
-        <Command label="Command palette" loop>
+        <Command label="Command palette" loop filter={paletteFilter}>
           <div className="flex items-center gap-2 border-b border-border px-4">
             <Search className="size-4 text-muted-foreground" />
             <Command.Input
               autoFocus
-              placeholder="Go to a page, project or task…"
+              value={input}
+              onValueChange={setInput}
+              placeholder="Search tasks, runs and files, or go to a page…"
               className="h-12 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
@@ -146,6 +193,25 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
             <Command.Empty className="px-4 py-6 text-center text-sm text-muted-foreground">
               Nothing matches.
             </Command.Empty>
+            {results.length > 0 ? (
+              <Command.Group heading="Search" className={GROUP} data-testid="palette-search">
+                {results.map((result) => {
+                  const Icon = SEARCH_ICONS[result.kind];
+                  return (
+                    <Item
+                      key={`${result.kind}-${result.id}`}
+                      value={`${SEARCH_PREFIX}${result.kind} ${result.id}`}
+                      onSelect={() => go(result.href)}
+                      icon={<Icon />}
+                      hint={searchHint(result)}
+                    >
+                      <span className="block truncate">{result.title}</span>
+                      {result.snippet ? <Snippet text={result.snippet} /> : null}
+                    </Item>
+                  );
+                })}
+              </Command.Group>
+            ) : null}
             <Command.Group heading="Pages" className={GROUP}>
               {PAGES.map((page) => (
                 <Item

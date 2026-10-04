@@ -18,6 +18,7 @@ import { BudgetService } from "./application/budget-service";
 import { MissionService } from "./application/mission-service";
 import { NotificationService } from "./application/notification-service";
 import { QueueService } from "./application/queue-service";
+import { SearchService } from "./application/search-service";
 import { QuotaService } from "./application/quota-service";
 import {
   prepareAgentSandbox,
@@ -58,6 +59,7 @@ import { EventWriter } from "./infrastructure/event-writer";
 import { GitHubClient } from "./infrastructure/github-client";
 import { IndexStore } from "./infrastructure/index-store";
 import { RunTokenRegistry } from "./infrastructure/run-tokens";
+import { ensureSearchIndex } from "./infrastructure/search-index";
 import { SecretVault } from "./infrastructure/secret-vault";
 import { AnthropicTokenizer, O200kTokenizer } from "./infrastructure/token-meter";
 import { WsHub } from "./infrastructure/ws-hub";
@@ -105,6 +107,7 @@ export interface Container {
   queue: QueueService;
   mission: MissionService;
   notifications: NotificationService;
+  search: SearchService;
   orchestrator: OrchestratorService;
   backups: BackupService;
   vault: SecretVault;
@@ -551,6 +554,7 @@ export async function createContainer(
     queue,
     mission,
     notifications,
+    search: new SearchService(prisma),
     orchestrator,
     backups,
     vault,
@@ -645,6 +649,7 @@ export async function createContainer(
       await quota.load();
       await queue.load();
       await notifications.load();
+      if (await ensureSearchIndex(prisma)) logger.info("Built the search index");
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,
         autoResumeQueued: config.autoResumeQueued,

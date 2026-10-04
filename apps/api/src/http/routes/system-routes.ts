@@ -4,6 +4,8 @@ import {
   ProjectRunLimitRequestSchema,
   QueueSettingsSchema,
   QuotaSettingsSchema,
+  SearchQuerySchema,
+  type SearchResponse,
   type MissionControlDto,
   type QueueDto,
   type QuotaDto,
@@ -52,6 +54,14 @@ export function registerSystemRoutes(app: FastifyInstance, container: Container)
   app.get("/api/mission-control", async (): Promise<MissionControlDto> =>
     container.mission.overview(),
   );
+
+  app.get("/api/search", async (request): Promise<SearchResponse> => {
+    const query = SearchQuerySchema.parse(request.query);
+    return container.search.search(query.q, {
+      limit: query.limit,
+      ...(query.projectId ? { projectId: query.projectId } : {}),
+    });
+  });
 
   app.get("/api/queue", async (): Promise<QueueDto> => container.queue.dto());
 

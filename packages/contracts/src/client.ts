@@ -47,6 +47,9 @@ export const NOTIFICATION_EVENTS = [
   "QUOTA",
 ] as const;
 export const NOTIFICATION_CHANNELS = ["webpush", "ntfy", "telegram"] as const;
+export const SEARCH_KINDS = ["TASK", "RUN", "FILE"] as const;
+export const SEARCH_MARK_START = "\u0001";
+export const SEARCH_MARK_END = "\u0002";
 export const SAVINGS_SOURCES = [
   "context-pack",
   "stable-prefix",
