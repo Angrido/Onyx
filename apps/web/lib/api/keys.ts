@@ -34,6 +34,8 @@ export const queryKeys = {
   pullDraft: (projectId: string, branch: string) =>
     ["github", "pulls", projectId, "draft", branch] as const,
   changelog: (projectId: string) => ["changelog", projectId] as const,
+  insights: (projectId: string) => ["insights", projectId] as const,
+  ideation: (projectId: string) => ["ideation", projectId] as const,
   index: (projectId: string) => ["index", projectId] as const,
   graph: (projectId: string, focus: string | null, depth: number) =>
     ["graph", projectId, focus, depth] as const,

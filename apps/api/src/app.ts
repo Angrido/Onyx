@@ -11,6 +11,7 @@ import { registerContextRoutes } from "./http/routes/context-routes";
 import { registerGitRoutes } from "./http/routes/git-routes";
 import { registerGitHubRoutes } from "./http/routes/github-routes";
 import { registerHookRoutes } from "./http/routes/hook-routes";
+import { registerInsightRoutes } from "./http/routes/insight-routes";
 import { registerOrchestrationRoutes } from "./http/routes/orchestration-routes";
 import { registerProjectRoutes } from "./http/routes/project-routes";
 import { registerRoadmapRoutes } from "./http/routes/roadmap-routes";
@@ -56,6 +57,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerRouterRoutes(app, container);
   registerTerminalRoutes(app, container);
   registerGitHubRoutes(app, container);
+  registerInsightRoutes(app, container);
   registerSettingsRoutes(app, container);
   registerRoadmapRoutes(app, container);
   registerGitRoutes(app, container);

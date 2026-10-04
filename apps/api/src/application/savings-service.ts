@@ -326,19 +326,22 @@ export class SavingsService {
     const since = options?.conciseSince ? new Date(options.conciseSince) : null;
     const from = new Date((since ?? now).getTime() - ACCOUNTING_DAYS * DAY_MS);
     const window = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
-    const [outputs, plans, batchRuns, reviews, resolutions] = await Promise.all([
-      prisma.$queryRaw<{ outputTokens: unknown; startedAt: unknown }[]>`
+    const [outputs, plans, batchRuns, reviews, resolutions, insights, analyses] = await Promise.all(
+      [
+        prisma.$queryRaw<{ outputTokens: unknown; startedAt: unknown }[]>`
         SELECT l.outputTokens AS outputTokens, r.startedAt AS startedAt
         FROM AgentRun r JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
         WHERE r.status = 'COMPLETED' AND r.startedAt >= ${sqlDate(from)}`,
-      prisma.orchestration.findMany({
-        where: {
-          createdAt: { gte: new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS) },
-          plannerCostUsd: { not: null },
-        },
-        select: { plannerCostUsd: true, plannerModelCostUsd: true, plannerExplorer: true },
-      }),
-      prisma.$queryRaw<{ batchSize: unknown; status: unknown; tokens: unknown; mates: unknown }[]>`
+        prisma.orchestration.findMany({
+          where: {
+            createdAt: { gte: new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS) },
+            plannerCostUsd: { not: null },
+          },
+          select: { plannerCostUsd: true, plannerModelCostUsd: true, plannerExplorer: true },
+        }),
+        prisma.$queryRaw<
+          { batchSize: unknown; status: unknown; tokens: unknown; mates: unknown }[]
+        >`
         SELECT r.batchSize AS batchSize, t.status AS status,
           COALESCE(l.inputTokens + l.outputTokens + l.cacheCreationTokens, 0) AS tokens,
           (SELECT COUNT(*) FROM Task m WHERE m.batchRunId = r.id AND m.status = 'COMPLETED') AS mates
@@ -346,23 +349,39 @@ export class SavingsService {
         JOIN Task t ON t.id = r.taskId
         LEFT JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
         WHERE r.batchSize IS NOT NULL AND r.startedAt >= ${sqlDate(window)}`,
-      prisma.qaReview.findMany({
-        where: { createdAt: { gte: window } },
-        select: {
-          taskId: true,
-          attempt: true,
-          verdict: true,
-          costUsd: true,
-          inputTokens: true,
-          outputTokens: true,
-        },
-        orderBy: { attempt: "asc" },
-      }),
-      prisma.mergeResolution.findMany({
-        where: { createdAt: { gte: window } },
-        select: { state: true, costUsd: true },
-      }),
-    ]);
+        prisma.qaReview.findMany({
+          where: { createdAt: { gte: window } },
+          select: {
+            taskId: true,
+            attempt: true,
+            verdict: true,
+            costUsd: true,
+            inputTokens: true,
+            outputTokens: true,
+          },
+          orderBy: { attempt: "asc" },
+        }),
+        prisma.mergeResolution.findMany({
+          where: { createdAt: { gte: window } },
+          select: { state: true, costUsd: true },
+        }),
+        prisma.insight.findMany({
+          where: { createdAt: { gte: window } },
+          select: { mode: true, tokens: true },
+        }),
+        prisma.ideationRun.findMany({
+          where: { createdAt: { gte: window }, status: "DONE" },
+          select: {
+            reviewedAt: true,
+            projectTokens: true,
+            snippetTokens: true,
+            modelTokens: true,
+            modelCostUsd: true,
+          },
+        }),
+      ],
+    );
+    const reviewedAnalyses = analyses.filter((run) => run.reviewedAt !== null);
     const verdicts = new Map<string, string[]>();
     for (const review of reviews)
       verdicts.set(review.taskId, [...(verdicts.get(review.taskId) ?? []), review.verdict]);
@@ -413,6 +432,23 @@ export class SavingsService {
           0,
         ),
         usd: reviews.reduce((sum, review) => sum + (review.costUsd ?? 0), 0),
+        windowDays: ACCOUNTING_DAYS,
+      },
+      insights: {
+        index: insights.filter((entry) => entry.mode === "INDEX").length,
+        model: insights.filter((entry) => entry.mode === "MODEL").length,
+        modelTokens: insights.flatMap((entry) =>
+          entry.mode === "MODEL" && entry.tokens !== null ? [entry.tokens] : [],
+        ),
+        windowDays: ACCOUNTING_DAYS,
+      },
+      ideation: {
+        analyses: analyses.length,
+        reviews: reviewedAnalyses.length,
+        snippetTokens: reviewedAnalyses.reduce((sum, run) => sum + (run.snippetTokens ?? 0), 0),
+        projectTokens: reviewedAnalyses.reduce((sum, run) => sum + (run.projectTokens ?? 0), 0),
+        modelTokens: reviewedAnalyses.reduce((sum, run) => sum + (run.modelTokens ?? 0), 0),
+        usd: reviewedAnalyses.reduce((sum, run) => sum + (run.modelCostUsd ?? 0), 0),
         windowDays: ACCOUNTING_DAYS,
       },
       resolution: {

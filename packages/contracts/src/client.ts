@@ -54,6 +54,27 @@ export const CHANGELOG_SECTIONS = [
 export const CHANGELOG_SOURCES = ["COMMIT", "TASK"] as const;
 export const QA_VERDICTS = ["PASS", "FAIL", "ERROR"] as const;
 export const RESOLUTION_STATES = ["PROPOSED", "APPLIED", "DISCARDED", "FAILED"] as const;
+export const INSIGHT_MODES = ["INDEX", "MODEL"] as const;
+export const INSIGHT_INTENTS = [
+  "DEFINITION",
+  "USAGES",
+  "IMPORTERS",
+  "IMPORTS",
+  "CENTRAL",
+  "LARGEST",
+  "CYCLES",
+  "OPEN",
+] as const;
+export const IDEATION_STATUSES = ["RUNNING", "DONE", "FAILED"] as const;
+export const FINDING_CATEGORIES = [
+  "SECURITY",
+  "PERFORMANCE",
+  "MAINTAINABILITY",
+  "DEPENDENCY",
+] as const;
+export const FINDING_SEVERITIES = ["LOW", "MEDIUM", "HIGH"] as const;
+export const FINDING_STATES = ["OPEN", "DISMISSED", "TASKED"] as const;
+export const FINDING_VERDICTS = ["REAL", "FALSE_POSITIVE", "UNSURE"] as const;
 export const NOTIFICATION_EVENTS = [
   "RUN_FINISHED",
   "RUN_FAILED",
@@ -92,6 +113,8 @@ export const SAVINGS_SOURCES = [
   "small-task-batching",
   "qa-review",
   "conflict-resolution",
+  "insights",
+  "ideation",
 ] as const;
 export const CACHE_LOSSES = [
   "NEW_SESSION",

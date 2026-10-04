@@ -33,8 +33,11 @@ import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
 import { CredentialService } from "./application/credential-service";
+import { AgentRunner } from "./application/agent-runner";
 import { ChangelogService } from "./application/changelog-service";
 import { GitService } from "./application/git-service";
+import { IdeationService } from "./application/ideation-service";
+import { InsightService } from "./application/insight-service";
 import { IssueService } from "./application/issue-service";
 import { PullRequestService } from "./application/pull-request-service";
 import { ReviewService } from "./application/review-service";
@@ -85,6 +88,7 @@ export interface ContainerOverrides {
   fetcher?: typeof fetch;
   telegramApiUrl?: string;
   pullRequestPollMs?: number;
+  dependencyAudit?: boolean;
 }
 
 export interface Container {
@@ -107,6 +111,8 @@ export interface Container {
   github: GitHubService;
   git: GitService;
   issues: IssueService;
+  insights: InsightService;
+  ideation: IdeationService;
   pulls: PullRequestService;
   changelog: ChangelogService;
   roadmap: RoadmapService;
@@ -563,17 +569,34 @@ export async function createContainer(
     maxConcurrent: config.maxConcurrentAgents,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
-  const reviews = new ReviewService({
+  const runner = new AgentRunner({
     prisma,
     logger,
     pool,
-    router,
     surgeon,
     runTokens,
     credentials,
-    count: (text) => estimator.estimate(text, "typescript"),
     config,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+  });
+  const reviews = new ReviewService({
+    prisma,
+    logger,
+    runner,
+    router,
+    count: (text) => estimator.estimate(text, "typescript"),
+  });
+  const insights = new InsightService({ prisma, logger, indexes, router, runner });
+  const ideation = new IdeationService({
+    prisma,
+    logger,
+    indexes,
+    router,
+    runner,
+    tasks,
+    count: (text) => estimator.estimate(text, "typescript"),
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+    ...(overrides.dependencyAudit === undefined ? {} : { audit: overrides.dependencyAudit }),
   });
   const orchestrator = new OrchestratorService({
     reviews,
@@ -625,6 +648,8 @@ export async function createContainer(
     github,
     git,
     issues,
+    insights,
+    ideation,
     pulls,
     changelog,
     workspaces: new WorkspaceService(prisma),
@@ -748,6 +773,8 @@ export async function createContainer(
     async stop(): Promise<void> {
       await checking?.catch(() => undefined);
       await pulls.stop();
+      await runner.abortAll();
+      await ideation.idle();
       await backups.stop();
       await indexes.shutdown();
       await roadmap.shutdown();

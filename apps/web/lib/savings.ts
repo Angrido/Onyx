@@ -118,6 +118,8 @@ export const SOURCE_LABELS: Record<SavingsSource, string> = {
   "small-task-batching": "Small tasks grouped in one run",
   "qa-review": "QA before merging (cost)",
   "conflict-resolution": "Merge conflicts resolved by Claude (cost)",
+  insights: "Code questions answered from the index",
+  ideation: "Ideation: Claude reads only suspicious snippets",
 };
 
 export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {

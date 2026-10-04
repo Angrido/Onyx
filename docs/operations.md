@@ -412,3 +412,29 @@ Applicata la proposta, il task risulta unito come gli altri. Se nel frattempo il
 | Il revisore boccia criteri che sono stati fatti | Il criterio non è verificabile dal diff (per esempio "è veloce") | Scrivi criteri controllabili nel codice; *Merge anyway* in Approvals |
 | *QA did not finish* | Claude non ha restituito il JSON (limite, errore) | Leggi il messaggio nel task; riprova riprendendo il piano o unisci a mano |
 | La proposta di risoluzione è *not usable* | Marcatori rimasti o test nuovi rossi | Risolvi nel worktree indicato e scegli *Retry the merge* |
+
+## 20. Insights e Ideation
+
+**Domande sul codice.** Onyx riconosce queste domande e risponde dall'indice, senza modello:
+
+| Domanda (esempi) | Risposta |
+|---|---|
+| *Where is `formatPrice` used?* · *Dove si usa formatPrice?* | Definizione e righe che lo usano nei file che importano quel file |
+| *Where is `TaskService` defined?* · *Dove è definito …* | File, riga, tipo e firma |
+| *Who imports src/db.ts?* · *Chi importa …* | File che lo importano |
+| *What does src/server.ts import?* · *Cosa importa …* | File del progetto e pacchetti esterni |
+| *Most central files* · *File più centrali* | I dieci file più importati, direttamente o no |
+| *Largest files* · *File più grandi* | I dieci file più grandi in token |
+| *Circular imports?* · *Dipendenze circolari?* | I cicli del grafo |
+
+Il nome si scrive meglio tra backtick o virgolette. Le risposte dall'indice non vedono import dinamici e riferimenti costruiti con stringhe: lo dicono in fondo, e *Ask Claude instead* rifà la domanda a Haiku passandogli quanto ha già trovato l'indice. Le domande aperte vanno a Haiku in sola lettura (al massimo 10 turni) con i tool `onyx`; risposte e costi restano nella pagina.
+
+**Ideation.** L'analisi gira sui file indicizzati non binari e non sensibili, fino a 200 KB l'uno, con al massimo 25 risultati per regola. L'audit delle dipendenze parte solo con `pnpm-lock.yaml` o `package-lock.json` e richiede accesso al registry npm; senza, la riga lo dice e l'analisi continua. Per Python non c'è audit delle dipendenze: `pip-audit` installerebbe i pacchetti per controllarli.
+
+Claude interviene solo quando lo chiedi, sui risultati statici ancora aperti (al massimo 20), vedendo la riga e cinque righe sopra e sotto. Per ognuno dice *real*, *false positive* o *unsure*, con una spiegazione, una correzione e la sua confidenza. Un task creato da un risultato parte in bozza, con priorità alta per i problemi gravi, e chiede all'agente di verificare prima che il problema esista.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| Ogni domanda va a Claude | Il progetto non è indicizzato | Aspetta la fine dell'indicizzazione (pagina del progetto) |
+| *pnpm audit could not run* | Niente accesso al registry o comando mancante | Normale in una LAN chiusa: il resto dell'analisi è valido |
+| Un falso positivo torna a ogni analisi | Non è stato scartato | *Dismiss*: lo scarto si applica alle analisi successive finché il codice non cambia |

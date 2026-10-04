@@ -30,4 +30,5 @@ export * from "./api/memory";
 export * from "./api/pulls";
 export * from "./api/issues";
 export * from "./api/changelog";
+export * from "./api/insights";
 export * from "./ws";

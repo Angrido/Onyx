@@ -264,6 +264,8 @@ model Project {
   approvals      Approval[]
   pullRequests   PullRequest[]
   releases       ChangelogRelease[]
+  insights       Insight[]
+  ideationRuns   IdeationRun[]
 }
 
 model Workspace {
@@ -1081,4 +1083,101 @@ model MergeResolution {
 
   @@index([orchestrationId, taskId])
   @@index([createdAt])
+}
+
+enum InsightMode {
+  INDEX
+  MODEL
+}
+
+enum IdeationStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum FindingCategory {
+  SECURITY
+  PERFORMANCE
+  MAINTAINABILITY
+  DEPENDENCY
+}
+
+enum FindingSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum FindingState {
+  OPEN
+  DISMISSED
+  TASKED
+}
+
+model Insight {
+  id        String      @id @default(cuid())
+  projectId String
+  question  String
+  intent    String
+  mode      InsightMode
+  answer    String
+  sources   Json
+  modelId   String?
+  costUsd   Float?
+  tokens    Int?
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([createdAt])
+}
+
+model IdeationRun {
+  id            String         @id @default(cuid())
+  projectId     String
+  status        IdeationStatus @default(RUNNING)
+  files         Int            @default(0)
+  audit         String?
+  projectTokens Int?
+  snippetTokens Int?
+  modelTokens   Int?
+  modelCostUsd  Float?
+  reviewedAt    DateTime?
+  message       String?
+  createdAt     DateTime       @default(now())
+  endedAt       DateTime?
+
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  findings IdeationFinding[]
+
+  @@index([projectId, createdAt])
+}
+
+model IdeationFinding {
+  id          String          @id @default(cuid())
+  runId       String
+  projectId   String
+  fingerprint String
+  category    FindingCategory
+  severity    FindingSeverity
+  rule        String
+  title       String
+  file        String?
+  line        Int?
+  excerpt     String?
+  explanation String
+  confidence  Float
+  source      String
+  verdict     String?
+  fix         String?
+  state       FindingState    @default(OPEN)
+  taskId      String?
+  createdAt   DateTime        @default(now())
+
+  run IdeationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([projectId, fingerprint])
 }

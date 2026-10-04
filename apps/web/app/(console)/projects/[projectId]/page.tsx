@@ -6,7 +6,7 @@ import type {
   ProjectDetailDto,
   TaskListResponse,
 } from "@onyx/contracts";
-import { Brain, Map as MapIcon } from "lucide-react";
+import { Brain, Lightbulb, Map as MapIcon } from "lucide-react";
 import { GitHubMark } from "@/components/ui/github-mark";
 import Link from "next/link";
 import { GitPanel } from "@/components/git/git-panel";
@@ -40,6 +40,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         <Link href={`/projects/${project.id}/memory`}>
           <Brain />
           Memory
+        </Link>
+      </Button>
+      <Button asChild variant="secondary">
+        <Link href={`/projects/${project.id}/insights`}>
+          <Lightbulb />
+          Insights
         </Link>
       </Button>
       <Button asChild variant="secondary">

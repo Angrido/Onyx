@@ -25,6 +25,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 6 | Esperimenti sul contesto: A/B con una variante (file da modificare come firme), riassunti finali brevi, esplorazione su un modello economico, task piccoli raggruppati, ognuno con la sua riga in Savings | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 7 | GitHub: issue importate come task, pull request aperte da Onyx con descrizione dai task, stato dei controlli nel task e nelle notifiche, changelog dai commit e dai task | **Completata** (manca la prova su un repository GitHub vero, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 8 | Piani con QA: un revisore in sola lettura controlla ogni task prima del merge con prove dal diff; conflitti di merge risolti da Claude e applicati solo dopo la tua approvazione | **Completata** (manca la prova con Claude reale, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 9 | Insights: domande sul codice risposte dall'indice senza modello, Haiku solo se serve; Ideation: analisi statica gratuita di sicurezza e prestazioni, Claude solo sui punti sospetti, un task con un clic | **Completata** (manca la prova con Claude reale, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -180,6 +181,17 @@ Dettagli in [docs/operations.md §18](docs/operations.md#18-github-issue-pull-re
 Sono costi, non risparmi: Savings li mostra come righe *misurate* con token e dollari spesi, e il piano riporta quanto è andato in QA e conflitti.
 
 Dettagli in [docs/operations.md §19](docs/operations.md#19-qa-e-conflitti-nei-piani).
+
+### Insights e Ideation (2.0, milestone 9)
+
+**Insights** nella pagina del progetto:
+
+- **Ask about the code**: chi usa una funzione, dove è definita, chi importa un file e cosa importa, i file più centrali e più grandi, le dipendenze circolari. In inglese o in italiano, la risposta viene dall'indice e dal grafo, gratis e con le fonti (file e riga). Le altre domande, o un clic su *Ask Claude instead*, vanno a Claude Haiku in sola lettura con i tool `onyx`, e il costo è mostrato accanto alla risposta.
+- **Ideation**: *Analyse the project* applica regole di sicurezza (eval, comandi shell e SQL costruiti con variabili, HTML grezzo, segreti nel codice, TLS disattivato, hash deboli, chiamate Python pericolose) e di prestazioni (query e await dentro i cicli, file sincroni nel codice server), esegue `npm audit` o `pnpm audit` se c'è un lockfile e cerca nel grafo cicli e file grandi da cui dipendono in molti. Tutto senza modello. *Ask Claude about N suspicious points* manda a Haiku solo le righe segnalate con poche righe intorno; ogni risultato diventa un task in bozza con un clic o si scarta, e lo scarto vale anche per le analisi successive.
+
+In Savings: le risposte dall'indice e i token che Ideation non ha mandato, *stimati* a partire da misure (token delle risposte del modello, token degli snippet contro quelli del codice analizzato).
+
+Dettagli in [docs/operations.md §20](docs/operations.md#20-insights-e-ideation).
 
 ### Comandi bloccati
 

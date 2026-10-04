@@ -73,6 +73,21 @@ interface CurrentFile {
   changed: boolean;
 }
 
+export interface DefinitionHit {
+  relPath: string;
+  line: number;
+  kind: string;
+  name: string;
+  signature: string;
+  exported: boolean;
+}
+
+export interface MentionHit {
+  relPath: string;
+  line: number;
+  text: string;
+}
+
 interface HandleEntry {
   file: StoredFile;
   symbol: LeanSymbol;
@@ -555,6 +570,121 @@ export class ProjectContext {
   cycles(): string[][] {
     this.cycleCache ??= dependencyCycles(this.index.graph);
     return this.cycleCache;
+  }
+
+  private byRank(paths: Iterable<string>): string[] {
+    return [...paths].sort(
+      (left, right) =>
+        (this.rank.get(right) ?? 0) - (this.rank.get(left) ?? 0) || left.localeCompare(right),
+    );
+  }
+
+  definitions(name: string): DefinitionHit[] {
+    const exact: DefinitionHit[] = [];
+    const loose: DefinitionHit[] = [];
+    const lower = name.toLowerCase();
+    for (const entries of this.handles.values()) {
+      for (const { file, symbol } of entries) {
+        if (file.sensitive) continue;
+        const hit = {
+          relPath: file.relPath,
+          line: symbol.startLine,
+          kind: symbol.kind,
+          name: symbol.qualifiedName,
+          signature: symbol.signature,
+          exported: symbol.exported,
+        };
+        if (symbol.name === name || symbol.qualifiedName === name) exact.push(hit);
+        else if (symbol.name.toLowerCase() === lower) loose.push(hit);
+      }
+    }
+    const hits = exact.length > 0 ? exact : loose;
+    return hits.sort(
+      (left, right) =>
+        Number(right.exported) - Number(left.exported) ||
+        (this.rank.get(right.relPath) ?? 0) - (this.rank.get(left.relPath) ?? 0) ||
+        left.relPath.localeCompare(right.relPath),
+    );
+  }
+
+  findFile(query: string): string | null {
+    const normalized = this.normalizePath(query)?.replace(/^\/+/, "");
+    if (!normalized) return null;
+    if (this.index.files.has(normalized)) return normalized;
+    const paths = [...this.index.files.keys()];
+    const suffix = paths.filter((path) => path.endsWith(`/${normalized}`));
+    if (suffix.length > 0) return this.byRank(suffix)[0] ?? null;
+    if (normalized.includes("/")) return null;
+    const stem = (path: string) => (path.split("/").pop() ?? path).replace(/\.[^.]+$/, "");
+    const named = paths.filter(
+      (path) => path.split("/").pop() === normalized || stem(path) === normalized,
+    );
+    return this.byRank(named)[0] ?? null;
+  }
+
+  importers(relPath: string): string[] {
+    return this.byRank(this.index.graph.dependents(relPath));
+  }
+
+  imports(relPath: string): { internal: string[]; external: string[] } {
+    return {
+      internal: this.byRank(this.index.graph.dependencies(relPath)),
+      external: [
+        ...new Set(
+          this.index.graph
+            .edgesFrom(relPath)
+            .map((edge) => edge.external)
+            .filter((name): name is string => name !== null),
+        ),
+      ].sort(),
+    };
+  }
+
+  topFiles(limit: number): StoredFile[] {
+    return this.byRank(
+      [...this.index.files.values()]
+        .filter((file) => !file.binary && !file.sensitive)
+        .map((file) => file.relPath),
+    )
+      .slice(0, limit)
+      .flatMap((path) => {
+        const file = this.index.files.get(path);
+        return file ? [file] : [];
+      });
+  }
+
+  largestFiles(limit: number): StoredFile[] {
+    return [...this.index.files.values()]
+      .filter((file) => !file.binary && !file.sensitive)
+      .sort(
+        (left, right) =>
+          right.rawTokens - left.rawTokens || left.relPath.localeCompare(right.relPath),
+      )
+      .slice(0, limit);
+  }
+
+  sourceFiles(): StoredFile[] {
+    return [...this.index.files.values()].filter((file) => !file.binary && !file.sensitive);
+  }
+
+  mentions(name: string, paths: readonly string[], limit: number): MentionHit[] {
+    const pattern = new RegExp(
+      `(^|[^\\w$])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\w$])`,
+    );
+    const hits: MentionHit[] = [];
+    for (const relPath of paths) {
+      if (this.index.files.get(relPath)?.sensitive) continue;
+      const source = this.readSource(relPath);
+      if (source === null) continue;
+      const lines = source.split("\n");
+      for (const [index, text] of lines.entries()) {
+        if (!pattern.test(text)) continue;
+        if (/^\s*import\b|^\s*export\s+\{|from\s+["']/.test(text)) continue;
+        hits.push({ relPath, line: index + 1, text: text.trim().slice(0, 160) });
+        if (hits.length >= limit) return hits;
+      }
+    }
+    return hits;
   }
 
   private locateSymbol(

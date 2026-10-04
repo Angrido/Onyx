@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–8 | **Fatte** (vedi sotto) |
-| 9–11 | Da fare, nell'ordine concordato |
+| 1–9 | **Fatte** (vedi sotto) |
+| 10–11 | Da fare, nell'ordine concordato |
 
 ### Milestone 1 — esito
 
@@ -281,3 +281,15 @@ Da verificare su GitHub vero: permessi del token, apertura di una PR e lettura d
 Effetto sui token: aumenta la spesa dei piani che usano le opzioni; Savings la mostra come costo, con il numero di problemi presi prima del merge e di conflitti risolti.
 
 Da verificare con Claude reale: che il revisore citi davvero il diff e non bocci a vuoto, il costo per task con diff veri, la qualità delle risoluzioni su conflitti reali.
+
+### Milestone 9 — esito
+
+| Voce | Stato | Token |
+|---|---|---|
+| 9.1 Insights | Fatta (ADR-079): sette tipi di domanda dall'indice con fonti e avviso sui limiti, Haiku in sola lettura per il resto e su richiesta, costo per risposta | **Misurato**: quota di risposte senza modello e token per risposta del modello. **Stimato**: token risparmiati = risposte dall'indice × mediana dei token di una risposta del modello (8.000 finché non ce n'è una) |
+| 9.2 Ideation | Fatta (ADR-080): regole di sicurezza e prestazioni, audit npm/pnpm, cicli e hotspot, Claude solo sui punti sospetti, task o scarto ricordato. **Deviazione**: niente `pip-audit`, perché installa i pacchetti da controllare | **Misurato**: token degli snippet e del codice analizzato, costo della revisione. **Stimato**: token non mandati = codice analizzato − snippet |
+| Roadmap con analisi dei concorrenti | Scartata, come previsto | — |
+
+Effetto sui token: con lo stub, nell'E2E una domanda dall'indice costa 0 e la stessa fatta a Haiku 14.000 token (con la scrittura della cache); la revisione di 4 punti sospetti ha letto 810 token di snippet. Su un progetto così piccolo gli snippet non costano meno del codice, e la riga lo dice.
+
+Da verificare con Claude reale: qualità e costo delle risposte di Haiku con i tool `onyx`, affidabilità dei verdetti sui punti sospetti.

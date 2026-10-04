@@ -1493,6 +1493,43 @@ async function runResolutionScenario(prompt: string): Promise<void> {
   await writeLine(resultLine(text));
 }
 
+async function runInsightScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const found = headingSection(prompt, "What the Onyx index already found");
+  const cited = /`([\w@./-]+\.[a-z]{1,5}(?::\d+)?)`/.exec(found)?.[1] ?? "README.md:1";
+  const question = headingSection(prompt, "Question").trim();
+  const text = `From the code: \`${cited}\` answers "${question}".`;
+  await writeLine(assistantLine("msg_stub_insight", [{ type: "text", text }]));
+  await writeLine(resultLine(text));
+}
+
+async function runIdeationScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const items = [
+    ...prompt.matchAll(/^## Item (\d+): [^\n]*\n([\s\S]*?)(?=^## Item |\nAnswer with)/gm),
+  ];
+  const verdict = {
+    findings: items.map((match) => {
+      const flagged = /^\s*\d+> .*$/m.exec(match[2] ?? "")?.[0] ?? "";
+      const falsePositive = flagged.includes("stub-fp");
+      return {
+        id: match[1] ?? "",
+        verdict: falsePositive ? "false_positive" : "real",
+        confidence: falsePositive ? 0.1 : 0.85,
+        explanation: falsePositive
+          ? "The value never comes from outside."
+          : "Outside input reaches this call.",
+        ...(falsePositive ? {} : { fix: "Pass the value as a parameter instead." }),
+      };
+    }),
+  };
+  const text = JSON.stringify(verdict);
+  await writeLine(assistantLine("msg_stub_ideation", [{ type: "text", text }]));
+  await writeLine(resultLine(text, [], verdict));
+}
+
 function withExplorerUsage(line: string): string {
   const agentsPath = flagValue("--agents");
   if (!agentsPath) return line;
@@ -1720,6 +1757,14 @@ async function main(): Promise<void> {
   }
   if (prompt.includes("ONYX_PLAN_REQUEST")) {
     await runPlanScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_INSIGHT_QUESTION")) {
+    await runInsightScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_IDEATION_REVIEW")) {
+    await runIdeationScenario(prompt);
     return;
   }
   if (prompt.startsWith("ONYX_QA_REQUEST")) {

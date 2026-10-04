@@ -1,17 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentPool, ProcessExit } from "@onyx/agent-runtime";
-import {
-  normalizeClaudeEvent,
-  type MergeResolutionDto,
-  type QaReviewDto,
-  type RunItemOf,
-} from "@onyx/contracts";
+import type { MergeResolutionDto, QaReviewDto } from "@onyx/contracts";
 import type { MergeResolution, Prisma, PrismaClient, QaReview } from "@onyx/db";
 import type { Logger } from "pino";
-import type { AppConfig } from "../config";
-import { costOfModel, usageByModel, type ModelUsageRow } from "../domain/exploration";
-import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import {
   QA_DIFF_BUDGET_TOKENS,
   QA_JSON_SCHEMA,
@@ -24,40 +15,19 @@ import {
   truncateDiff,
   type QaOutcome,
 } from "../domain/qa";
-import { emptyMcpConfig } from "../infrastructure/mcp-config";
 import type { GitRepo } from "../infrastructure/git-worktree";
-import type { RunTokenRegistry } from "../infrastructure/run-tokens";
-import { writeRuntimeFiles } from "../infrastructure/runtime-files";
-import type { CredentialService } from "./credential-service";
+import { READ_ONLY_TOOLS, WRITE_TOOLS, structuredOf, type AgentRunner } from "./agent-runner";
 import { toStringArray } from "./mappers";
-import { priceUsage, type RouterService } from "./router-service";
-import type { SurgeonService } from "./surgeon-service";
+import type { RouterService } from "./router-service";
 
-const AGENT_TIMEOUTS = { wallClockMs: 15 * 60_000, idleMs: 5 * 60_000, initMs: 120_000 };
 const MAX_DIFF_CHARS = 200_000;
 
 export interface ReviewServiceDeps {
   prisma: PrismaClient;
   logger: Logger;
-  pool: AgentPool;
+  runner: AgentRunner;
   router: Pick<RouterService, "profileForTier" | "referenceProfile">;
-  surgeon: Pick<SurgeonService, "runScope">;
-  runTokens: RunTokenRegistry;
-  credentials: Pick<CredentialService, "childEnv">;
   count: (text: string) => number;
-  config: Pick<
-    AppConfig,
-    "runtimeDir" | "childEnvPassthrough" | "internalApiUrl" | "agentProtectedPaths"
-  >;
-  sourceEnv?: NodeJS.ProcessEnv;
-  timeouts?: { wallClockMs: number; idleMs: number; initMs: number };
-}
-
-interface AgentResult {
-  result: RunItemOf<"result"> | null;
-  exit: ProcessExit;
-  modelId: string;
-  costUsd: number | null;
 }
 
 export function toQaReviewDto(review: QaReview): QaReviewDto {
@@ -95,18 +65,14 @@ export function toResolutionDto(resolution: MergeResolution): MergeResolutionDto
 }
 
 export class ReviewService {
-  private readonly active = new Map<string, string>();
-
   constructor(private readonly deps: ReviewServiceDeps) {}
 
   async abortTask(taskId: string): Promise<void> {
-    for (const [runId, owner] of this.active)
-      if (owner === taskId) await this.deps.pool.abort(runId).catch(() => undefined);
+    await this.deps.runner.abortOwner(taskId);
   }
 
   async abortAll(): Promise<void> {
-    for (const runId of this.active.keys())
-      await this.deps.pool.abort(runId).catch(() => undefined);
+    await this.deps.runner.abortAll();
   }
 
   async review(input: {
@@ -135,17 +101,17 @@ export class ReviewService {
     const profile = await this.deps.router.profileForTier("BUILDER");
     const modelId = profile?.id ?? (await this.deps.router.referenceProfile())?.id ?? "";
     const runId = `qa-${input.taskId}-${input.attempt}-${Date.now().toString(36)}`;
-    const run = await this.runAgent({
+    const run = await this.deps.runner.run({
       runId,
-      taskId: input.taskId,
+      owner: input.taskId,
       projectId: input.projectId,
       cwd: input.worktree,
       prompt,
       modelId,
       maxTurns: QA_MAX_TURNS,
       permissionMode: "plan",
-      allowedTools: ["Read", "Grep", "Glob", "LS"],
-      disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"],
+      allowedTools: READ_ONLY_TOOLS,
+      disallowedTools: WRITE_TOOLS,
       jsonSchema: JSON.stringify(QA_JSON_SCHEMA),
       purpose: "qa-review",
     });
@@ -157,7 +123,7 @@ export class ReviewService {
       error = `The review failed: ${(run.result.resultText ?? run.result.subtype).slice(0, 300)}`;
     } else {
       try {
-        outcome = readQaOutput(this.structured(run.result), {
+        outcome = readQaOutput(structuredOf(run.result), {
           acceptance,
           files: diff.files,
         });
@@ -223,7 +189,10 @@ export class ReviewService {
       });
     try {
       await input.repo
-        .run(["merge", "--no-ff", "--no-commit", input.branch], { cwd: input.worktree })
+        .run(["merge", "--no-ff", "--no-commit", input.branch], {
+          cwd: input.worktree,
+          env: input.commitEnv,
+        })
         .catch(() => undefined);
       files = (
         await input.repo.run(["diff", "--name-only", "--diff-filter=U"], { cwd: input.worktree })
@@ -237,9 +206,9 @@ export class ReviewService {
         select: { title: true },
         take: 20,
       });
-      const run = await this.runAgent({
+      const run = await this.deps.runner.run({
         runId: `resolve-${input.taskId}-${Date.now().toString(36)}`,
-        taskId: input.taskId,
+        owner: input.taskId,
         projectId: input.projectId,
         cwd: input.worktree,
         prompt: resolutionPrompt({
@@ -253,7 +222,7 @@ export class ReviewService {
         modelId,
         maxTurns: RESOLUTION_MAX_TURNS,
         permissionMode: "acceptEdits",
-        allowedTools: ["Read", "Grep", "Glob", "LS", "Edit", "MultiEdit", "Write"],
+        allowedTools: [...READ_ONLY_TOOLS, "Edit", "MultiEdit", "Write"],
         disallowedTools: ["Bash", "NotebookEdit"],
         jsonSchema: null,
         purpose: "merge-resolution",
@@ -308,135 +277,5 @@ export class ReviewService {
       logger.warn({ err: error, taskId: input.taskId }, "Conflict resolution failed");
       return fail(error instanceof Error ? error.message : String(error));
     }
-  }
-
-  private structured(result: RunItemOf<"result">): unknown {
-    if (result.structuredOutput !== null && result.structuredOutput !== undefined)
-      return result.structuredOutput;
-    const text = result.resultText ?? "";
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start < 0 || end <= start) return null;
-    try {
-      return JSON.parse(text.slice(start, end + 1)) as unknown;
-    } catch {
-      return null;
-    }
-  }
-
-  private async runAgent(input: {
-    runId: string;
-    taskId: string;
-    projectId: string;
-    cwd: string;
-    prompt: string;
-    modelId: string;
-    maxTurns: number;
-    permissionMode: "plan" | "acceptEdits";
-    allowedTools: string[];
-    disallowedTools: string[];
-    jsonSchema: string | null;
-    purpose: string;
-  }): Promise<AgentResult> {
-    const { config, pool } = this.deps;
-    const scope = await this.deps.surgeon.runScope(input.projectId, null);
-    const token = this.deps.runTokens.issue(input.runId, input.projectId, {
-      workspaceId: null,
-      policy: scope.policy,
-      guard: scope.guard,
-      fence: null,
-    });
-    const files = await writeRuntimeFiles({
-      runtimeDir: config.runtimeDir,
-      runId: input.runId,
-      agents: null,
-      settings: buildRunSettings({
-        deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
-        protectedPaths: config.agentProtectedPaths,
-        hooks: guardHooks(config.internalApiUrl),
-      }),
-      primer: null,
-      mcpConfig: emptyMcpConfig(),
-    });
-    let result: RunItemOf<"result"> | null = null;
-    let exit: ProcessExit;
-    this.active.set(input.runId, input.taskId);
-    try {
-      exit = await pool.run(
-        {
-          runId: input.runId,
-          cwd: input.cwd,
-          prompt: input.prompt,
-          model: input.modelId,
-          fallbackModels: [],
-          permissionMode: input.permissionMode,
-          maxTurns: input.maxTurns,
-          agentsFile: files.agentsFile,
-          session: { mode: "ephemeral" },
-          allowedTools: input.allowedTools,
-          disallowedTools: input.disallowedTools,
-          settingsFile: files.settingsFile,
-          mcpConfigFile: files.mcpConfigFile,
-          appendSystemPromptFile: null,
-          includePartialMessages: false,
-          env: {
-            ...this.passthroughEnv(),
-            ...(await this.deps.credentials.childEnv()),
-            [RUN_TOKEN_ENV]: token,
-          },
-          timeouts: this.deps.timeouts ?? AGENT_TIMEOUTS,
-          ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
-        },
-        {
-          onSpawn: () => undefined,
-          onEvent: (event) => {
-            for (const item of normalizeClaudeEvent(event))
-              if (item.kind === "result") result = item;
-          },
-          onInvalidLine: () => undefined,
-          onStderr: () => undefined,
-          onHandlerError: (error) =>
-            this.deps.logger.warn({ err: error, runId: input.runId }, "Review handler failed"),
-        },
-      );
-    } finally {
-      this.active.delete(input.runId);
-      this.deps.runTokens.revoke(input.runId);
-    }
-    const final = result as RunItemOf<"result"> | null;
-    const costUsd = final ? await this.recordUsage(input.modelId, final, input.purpose) : null;
-    return { result: final, exit, modelId: input.modelId, costUsd };
-  }
-
-  private async recordUsage(
-    modelId: string,
-    result: RunItemOf<"result">,
-    purpose: string,
-  ): Promise<number | null> {
-    const rows: ModelUsageRow[] = usageByModel(result, modelId);
-    const profile = await this.deps.prisma.modelProfile.findUnique({ where: { id: modelId } });
-    const costUsd = result.costUsd ?? (profile ? priceUsage(result.usage, profile) : null);
-    await this.deps.prisma.tokenLog
-      .createMany({
-        data: rows.map((row) => ({
-          modelId: row.modelId,
-          scope: "AUX" as const,
-          purpose,
-          ...row.usage,
-          costUsd: rows.length === 1 ? costUsd : row.costUsd,
-        })),
-      })
-      .catch((error: unknown) => this.deps.logger.warn({ err: error }, "Review token log failed"));
-    return costUsd ?? costOfModel(rows, modelId);
-  }
-
-  private passthroughEnv(): Record<string, string> {
-    const source = this.deps.sourceEnv ?? process.env;
-    const env: Record<string, string> = {};
-    for (const name of this.deps.config.childEnvPassthrough) {
-      const value = source[name];
-      if (value !== undefined) env[name] = value;
-    }
-    return env;
   }
 }

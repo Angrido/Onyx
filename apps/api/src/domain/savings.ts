@@ -498,7 +498,28 @@ export interface LedgerInput {
   batching: BatchingInput;
   review: ReviewInput;
   resolution: ResolutionInput;
+  insights: InsightsInput;
+  ideation: IdeationInput;
 }
+
+export interface InsightsInput {
+  index: number;
+  model: number;
+  modelTokens: readonly number[];
+  windowDays: number;
+}
+
+export interface IdeationInput {
+  analyses: number;
+  reviews: number;
+  snippetTokens: number;
+  projectTokens: number;
+  modelTokens: number;
+  usd: number;
+  windowDays: number;
+}
+
+export const DEFAULT_MODEL_ANSWER_TOKENS = 8_000;
 
 export interface ReviewInput {
   reviews: number;
@@ -678,6 +699,56 @@ export function conflictResolutionRow(input: ResolutionInput): SavingsLedgerRow 
     usd: null,
     runs: input.proposals,
     detail: `A cost, not a saving: ${plural(input.proposals, "conflict")} handed to Claude for ${dollars(input.usd)} in the last ${input.windowDays} days; ${input.applied} applied, ${input.refused} refused and ${input.unusable} not usable (markers left or tests failing).`,
+  };
+}
+
+export function insightsRow(input: InsightsInput): SavingsLedgerRow {
+  const total = input.index + input.model;
+  if (total === 0)
+    return {
+      source: "insights",
+      evidence: "ESTIMATED",
+      tokens: null,
+      usd: null,
+      runs: 0,
+      detail: `No question in the last ${input.windowDays} days. Questions about definitions, usages, imports, central files and cycles are answered from the index at no cost.`,
+    };
+  const measured = median(input.modelTokens);
+  const perAnswer = measured ?? DEFAULT_MODEL_ANSWER_TOKENS;
+  return {
+    source: "insights",
+    evidence: "ESTIMATED",
+    tokens: Math.round(input.index * perAnswer),
+    usd: null,
+    runs: total,
+    detail: `${input.index} of ${plural(total, "answer")} came from the index without a model (${Math.round((input.index / total) * 100)}%, measured). ${measured === null ? `With no model answer yet, each is counted at ~${compactTokens(DEFAULT_MODEL_ANSWER_TOKENS)} tokens (estimate).` : `A model answer used a median of ${compactTokens(measured)} tokens (measured), so the index answers saved about that much each.`}`,
+  };
+}
+
+export function ideationRow(input: IdeationInput): SavingsLedgerRow {
+  if (input.reviews === 0)
+    return {
+      source: "ideation",
+      evidence: "ESTIMATED",
+      tokens: null,
+      usd: null,
+      runs: input.analyses,
+      detail:
+        input.analyses === 0
+          ? `No analysis in the last ${input.windowDays} days. The static part is free; Claude only reads the suspicious snippets when you ask.`
+          : `${input.analyses} ${input.analyses === 1 ? "analysis" : "analyses"} without a model in the last ${input.windowDays} days: rules, dependency audit and import graph cost no tokens.`,
+    };
+  const saved = input.projectTokens - input.snippetTokens;
+  return {
+    source: "ideation",
+    evidence: "ESTIMATED",
+    tokens: Math.max(0, saved),
+    usd: null,
+    runs: input.reviews,
+    detail:
+      saved > 0
+        ? `In ${plural(input.reviews, "review")} Claude read ${compactTokens(input.snippetTokens)} tokens of snippets instead of the ${compactTokens(input.projectTokens)} tokens of the analysed code (both measured), for ${compactTokens(input.modelTokens)} tokens in all ($${input.usd.toFixed(3)}). The saving assumes a review of the whole code would read all of it.`
+        : `In ${plural(input.reviews, "review")} the snippets (${compactTokens(input.snippetTokens)} tokens) were not smaller than the analysed code (${compactTokens(input.projectTokens)} tokens): on a project this small there is nothing to save. Cost ${compactTokens(input.modelTokens)} tokens ($${input.usd.toFixed(3)}).`,
   };
 }
 
@@ -866,5 +937,7 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
     batchingRow(input.batching),
     qaReviewRow(input.review),
     conflictResolutionRow(input.resolution),
+    insightsRow(input.insights),
+    ideationRow(input.ideation),
   ];
 }
