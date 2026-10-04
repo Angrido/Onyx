@@ -263,3 +263,53 @@ Lo script crea il gruppo `onyx-work` e l'utente `onyx-agent`, aggiunge `onyx` al
 | Un progetto registrato a mano dà errori di scrittura | I file non sono del gruppo `onyx-work` | Rilancia lo script, oppure `chgrp -R onyx-work <cartella>` e `chmod -R g+rwX` (non su `.git`) |
 | Il feed mostra *Undone* dopo una run | La run ha cambiato file di un altro workspace | È voluto: il compito va affidato al workspace giusto, oppure i percorsi del workspace vanno allargati |
 
+
+## 13. Coda e limite per progetto
+
+Tutte le run in attesa, di qualunque progetto, stanno in un'unica coda. La home (**Mission control → Run queue**) la mostra con il motivo dell'attesa di ogni riga:
+
+| Motivo | Significato |
+|---|---|
+| *waiting for a free slot* | Tutti gli slot (`MAX_CONCURRENT_AGENTS`) sono occupati da run o terminali |
+| *project at its run limit* | Il progetto ha già il numero massimo di run consentito |
+| *workspace busy* | Nello stesso workspace (o worktree) c'è già una run o un terminale |
+| *held by the quota or a budget* | Limiti di Claude vicini e task *Can wait*, oppure un budget raggiunto |
+
+- **Ordine**: priorità del task, poi anzianità. Chi aspetta sale di un livello ogni 30 minuti (**Settings → Run queue → Raise waiting tasks**, *Off* per disattivare). Le frecce spostano un task in cima, su o giù e salvano la nuova priorità sul task. I passi del TDD e dei piani hanno priorità alta di loro.
+- **Limite per progetto**: spento di default. Con *At most 1* un progetto con dieci task in coda ne fa girare uno alla volta e lascia gli altri slot agli altri progetti. Si può dare un limite diverso a un singolo progetto nella stessa scheda. Il limite è rigido: uno slot libero non viene prestato a un progetto già al limite.
+- Le schede di Mission control leggono branch e modifiche con `git status` una volta ogni 30 secondi per progetto (subito dopo una run o una pubblicazione). Un progetto *Git unavailable* ha un `.git` illeggibile: `git -C <cartella> status` dalla shell dice perché.
+
+## 14. Notifiche
+
+Sono tutte spente finché non si accendono in **Settings → Notifications**. Onyx invia e basta: non apre porte e non legge messaggi da ntfy o Telegram, quindi non si comanda dall'esterno.
+
+**Eventi**: run fallita (anche per timeout o interruzione), run che aspetta comandi da consentire, approvazione richiesta, budget raggiunto o run fermate da un budget, limiti di Claude che peggiorano o si azzerano; facoltativo ogni run finita. Lo stesso evento parte al massimo una volta al minuto.
+
+**Link**: le notifiche aprono la pagina giusta se `ONYX_PUBLIC_ORIGIN` è impostata in `/etc/onyx/onyx.env` (per esempio `https://onyx.lan`), altrimenti usano la prima di `ONYX_ALLOWED_ORIGINS` o arrivano senza link.
+
+**Nel browser (Web Push)**: i browser lo consentono solo in HTTPS. Su `http://<ip>` la scheda lo dice e il pulsante non compare.
+
+1. Nel Caddyfile si aggiunge un blocco con il nome host e `tls internal` (architecture.md §10.7), si imposta `COOKIE_SECURE=true` e `ONYX_PUBLIC_ORIGIN=https://onyx.lan`, e si riavviano Caddy e l'API.
+2. Si installa sul dispositivo la CA locale di Caddy (`/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`): su Android come certificato CA, su iOS come profilo con l'attendibilità completa attivata; su iOS le notifiche web funzionano solo con Onyx aggiunto alla schermata Home.
+3. Da quel dispositivo, **Turn on for this device** e poi **Send a test**.
+
+Le chiavi VAPID si creano al primo uso; la chiave privata e le sottoscrizioni sono cifrate con la chiave dei segreti. Un dispositivo che il servizio push dichiara scaduto viene tolto da solo.
+
+**ntfy**: server (anche uno proprio in LAN) e topic; il token d'accesso è facoltativo e viene cifrato. Su `ntfy.sh` chiunque conosca il topic può leggerlo: va scelto lungo e casuale.
+
+**Telegram**: si crea un bot con @BotFather, si scrive al bot almeno una volta e si ricava il chat id (per esempio da `https://api.telegram.org/bot<token>/getUpdates` nel browser). Token cifrato; il bot non riceve comandi.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| *Send a test* dice *ntfy answered 401/403* | Topic protetto | Inserisci il token d'accesso |
+| *Telegram answered 400* | Chat id sbagliato o nessun messaggio mandato al bot | Scrivi al bot e ricontrolla il chat id |
+| *No browser accepted the notification* | Sottoscrizione scaduta o permesso revocato | Riattiva su quel dispositivo |
+| Nessuna notifica dalle run | L'evento è spento o nessun canale è attivo | Controlla le caselle *Tell me when* |
+
+## 15. Griglia degli agenti e ricerca
+
+**Agent grid** (`/agents`) mostra fino a nove pannelli, ciascuno con una run dal vivo o il terminale di un workspace di qualunque progetto; la disposizione resta nel browser. Ogni terminale aperto occupa uno slot come una run. I pannelli fuori vista (o con la scheda del browser nascosta) si staccano e, quando tornano visibili, riprendono dallo stato attuale dello schermo. *Paste* incolla nel terminale il task scelto: si controlla e si invia con Invio.
+
+Se un terminale ripreso si chiude subito (Claude Code non aveva salvato la sessione, per esempio dopo un `/clear` senza messaggi), Onyx chiude quella sessione e il terminale successivo ne apre una nuova.
+
+**Ricerca**: la palette (Ctrl K o **Search** nella barra laterale) cerca da due caratteri in titoli, prompt e riassunti dei task, negli errori delle run e nei percorsi dei file di tutti i progetti; gli accenti non contano. L'indice (tabella `SearchEntry`) contiene solo testi brevi e si aggiorna da solo; l'API lo crea al primo avvio della versione 2.0 · 4 e lo ricostruisce solo dopo un aggiornamento che ne cambia il formato.

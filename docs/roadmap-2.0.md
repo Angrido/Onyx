@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1 | **Fatta** (vedi sotto) |
-| 2–11 | Da fare, nell'ordine concordato |
+| 1–4 | **Fatte** (vedi sotto) |
+| 5–11 | Da fare, nell'ordine concordato |
 
 ### Milestone 1 — esito
 
@@ -215,3 +215,18 @@ Da verificare con Claude reale: che `rate_limit_event` arrivi sul tuo account e 
 | 3.4 Verifica a posteriori del recinto | Fatta (ADR-063) | Basata su `git status`, non su hash di tutti i file; esclude i workspace attivi in parallelo |
 
 Effetto sui token: nessuno diretto, come previsto. Le regole strette e per task evitano run di continuazione inutili, e la riga *Commands allowed for the stack* di Savings ne misura l'andamento.
+
+### Milestone 4 — esito
+
+| Voce | Stato | Note |
+|---|---|---|
+| 4.1 Mission control | Fatta (ADR-065) | Una rotta con un numero fisso di query; git in cache 30 s, al massimo quattro `git status` alla volta. 181 ms con 20 progetti e 20.000 run, 56 ms con git in cache |
+| 4.2 Coda globale | Fatta (ADR-064) | Anzianità: un livello ogni 30 minuti. Limite per progetto rigido e spento di default (un limite che presta gli slot liberi non lascerebbe posto agli altri progetti). M6 era già chiuso con la 4.6 |
+| 4.3 Griglia degli agenti | Fatta (ADR-066, chiude A12) | Pausa dei pannelli fuori vista invece della virtualizzazione: lo snapshot dello schermo basta a riprendere. Trovato e corretto nell'E2E: con l'output raggruppato della 4.6 un nuovo iscritto riceveva due volte le ultime righe |
+| 4.4 Notifiche | Fatta (ADR-067) | Web Push senza dipendenze, verificato sull'esempio della RFC 8291; ntfy e Telegram solo in uscita. Web Push resta inutilizzabile finché Onyx gira su HTTP |
+| 4.5 Ricerca globale | Fatta (ADR-068) | **Deviazione**: l'indice FTS5 non sta nelle migrazioni Prisma (le tabelle ombra risultano come differenze di schema); lo crea l'API all'avvio, con versione |
+| 4.6 Prestazioni | Fatta (chiude A13, A14, M6, M20–M24, B20) | Benchmark `bench:telemetry` con 20.000 run e 2 milioni di `TokenLog` |
+
+Effetto sui token: nessuno diretto, quindi niente righe nuove in Savings. Il limite per progetto e la coda ordinata distribuiscono meglio la finestra di 5 ore, e la griglia mostra quanti agenti la stanno consumando.
+
+Da verificare sulla macchina vera: Web Push via HTTPS con la CA interna di Caddy su un telefono (operations.md §14) e un bot Telegram reale.

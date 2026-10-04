@@ -67,7 +67,10 @@ describe("global search", () => {
     const coupons = await search("coupon");
     const kinds = coupons.items.map((item) => item.kind);
     expect(kinds).toContain("TASK");
-    expect(kinds).toContain("RUN");
+    expect(kinds.filter((kind) => kind === "RUN").length).toBeLessThanOrEqual(1);
+    const byModel = (await search("sonnet")).items.find((item) => item.kind === "RUN");
+    expect(byModel?.href).toMatch(/^\/runs\//);
+    expect(byModel?.snippet).toContain("\u0001sonnet\u0002");
     const hit = coupons.items.find((item) => item.kind === "TASK");
     expect(hit).toMatchObject({
       id: task.id,

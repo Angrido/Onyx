@@ -193,6 +193,8 @@ export class WsHub implements RunEventPublisher {
       if (subscriber.subscriptions.has(channel)) continue;
       fresh.push(channel);
       const cursor = since[channel];
+      if (cursor === undefined && channel.startsWith("pty:"))
+        this.flushOutput(channel.slice("pty:".length));
       subscriber.subscriptions.set(channel, {
         lastSentSeq: cursor ?? this.channelStates.get(channel)?.lastSeq ?? 0,
         replaying: cursor !== undefined,
@@ -209,7 +211,6 @@ export class WsHub implements RunEventPublisher {
     });
     for (const channel of fresh) {
       if (since[channel] !== undefined) continue;
-      if (channel.startsWith("pty:")) this.flushOutput(channel.slice("pty:".length));
       for (const { prefix, provider } of this.snapshotProviders) {
         if (!channel.startsWith(prefix)) continue;
         for (const message of provider(channel)) this.send(subscriber, message);

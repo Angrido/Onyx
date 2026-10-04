@@ -48,7 +48,7 @@ export class SearchService {
       }),
       this.prisma.agentRun.findMany({
         where: { id: { in: ids("RUN") } },
-        select: { id: true, status: true },
+        select: { id: true, status: true, taskId: true },
       }),
       this.prisma.fileNode.findMany({
         where: { id: { in: ids("FILE") } },
@@ -57,7 +57,8 @@ export class SearchService {
     ]);
     const names = new Map(projects.map((project) => [project.id, project.name]));
     const taskStatus = new Map(tasks.map((task) => [task.id, task.status]));
-    const runStatus = new Map(runs.map((run) => [run.id, run.status]));
+    const runOf = new Map(runs.map((run) => [run.id, run]));
+    const taskSeen = new Set<string>();
     const paths = new Map(files.map((file) => [file.id, file.relPath]));
     const items: SearchResult[] = [];
     for (const hit of hits) {
@@ -69,21 +70,20 @@ export class SearchService {
         projectId: hit.projectId,
         projectName,
         title: hit.title,
-        snippet: hit.kind === "FILE" ? "" : hit.snippet,
+        snippet: hit.kind !== "FILE" && hit.snippet.includes(SEARCH_MARK_START) ? hit.snippet : "",
       };
-      if (hit.kind === "TASK" && taskStatus.has(hit.refId))
+      const run = hit.kind === "RUN" ? runOf.get(hit.refId) : undefined;
+      if (hit.kind === "TASK" && taskStatus.has(hit.refId)) {
+        taskSeen.add(hit.refId);
         items.push({
           ...base,
           status: taskStatus.get(hit.refId) ?? null,
           href: `/tasks/${hit.refId}`,
         });
-      else if (hit.kind === "RUN" && runStatus.has(hit.refId))
-        items.push({
-          ...base,
-          status: runStatus.get(hit.refId) ?? null,
-          href: `/runs/${hit.refId}`,
-        });
-      else if (hit.kind === "FILE" && paths.has(hit.refId))
+      } else if (run && (base.snippet !== "" || !taskSeen.has(run.taskId))) {
+        if (base.snippet === "") taskSeen.add(run.taskId);
+        items.push({ ...base, status: run.status, href: `/runs/${hit.refId}` });
+      } else if (hit.kind === "FILE" && paths.has(hit.refId))
         items.push({
           ...base,
           status: null,

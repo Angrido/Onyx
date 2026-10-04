@@ -20,6 +20,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 1 | Sprechi di token: mappa tenuta per la sessione, pacchetto non rimandato, telemetria della cache, registro dei risparmi, verifica dei piani sui test già rossi, falsi positivi del guard | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 2 | Limiti di Claude Max (avvisi, task che possono aspettare trattenuti fino al reset), comandi consentiti e workspace proposti dal progetto | **Completata** (manca la conferma del formato dei limiti con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 3 | Agenti in un utente di sistema separato, guard e recinto più precisi con verifica a fine run, *Allow and continue* con regole strette, per task o per agente e con scadenza | **Completata** (manca la prova dello script di sandbox sulla macchina vera, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 4 | Mission control con una scheda per progetto, coda globale con priorità e limite per progetto, griglia degli agenti, notifiche (browser, ntfy, Telegram), ricerca globale, prestazioni con molti progetti | **Completata** (manca la prova delle notifiche push via HTTPS su un telefono vero, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -121,6 +122,17 @@ Dettagli in [docs/operations.md §11](docs/operations.md#11-limiti-dellabbonamen
 - **Recinti**: a fine run Onyx rimette a posto i file degli altri workspace che la run ha cambiato per vie traverse (script, `node -e`…) e lo segnala nel feed.
 
 Dettagli in [docs/operations.md §12](docs/operations.md#12-isolare-gli-agenti).
+
+### Più progetti insieme (2.0, milestone 4)
+
+- **Mission control** è la nuova home: una scheda per progetto con branch, file modificati, commit avanti e indietro, agenti al lavoro e in coda, ultima run e ultimo TDD, spesa e token di oggi e della settimana, approvazioni in attesa e uno stato di salute che dice cosa guardare. Si filtra (al lavoro, da guardare, fermi), si cerca per nome e si ordina per attività, nome o spesa.
+- **Coda globale**: le run in attesa di tutti i progetti stanno in un'unica coda ordinata per priorità; chi aspetta da tempo sale di un livello ogni 30 minuti (regolabile). Dalla home si sposta un task in cima, su o giù, e ogni riga dice perché aspetta. In **Settings → Run queue** si limita quante run può avere un progetto alla volta, in generale o per singolo progetto.
+- **Agent grid**: fino a nove pannelli con run dal vivo o terminali di qualunque progetto. I pannelli fuori vista si mettono in pausa e riprendono dallo stato dello schermo. *Paste* incolla nel terminale titolo, prompt, criteri e file di un task, senza inviarlo.
+- **Notifiche** (tutte spente finché non le accendi, in **Settings → Notifications**): run fallite o in attesa di comandi, approvazioni, budget, limiti di Claude e, se vuoi, ogni run finita. Arrivano nel browser (solo via HTTPS), su ntfy o su Telegram. Onyx invia e basta: non riceve comandi da questi servizi. I token sono cifrati.
+- **Ricerca**: la palette (Ctrl K) cerca nei task, nelle run e nei percorsi dei file di tutti i progetti, accenti compresi.
+- Con 20 progetti, 20.000 run e 2 milioni di righe di token, Mission control risponde in 181 ms (56 ms con git in cache) e Savings in 400 ms (`pnpm --filter @onyx/api bench:telemetry`).
+
+Dettagli in [docs/operations.md §13–15](docs/operations.md#13-coda-e-limite-per-progetto).
 
 ### Comandi bloccati
 

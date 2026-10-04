@@ -37,6 +37,12 @@ Scala di gravità:
 | A8 | Corretto nella milestone 3: recinto su cartelle e glob e verifica a fine run (ADR-063) |
 | A9, A15 | Corretti nella milestone 3: regole strette, sicure per lista, per task o agente e con scadenza; rifiuti distruttivi nell'hook (ADR-062) |
 | B13–B16 | Corretti nella milestone 3: rifiuto in caso di dubbio, `tee <`/`touch -r`, sottocomandi git, glob del tool Grep |
+| A13 | Corretto nella milestone 4 (`6520ed9`): reindicizzazione solo dopo run non isolate che scrivono, salvataggio incrementale (file e archi invariati non si toccano). Il calcolo delle metriche resta nel thread principale |
+| A14, M24 | Corretti nella milestone 4 (`6520ed9`): telemetria del router e Savings in SQL su 90 e 30 giorni, cache fino alla run successiva |
+| M6 | Corretto nella milestone 4 (`6520ed9`): passaggio di stato atomico e coda che rifiuta i duplicati |
+| M20–M23 | Corretti nella milestone 4 (`6520ed9`): al massimo otto indici in memoria, riepilogo della run nelle liste, hub WebSocket con buffer in byte e output raggruppato, item normalizzati salvati con gli eventi |
+| B20 | Corretto nella milestone 4 (`6520ed9`): migrazione `20261013090000_performance`, più l'indice `TokenLog(runId, scope)` |
+| A12 | Corretto nella milestone 4 (`5381f6e`): un terminale ripreso che esce prima di `SessionStart` (o fallisce entro 5 s senza input) chiude la sua sessione (ADR-066) |
 | Altri | Aperti; assegnati alle milestone di `docs/roadmap-2.0.md` |
 
 ## 2. Metodo

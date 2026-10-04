@@ -68,7 +68,7 @@ function TaskContextPicker({ terminal }: { terminal: TerminalDto }) {
     onError: (error) => toast.error(errorMessage(error)),
   });
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+    <div className="flex min-w-0 flex-1 basis-full items-center gap-1.5 sm:basis-auto">
       <Select
         aria-label={`Task to paste into ${terminal.workspaceName}`}
         className="h-8 min-w-0 flex-1 text-xs"
@@ -118,12 +118,18 @@ function TerminalPanelBody({ workspace, visible }: { workspace: WorkspaceRef; vi
   );
   const open = useMutation({
     mutationFn: () => api.post<TerminalDto>(`/api/workspaces/${workspace.id}/terminal`, {}),
-    onSuccess: store,
+    onSuccess: (next) => {
+      store(next);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.queue });
+    },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const close = useMutation({
     mutationFn: () => api.delete<TerminalDto>(`/api/terminals/${terminal?.id ?? ""}`),
-    onSuccess: store,
+    onSuccess: (next) => {
+      store(next);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.queue });
+    },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const running = terminal?.state === "running";
@@ -250,7 +256,7 @@ function Panel({
                 .filter((entry) => entry.projectName === project)
                 .map((entry) => (
                   <option key={entry.id} value={`terminal:${entry.id}`}>
-                    {entry.name}
+                    {entry.projectName} · {entry.name}
                   </option>
                 ))}
             </optgroup>
@@ -328,7 +334,7 @@ export function AgentGrid({
   }, [count, panels, restored]);
 
   const sizes = useMemo(() => Array.from({ length: MAX_PANELS }, (_, index) => index + 1), []);
-  const running = queue.active.length;
+  const running = Math.min(queue.maxConcurrent, queue.active.length + queue.reservedSlots);
 
   return (
     <div className="space-y-4">
