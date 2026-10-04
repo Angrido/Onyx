@@ -130,7 +130,7 @@ export function BackupsCard({ initial }: { initial: BackupListResponse }) {
   });
 
   return (
-    <Card>
+    <Card id="backups">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <DatabaseBackup className="size-4 text-primary" />

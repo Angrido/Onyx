@@ -327,7 +327,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
   const lastTest = data.lastTest;
 
   return (
-    <Card data-testid="claude-account">
+    <Card id="claude" data-testid="claude-account">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="size-4 text-primary" />

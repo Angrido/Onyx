@@ -469,7 +469,6 @@ export function RoadmapBoard({
         </span>
       </div>
       {data.generation ? <GenerationBanner generation={data.generation} /> : null}
-      {gitPanel ? <div>{gitPanel}</div> : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {COLUMNS.map((column) => {
           const cards =
@@ -511,6 +510,7 @@ export function RoadmapBoard({
           );
         })}
       </div>
+      {gitPanel ? <div>{gitPanel}</div> : null}
       {data.suggestions.length === 0 && data.tasks.length === 0 && !running ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <GitBranch className="size-4" />

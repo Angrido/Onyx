@@ -44,7 +44,7 @@ export function QueueCard({ initial }: { initial: QueueDto }) {
   }
 
   return (
-    <Card data-testid="queue-card">
+    <Card id="queue" data-testid="queue-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ListOrdered className="size-4 text-primary" />

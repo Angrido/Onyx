@@ -161,7 +161,7 @@ export function BudgetsCard({
   }
 
   return (
-    <Card>
+    <Card id="budgets">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Wallet className="size-4 text-primary" />

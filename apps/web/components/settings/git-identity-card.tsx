@@ -36,7 +36,7 @@ export function GitIdentityCard({ initial }: { initial: GitIdentityDto }) {
   });
 
   return (
-    <Card>
+    <Card id="git-identity">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <GitCommitHorizontal className="size-4 text-primary" />

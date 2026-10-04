@@ -47,7 +47,7 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
   });
 
   return (
-    <Card data-testid="github-account">
+    <Card id="github" data-testid="github-account">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <GitHubMark className="size-4" />

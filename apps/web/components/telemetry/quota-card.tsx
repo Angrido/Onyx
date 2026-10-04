@@ -137,7 +137,13 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
         {quota.windows.length > 0 ? (
           <ul className="space-y-3">
             {quota.windows.map((window) => (
-              <li key={window.type} className={cn("space-y-1.5", window.stale && "opacity-60")}>
+              <li
+                key={window.type}
+                className={cn(
+                  "space-y-1.5",
+                  window.stale && "border-l-2 border-dashed border-border-strong pl-2",
+                )}
+              >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
                   <span className="font-medium text-foreground">
                     {t(quotaWindowLabel(window.type))}

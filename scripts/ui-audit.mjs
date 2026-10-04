@@ -153,6 +153,9 @@ async function main() {
   if (values.lighthouse && !values["no-lighthouse"]) {
     const lighthouse = (await import(join(CACHE, "node_modules", "lighthouse", "core", "index.js")))
       .default;
+    const desktopConfig = (
+      await import(join(CACHE, "node_modules", "lighthouse", "core", "config", "desktop-config.js"))
+    ).default;
     const { launch } = load("chrome-launcher");
     const chrome = await launch({
       chromePath: executablePath,
@@ -160,26 +163,17 @@ async function main() {
     });
     try {
       for (const result of results) {
-        const run = await lighthouse(`${BASE}${result.path}`, {
-          port: chrome.port,
-          output: "json",
-          logLevel: "error",
-          onlyCategories: ["performance", "accessibility", "best-practices"],
-          extraHeaders: { Cookie: cookie },
-          ...(result.device === "desktop"
-            ? {
-                formFactor: "desktop",
-                screenEmulation: {
-                  mobile: false,
-                  width: 1350,
-                  height: 940,
-                  deviceScaleFactor: 1,
-                  disabled: false,
-                },
-                throttlingMethod: "simulate",
-              }
-            : {}),
-        });
+        const run = await lighthouse(
+          `${BASE}${result.path}`,
+          {
+            port: chrome.port,
+            output: "json",
+            logLevel: "error",
+            onlyCategories: ["performance", "accessibility", "best-practices"],
+            extraHeaders: { Cookie: cookie },
+          },
+          result.device === "desktop" ? desktopConfig : undefined,
+        );
         const categories = run?.lhr.categories ?? {};
         result.scores = Object.fromEntries(
           Object.entries(categories).map(([key, category]) => [

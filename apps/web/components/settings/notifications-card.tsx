@@ -219,7 +219,7 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
   }
 
   return (
-    <Card data-testid="notifications-card">
+    <Card id="notifications" data-testid="notifications-card">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Bell className="size-4 text-primary" />

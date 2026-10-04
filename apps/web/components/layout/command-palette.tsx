@@ -14,6 +14,7 @@ import {
   FileCode2,
   FolderGit2,
   Inbox,
+  Languages,
   LayoutDashboard,
   LayoutGrid,
   ListTodo,
@@ -21,6 +22,7 @@ import {
   PiggyBank,
   Map as MapIcon,
   Play,
+  Plus,
   Route,
   Search,
   Settings,
@@ -32,9 +34,15 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-import { useT } from "@/lib/i18n/client";
+import { storeLocale, useLocale, useT } from "@/lib/i18n/client";
 import { msg } from "@/lib/i18n/core";
-import { isPaletteShortcut, OPEN_PALETTE_EVENT } from "@/lib/palette";
+import {
+  CREATE_LINKS,
+  isPaletteShortcut,
+  OPEN_PALETTE_EVENT,
+  PROJECT_PAGES,
+  SETTINGS_LINKS,
+} from "@/lib/palette";
 import { SEARCH_PREFIX, searchHint, searchMinLength, snippetParts } from "@/lib/search";
 
 const PAGES = [
@@ -106,6 +114,7 @@ const GROUP =
 
 export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
   const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const [open, setOpen] = useState(initiallyOpen);
   const [input, setInput] = useState("");
@@ -237,6 +246,41 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                 </Item>
               ))}
             </Command.Group>
+            <Command.Group heading={t("Create")} className={GROUP}>
+              {CREATE_LINKS.map((link) => (
+                <Item
+                  key={link.id}
+                  value={`create ${link.label} ${t(link.label)}`}
+                  onSelect={() => go(link.href)}
+                  icon={<Plus />}
+                >
+                  {t(link.label)}
+                </Item>
+              ))}
+            </Command.Group>
+            <Command.Group heading={t("Settings")} className={GROUP}>
+              {SETTINGS_LINKS.map((link) => (
+                <Item
+                  key={link.id}
+                  value={`settings ${link.label} ${t(link.label)}`}
+                  onSelect={() => go(link.href)}
+                  icon={<Settings />}
+                >
+                  {t(link.label)}
+                </Item>
+              ))}
+              <Item
+                value="settings language switch english italiano lingua"
+                onSelect={() => {
+                  setOpen(false);
+                  storeLocale(locale === "it" ? "en" : "it");
+                  router.refresh();
+                }}
+                icon={<Languages />}
+              >
+                {locale === "it" ? t("Switch to English") : t("Switch to Italian")}
+              </Item>
+            </Command.Group>
             {projects.data && projects.data.items.length > 0 ? (
               <Command.Group heading={t("Projects")} className={GROUP}>
                 {projects.data.items.map((project) => (
@@ -259,6 +303,18 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                     {t("Roadmap")} · {project.name}
                   </Item>
                 ))}
+                {projects.data.items.flatMap((project) =>
+                  PROJECT_PAGES.map((page) => (
+                    <Item
+                      key={`${project.id}${page.suffix}`}
+                      value={`${page.suffix.slice(1)} ${t(page.label)} ${project.name} ${project.id}`}
+                      onSelect={() => go(`/projects/${project.id}${page.suffix}`)}
+                      icon={<FolderGit2 />}
+                    >
+                      {t(page.label)} · {project.name}
+                    </Item>
+                  )),
+                )}
               </Command.Group>
             ) : null}
             {tasks.data && tasks.data.items.length > 0 ? (
