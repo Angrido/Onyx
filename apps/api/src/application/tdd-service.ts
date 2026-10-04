@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import type { z } from "zod";
 import type { AppConfig } from "../config";
 import { raiseTier, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import { isActive } from "../domain/task-state";
+import { baselineKey, baselineLabel, ignoredNote, splitBaseline } from "../domain/tdd/baseline";
 import { buildDigest, DIGEST_BUDGET_TOKENS } from "../domain/tdd/digest";
 import { commandFailure, parseLintOutput, parseTypecheckOutput } from "../domain/tdd/gates";
 import {
@@ -98,6 +100,15 @@ interface Evaluation {
   noTests: boolean;
 }
 
+type CommandTarget = Pick<
+  ActiveLoop,
+  "id" | "root" | "testTimeoutSec" | "aborted" | "session" | "output"
+>;
+
+export interface TddStartOptions {
+  ignoreFailures?: readonly string[];
+}
+
 interface ActiveLoop {
   id: string;
   taskId: string;
@@ -128,6 +139,8 @@ interface ActiveLoop {
   violations: number;
   finished: boolean;
   done: Promise<void>;
+  baseline: ReadonlySet<string>;
+  ignoredLabels: Map<string, string>;
 }
 
 const OUTPUT_TAIL_CHARS = 256_000;
@@ -308,7 +321,12 @@ export class TddService {
     return toLoopDto(row, this.active.get(row.id)?.phase ?? null);
   }
 
-  async start(taskId: string, input: StartInput, actor: string): Promise<TddLoopDto> {
+  async start(
+    taskId: string,
+    input: StartInput,
+    actor: string,
+    options: TddStartOptions = {},
+  ): Promise<TddLoopDto> {
     const { prisma, scheduler } = this.deps;
     if (this.stopped) throw conflict("Onyx is shutting down");
     const { task, workspace } = await this.loadTask(taskId);
@@ -443,6 +461,8 @@ export class TddService {
         violations: 0,
         finished: false,
         done: Promise.resolve(),
+        baseline: new Set(options.ignoreFailures ?? []),
+        ignoredLabels: new Map(),
       };
       this.active.set(loopId, loop);
       loop.done = this.drive(loop);
@@ -584,9 +604,10 @@ export class TddService {
           return await this.finish(
             loop,
             "GREEN",
-            attempts === 0
+            (attempts === 0
               ? "Already green: tests and gates passed before any fix"
-              : `Green after ${attempts} fix attempt${attempts === 1 ? "" : "s"}`,
+              : `Green after ${attempts} fix attempt${attempts === 1 ? "" : "s"}`) +
+              ignoredNote([...loop.ignoredLabels.values()]),
           );
         }
 
@@ -785,11 +806,17 @@ export class TddService {
           passedIds: report?.passedIds ?? [],
         };
       }
-      if (report.failed > 0 || result.exitCode !== 0) {
+      const tolerated =
+        scope === "full" && report.failures.length > 0
+          ? this.tolerate(loop, report.failures)
+          : null;
+      if ((report.failed > 0 || result.exitCode !== 0) && tolerated?.kept.length !== 0) {
         const failures =
-          report.failures.length > 0
-            ? report.failures
-            : [commandFailure(STAGE_LABEL[scope], result.output, result.exitCode, loop.paths)];
+          tolerated !== null
+            ? tolerated.kept
+            : report.failures.length > 0
+              ? report.failures
+              : [commandFailure(STAGE_LABEL[scope], result.output, result.exitCode, loop.paths)];
         return {
           ...base,
           stage: scope,
@@ -829,9 +856,11 @@ export class TddService {
         gate === "typecheck"
           ? parseTypecheckOutput(result.output, loop.paths)
           : parseLintOutput(result.output, loop.paths);
+      const kept = parsed.length > 0 && !result.timedOut ? this.tolerate(loop, parsed).kept : null;
+      if (kept !== null && kept.length === 0) continue;
       const failures =
-        parsed.length > 0 && !result.timedOut
-          ? parsed
+        kept !== null
+          ? kept
           : [
               commandFailure(
                 STAGE_LABEL[gate],
@@ -871,7 +900,69 @@ export class TddService {
     };
   }
 
-  private runCommand(loop: ActiveLoop, label: string, line: string): Promise<CommandResult> {
+  private tolerate(
+    loop: ActiveLoop,
+    failures: readonly TestFailure[],
+  ): { kept: TestFailure[]; ignored: TestFailure[] } {
+    const split = splitBaseline(failures, loop.baseline, loop.relatedFiles);
+    for (const failure of split.ignored)
+      loop.ignoredLabels.set(baselineKey(failure), baselineLabel(failure));
+    if (split.ignored.length > 0)
+      this.write(
+        loop,
+        `${YELLOW}↷ Ignoring ${split.ignored.length} failure(s) that already failed before this work${RESET}\r\n`,
+      );
+    return split;
+  }
+
+  async baseline(taskId: string, root: string): Promise<string[]> {
+    const { workspace } = await this.loadTask(taskId);
+    const facts = await this.projectFacts(root);
+    const runner = workspace.testRunner ?? detectRunner(facts);
+    if (!runner) return [];
+    const base = this.baseCommand(runner, workspace.testCommand, facts.binaries);
+    const id = `baseline-${randomUUID()}`;
+    const directory = this.loopDirectory(id);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const target: CommandTarget = {
+      id,
+      root,
+      testTimeoutSec: 600,
+      aborted: false,
+      session: null,
+      output: new TextTail(OUTPUT_TAIL_CHARS),
+    };
+    const paths = new PathResolver([root, ...this.realRoot(root)]);
+    const keys = new Set<string>();
+    try {
+      const reportPath = join(directory, "report.json");
+      await this.runCommand(
+        target,
+        "baseline test suite",
+        testCommandLine({ runner, base, scope: "full", files: [], reportPath }),
+      );
+      const raw = await readFile(reportPath, "utf8")
+        .then((text) => JSON.parse(text) as unknown)
+        .catch(() => null);
+      const report = raw === null ? null : parseJsonReport(raw, paths);
+      for (const failure of report?.failures ?? []) keys.add(baselineKey(failure));
+      if (facts.files.has("tsconfig.json")) {
+        const result = await this.runCommand(
+          target,
+          "baseline type check",
+          defaultTypecheckCommand(facts.binaries),
+        );
+        if (result.exitCode !== 0 && !result.timedOut)
+          for (const failure of parseTypecheckOutput(result.output, paths))
+            keys.add(baselineKey(failure));
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+    return [...keys];
+  }
+
+  private runCommand(loop: CommandTarget, label: string, line: string): Promise<CommandResult> {
     const started = Date.now();
     this.write(loop, `\r\n${ACCENT}▶ ${label}${RESET}  ${line}\r\n`);
     let output = "";
@@ -1220,7 +1311,7 @@ export class TddService {
     return sources;
   }
 
-  private write(loop: ActiveLoop, data: string): void {
+  private write(loop: Pick<ActiveLoop, "id" | "output">, data: string): void {
     loop.output.append(data);
     this.deps.hub.publishPtyOutput(terminalIdOf(loop.id), data);
     void appendFile(join(this.loopDirectory(loop.id), "loop.log"), data).catch(() => undefined);

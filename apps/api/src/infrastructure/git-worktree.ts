@@ -110,6 +110,12 @@ export class GitRepo {
     else await this.run(["worktree", "add", "-b", branch, path, from]);
   }
 
+  async addDetachedWorktree(path: string, commit: string): Promise<void> {
+    await mkdir(dirname(path), { recursive: true });
+    await this.run(["worktree", "prune"]);
+    await this.run(["worktree", "add", "--detach", path, commit]);
+  }
+
   async removeWorktree(path: string): Promise<void> {
     await this.run(["worktree", "remove", "--force", path]).catch(() => undefined);
     await rm(path, { recursive: true, force: true });

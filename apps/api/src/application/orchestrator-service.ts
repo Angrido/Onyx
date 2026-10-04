@@ -107,6 +107,7 @@ interface Driver {
   wake: () => void;
   mergeChain: Promise<unknown>;
   done: Promise<void>;
+  baselines: Map<string, Promise<string[]>>;
 }
 
 const execFileAsync = promisify(execFile);
@@ -749,6 +750,7 @@ export class OrchestratorService {
       wake: () => undefined,
       mergeChain: Promise.resolve(),
       done: Promise.resolve(),
+      baselines: new Map(),
     };
     driver.wake = () => {
       const current = wake;
@@ -868,6 +870,14 @@ export class OrchestratorService {
       if (await repo.branchExists(branch)) await repo.run(["branch", "-D", branch]);
       await repo.addWorktree(path, branch, workBranch);
       const excludes = await linkDependencies(repo.root, path);
+      const baseline = orchestration.verify
+        ? this.baselineFor(
+            driver,
+            orchestration,
+            taskId,
+            (await repo.run(["rev-parse", "HEAD"], { cwd: path })).trim(),
+          )
+        : Promise.resolve([]);
       await prisma.task.update({
         where: { id: taskId },
         data: { worktreePath: path, branchName: branch, status: "QUEUED" },
@@ -951,6 +961,7 @@ export class OrchestratorService {
               lint: false,
             },
             "orchestrator",
+            { ignoreFailures: await baseline },
           );
           const final = await tdd.settled(loop.id);
           if (driver.cancelled) return;
@@ -967,6 +978,46 @@ export class OrchestratorService {
     } catch (error) {
       if (driver.cancelled) return;
       await this.setNode(taskId, "failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private baselineFor(
+    driver: Driver,
+    orchestration: Orchestration,
+    taskId: string,
+    commit: string,
+  ): Promise<string[]> {
+    const cached = driver.baselines.get(commit);
+    if (cached) return cached;
+    const work = this.computeBaseline(orchestration, taskId, commit).catch((error: unknown) => {
+      this.deps.logger.warn(
+        { err: error, orchestrationId: orchestration.id, commit },
+        "Could not run the tests on the starting commit",
+      );
+      return [];
+    });
+    driver.baselines.set(commit, work);
+    return work;
+  }
+
+  private async computeBaseline(
+    orchestration: Orchestration,
+    taskId: string,
+    commit: string,
+  ): Promise<string[]> {
+    const repo = await this.repoOf(orchestration.projectId);
+    const path = join(
+      this.worktreesRoot(orchestration.projectId),
+      orchestration.id,
+      `_baseline-${commit.slice(0, 12)}`,
+    );
+    await repo.removeWorktree(path);
+    await repo.addDetachedWorktree(path, commit);
+    try {
+      await linkDependencies(repo.root, path);
+      return await this.deps.tdd.baseline(taskId, path);
+    } finally {
+      await repo.removeWorktree(path);
     }
   }
 
@@ -1057,6 +1108,14 @@ export class OrchestratorService {
       await this.publish(id);
       const defaults = await tdd.defaults(orchestration.rootTaskId);
       if (defaults.runner) {
+        const ignoreFailures = orchestration.baseCommit
+          ? await this.baselineFor(
+              driver,
+              orchestration,
+              orchestration.rootTaskId,
+              orchestration.baseCommit,
+            )
+          : [];
         const loop = await tdd.start(
           orchestration.rootTaskId,
           {
@@ -1068,6 +1127,7 @@ export class OrchestratorService {
             relatedFiles: [],
           },
           "orchestrator",
+          { ignoreFailures },
         );
         const final = await tdd.settled(loop.id);
         if (driver.cancelled) return;

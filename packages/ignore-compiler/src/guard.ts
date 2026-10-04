@@ -73,7 +73,44 @@ const SCRIPTED_COMMANDS = new Set(["sed", "awk", "gawk"]);
 const SEARCH_COMMANDS = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack", "git"]);
 const WRAPPERS = new Set(["sudo", "env", "nice", "time", "xargs", "command", "exec"]);
 const GLOB_CHARS = /[*?[{]/;
-const OBFUSCATION = /\$\(|`|\b(bash|sh|zsh|dash|eval|xargs|python3?|node|perl|ruby)\b/;
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+const INTERPRETERS = new Set(["python", "python3", "node", "perl", "ruby", "php", "deno", "bun"]);
+const CODE_FLAGS = new Set(["-c", "-e", "-E", "--eval", "-r", "-p", "--print"]);
+const SUBSTITUTIONS = [/\$\(([^()]*)\)/g, /`([^`]*)`/g];
+const STRING_LITERAL = /'([^'\n]*)'|"([^"\n]*)"/g;
+const MAX_NESTING = 3;
+const SEARCH_VALUE_FLAGS = new Set([
+  "-A",
+  "-B",
+  "-C",
+  "-m",
+  "-d",
+  "-D",
+  "-t",
+  "-T",
+  "-g",
+  "-j",
+  "-M",
+  "-E",
+  "--max-count",
+  "--after-context",
+  "--before-context",
+  "--context",
+  "--include",
+  "--exclude",
+  "--exclude-dir",
+  "--type",
+  "--type-not",
+  "--glob",
+  "--iglob",
+  "--threads",
+  "--max-columns",
+  "--encoding",
+  "--color",
+  "--colour",
+]);
+const TREE_VALUE_FLAGS = new Set(["-L", "-P", "-I", "-o", "--filelimit", "--charset", "--timefmt"]);
+const FIND_LEADING_FLAGS = /^-(?:[HLP]|O\d*|D)$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -186,7 +223,7 @@ export class PathGuard {
     return ALLOW;
   }
 
-  evaluateCommand(command: string, cwd: string): GuardDecision {
+  evaluateCommand(command: string, cwd: string, depth = 0): GuardDecision {
     let entries: ParseEntry[];
     try {
       entries = parse(separateLines(command), (name) => `$${name}`);
@@ -230,7 +267,92 @@ export class PathGuard {
     }
     const last = flush();
     if (!last.allowed) return last;
-    return OBFUSCATION.test(command) ? this.sweep(command, cwd) : ALLOW;
+    if (depth >= MAX_NESTING) return ALLOW;
+    for (const pattern of SUBSTITUTIONS) {
+      for (const match of command.matchAll(pattern)) {
+        const decision = this.evaluateCommand(match[1] ?? "", cwd, depth + 1);
+        if (!decision.allowed) return decision;
+      }
+    }
+    return /\bxargs\b/.test(command) ? this.sweep(command, cwd) : ALLOW;
+  }
+
+  private nested(program: string, rest: readonly string[], cwd: string): GuardDecision {
+    if (program === "eval") return this.evaluateCommand(rest.join(" "), cwd, MAX_NESTING - 1);
+    const flag = rest.findIndex((word) => CODE_FLAGS.has(word) || /^-[a-z]*c$/.test(word));
+    if (flag === -1) return ALLOW;
+    const code = rest[flag + 1] ?? "";
+    if (SHELLS.has(program)) return this.evaluateCommand(code, cwd, MAX_NESTING - 1);
+    for (const match of code.matchAll(STRING_LITERAL)) {
+      const literal = match[1] ?? match[2] ?? "";
+      if (literal.length === 0 || /\s/.test(literal) || !/[./]/.test(literal)) continue;
+      const decision = this.check(literal, cwd, "Bash");
+      if (!decision.allowed) return decision;
+    }
+    return ALLOW;
+  }
+
+  private searchTargets(rest: readonly string[]): string[] {
+    const targets: string[] = [];
+    let patternGiven = false;
+    let positional = false;
+    for (let index = 0; index < rest.length; index += 1) {
+      const word = rest[index] ?? "";
+      if (!positional && word === "--") {
+        positional = true;
+        continue;
+      }
+      if (!positional && word.startsWith("-") && word.length > 1) {
+        if (word === "-e" || word === "--regexp") {
+          patternGiven = true;
+          index += 1;
+        } else if (word === "-f" || word === "--file") {
+          patternGiven = true;
+          targets.push(rest[index + 1] ?? "");
+          index += 1;
+        } else if (word.startsWith("--regexp=")) {
+          patternGiven = true;
+        } else if (word.startsWith("--file=")) {
+          patternGiven = true;
+          targets.push(word.slice("--file=".length));
+        } else if (SEARCH_VALUE_FLAGS.has(word)) {
+          index += 1;
+        }
+        continue;
+      }
+      if (!patternGiven) {
+        patternGiven = true;
+        continue;
+      }
+      targets.push(word);
+    }
+    return targets;
+  }
+
+  private findTargets(rest: readonly string[]): string[] {
+    let index = 0;
+    while (index < rest.length && FIND_LEADING_FLAGS.test(rest[index] ?? "")) index += 1;
+    const targets: string[] = [];
+    for (; index < rest.length; index += 1) {
+      const word = rest[index] ?? "";
+      if (word.startsWith("-") || word === "(" || word === "!" || word === "\\(") break;
+      targets.push(word);
+    }
+    return targets;
+  }
+
+  private treeTargets(rest: readonly string[]): string[] {
+    const targets: string[] = [];
+    for (let index = 0; index < rest.length; index += 1) {
+      const word = rest[index] ?? "";
+      if (TREE_VALUE_FLAGS.has(word)) {
+        index += 1;
+        continue;
+      }
+      if (word.startsWith("-")) continue;
+      targets.push(word);
+    }
+    return targets;
   }
 
   private inEach(
@@ -265,8 +387,17 @@ export class PathGuard {
       index += 1;
     }
     const program = (words[index] ?? "").split("/").pop() ?? "";
-    let args = words.slice(index + 1).filter((word) => !word.startsWith("-"));
-    if (SCRIPTED_COMMANDS.has(program) || (SEARCH_COMMANDS.has(program) && program !== "git")) {
+    const rest = words.slice(index + 1);
+    if (SHELLS.has(program) || INTERPRETERS.has(program) || program === "eval")
+      return this.nested(program, rest, cwd);
+    let args = rest.filter((word) => !word.startsWith("-"));
+    if (SEARCH_COMMANDS.has(program) && program !== "git") {
+      args = this.searchTargets(rest);
+    } else if (program === "find") {
+      args = this.findTargets(rest);
+    } else if (program === "tree") {
+      args = this.treeTargets(rest);
+    } else if (SCRIPTED_COMMANDS.has(program)) {
       args = args.slice(1);
     } else if (COPY_COMMANDS.has(program)) {
       args = args.slice(0, -1);
