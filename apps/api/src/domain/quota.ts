@@ -47,7 +47,7 @@ export function windowLevel(window: QuotaWindow, settings: QuotaSettings): Quota
   if (window.status === "rejected") return "LIMITED";
   const utilization = window.utilization;
   if (utilization !== null && utilization >= settings.holdAt) return "HOLDING";
-  if (window.status === "allowed_warning") return "WARNING";
+  if (window.status === "allowed_warning") return utilization === null ? "HOLDING" : "WARNING";
   if (utilization !== null && utilization >= settings.warnAt) return "WARNING";
   return "OK";
 }
@@ -138,9 +138,11 @@ export function quotaMessage(
     case "WARNING":
       return `Getting close to the ${name}. Runs continue.`;
     case "HOLDING":
-      return settings.deferEnabled
-        ? `Almost at the ${name}: ${deferred} ${deferred === 1 ? "task that can wait is" : "tasks that can wait are"} held until it resets.`
-        : `Almost at the ${name}. Holding tasks that can wait is off.`;
+      if (!settings.deferEnabled)
+        return `Almost at the ${name}. Holding tasks that can wait is off.`;
+      return deferred === 0
+        ? `Almost at the ${name}: tasks that can wait will be held until it resets.`
+        : `Almost at the ${name}: ${deferred} ${deferred === 1 ? "task that can wait is" : "tasks that can wait are"} held until it resets.`;
     case "LIMITED":
       return `The ${name} is reached: queued runs wait until it resets.`;
   }

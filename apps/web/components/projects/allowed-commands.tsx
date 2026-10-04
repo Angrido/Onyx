@@ -64,7 +64,7 @@ function StackSuggestions({
       <ul className="space-y-1">
         {stack.commands.map((command) => (
           <li key={command.rule}>
-            <label className="flex min-h-6 items-center gap-2.5">
+            <label className="flex min-h-6 flex-wrap items-center gap-x-2.5 gap-y-0.5">
               {command.allowed ? (
                 <Check className="size-4 text-success" aria-label="Already allowed" />
               ) : (
@@ -80,14 +80,16 @@ function StackSuggestions({
                   }}
                 />
               )}
-              <span className="font-mono">{command.command}</span>
+              <span className="whitespace-nowrap font-mono">{command.command}</span>
               {command.risky ? (
-                <span className="inline-flex items-center gap-1 text-warning">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap text-warning">
                   <TriangleAlert className="size-3" />
                   runs third-party code
                 </span>
               ) : null}
-              <span className="min-w-0 truncate text-muted-foreground">{command.reason}</span>
+              <span className="w-full min-w-0 truncate pl-6.5 text-muted-foreground sm:w-auto sm:flex-1 sm:pl-0">
+                {command.reason}
+              </span>
             </label>
           </li>
         ))}

@@ -108,7 +108,7 @@ function QuotaIndicator({ compact }: { compact: boolean }) {
         href="/telemetry#quota"
         aria-label={label}
         title={label}
-        data-testid="quota-indicator"
+        data-testid="quota-indicator-compact"
         className={cn("rounded-md p-1.5 min-[400px]:p-2", QUOTA_TEXT[style.tone])}
       >
         <Gauge className="size-4" />

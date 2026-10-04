@@ -192,3 +192,15 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 | 1.7 Registro dei risparmi | Fatto | Strumento |
 
 Da verificare con Claude reale (lo fai tu, vedi il riassunto): una ripresa dopo aver modificato dei file deve risultare *Read from the cache*; se compare spesso *Unexplained*, Claude Code cambia il proprio prompt di sistema tra le riprese e il guadagno della 1.2 è minore.
+
+### Milestone 2 — esito
+
+| Voce | Stato | Risparmio |
+|---|---|---|
+| 2.1 Quota delle finestre | Fatta (ADR-058): parser tollerante, card in Telemetry, indicatore laterale, voce nel feed. Lo stub la simula con `CLAUDE_STUB_RATE_LIMIT` invece dello scenario `[stub:rate-limit]` previsto, perché così i test cambiano il limite tra una run e l'altra | **Misurato**: run fermate dal limite (`AgentRun.quotaLimited`) in Savings |
+| 2.2 Avvisi | Fatta: avviso all'80%, attesa al 90% (al posto del secondo avviso al 95%, perché da lì in poi l'avviso serve solo se trattiene qualcosa), entrambi modificabili | — |
+| 2.3 Rinvio dei task non urgenti | Fatta: "Can wait", timer al reset, scadenza dei limiti senza reset, *Resume now* | **Misurato**: run rimandate e partite dopo il reset (`AgentRun.quotaDeferred`); sposta la spesa, nessun token risparmiato dichiarato |
+| 2.4 Comandi per lo stack | Fatta (ADR-059) | **Stimato su dati misurati**: calo dei token delle run di continuazione rispetto ai 30 giorni precedenti |
+| 2.5 Workspace dalla struttura | Fatta (ADR-059, chiude M30) | Non quantificato in Savings: il guadagno passa per pacchetti più mirati e quindi entra nella riga del contesto Onyx. La misura prevista (quota di task "Auto" finiti nel workspace di default) resta da aggiungere |
+
+Da verificare con Claude reale: che `rate_limit_event` arrivi sul tuo account e con quali campi. La card *Claude subscription limits* deve passare da *Not reported* a un valore dopo la prima run.

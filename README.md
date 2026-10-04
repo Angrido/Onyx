@@ -18,6 +18,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 7 | Hardening: token cifrati, backup e ripristino testati, aggiornamento e verifica di Claude Code, firme di movimento, accessibilità, palette dei comandi, Lighthouse ≥ 90 | **Completata** (manca solo la registrazione delle trascrizioni reali, vedi `architecture.md` §16) |
 | 2.0 · 0 | Audit (`docs/audit-2.0.md`), correzione dei bug critici, piano della 2.0 (`docs/roadmap-2.0.md`) | **Completata** |
 | 2.0 · 1 | Sprechi di token: mappa tenuta per la sessione, pacchetto non rimandato, telemetria della cache, registro dei risparmi, verifica dei piani sui test già rossi, falsi positivi del guard | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 2 | Limiti di Claude Max (avvisi, task che possono aspettare trattenuti fino al reset), comandi consentiti e workspace proposti dal progetto | **Completata** (manca la conferma del formato dei limiti con Claude reale, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -102,6 +103,15 @@ La pagina **Savings** lo dice con un verdetto e separa ciò che è misurato da c
 - Nei piani multi-agente, i test già rossi prima del lavoro non fanno fallire i nodi: Onyx esegue la suite sul commit di partenza (senza token) e la verifica del nodo li ignora, a meno che non siano test dei file del nodo. Il messaggio dice quali sono stati ignorati.
 
 Dettagli in [docs/operations.md §10](docs/operations.md#10-il-risparmio-di-token-funziona).
+
+### Limiti di Claude Max e progetti nuovi (2.0, milestone 2)
+
+- Durante le run Claude Code riporta quanto è usato delle finestre dell'abbonamento (5 ore, settimanale). Onyx lo mostra in **Telemetry → Claude subscription limits** e, quando ci si avvicina, nella barra laterale.
+- Un task marcato **Can wait** (alla creazione o nella sua pagina) resta in coda quando la finestra supera la soglia di attesa (default 90%) e parte da solo al reset; gli altri partono comunque. Al limite raggiunto aspetta tutta la coda. *Resume now* sblocca a mano, per esempio dopo aver cambiato account.
+- Registrando una cartella, **Preview** propone i workspace dalla struttura reale (`apps/*`, `packages/*`, `src/*`, `prisma`, `deploy`, `Dockerfile`…): si tolgono quelli che non servono prima di confermare. Anche l'import da GitHub li usa.
+- La pagina del progetto propone i comandi precisi per lo stack rilevato (Node con il suo gestore e gli script, Python, Go, Rust, make, Docker). Install e build di immagini sono segnalati e non preselezionati; gli interpreti non vengono mai proposti.
+
+Dettagli in [docs/operations.md §11](docs/operations.md#11-limiti-dellabbonamento-claude).
 
 ### Comandi bloccati
 

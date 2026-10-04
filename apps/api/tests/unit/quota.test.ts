@@ -31,8 +31,15 @@ describe("subscription quota levels", () => {
 
   it("warns, holds and limits by utilization and status, taking the worst window", () => {
     expect(quotaLevel([window({ utilization: 0.8 })], DEFAULT_QUOTA_SETTINGS, NOW)).toBe("WARNING");
+    expect(
+      quotaLevel(
+        [window({ status: "allowed_warning", utilization: 0.5 })],
+        DEFAULT_QUOTA_SETTINGS,
+        NOW,
+      ),
+    ).toBe("WARNING");
     expect(quotaLevel([window({ status: "allowed_warning" })], DEFAULT_QUOTA_SETTINGS, NOW)).toBe(
-      "WARNING",
+      "HOLDING",
     );
     expect(
       quotaLevel(
@@ -98,6 +105,9 @@ describe("admission under the quota", () => {
     const windows = [window({ utilization: 0.93 })];
     expect(quotaMessage("HOLDING", windows, DEFAULT_QUOTA_SETTINGS, NOW, 2)).toBe(
       "Almost at the 5-hour window (93% used): 2 tasks that can wait are held until it resets.",
+    );
+    expect(quotaMessage("HOLDING", windows, DEFAULT_QUOTA_SETTINGS, NOW, 0)).toBe(
+      "Almost at the 5-hour window (93% used): tasks that can wait will be held until it resets.",
     );
   });
 });

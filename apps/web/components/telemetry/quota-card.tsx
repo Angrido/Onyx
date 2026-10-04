@@ -104,7 +104,7 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
     onSuccess: (next) => queryClient.setQueryData(queryKeys.quota, next),
     onError: (error) => toast.error(errorMessage(error)),
   });
-  const held = quota.level === "LIMITED" || quota.level === "HOLDING";
+  const held = quota.level === "LIMITED" || (quota.level === "HOLDING" && quota.deferredTasks > 0);
 
   return (
     <Card id="quota" data-testid="quota-card">

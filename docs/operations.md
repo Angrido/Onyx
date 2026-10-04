@@ -200,6 +200,8 @@ Le run di controllo costano quanto costerebbero senza Onyx, quindi l'esperimento
 | Pacchetto non rimandato | Token delle voci del pacchetto già presenti nella conversazione e quindi solo elencate | Stima |
 | Cache dei prompt | Token letti dalla cache riportati da Claude | Misura |
 | Routing dei modelli | Costo contro lo stesso uso sul modello di riferimento | Stima |
+| Comandi consentiti per lo stack | Token delle run di continuazione dopo un comando rifiutato negli ultimi 30 giorni, contro i 30 precedenti: il calo conta come risparmio | Stima su dati misurati |
+| Task trattenuti vicino al limite | Run che hanno aspettato il reset della finestra e run che hanno ricevuto il limite mentre lavoravano. Nessun token: sposta la spesa, non la riduce | Misura |
 
 I token sono *input-equivalenti* sugli ultimi 30 giorni e le righe non si sommano perché i metodi sono diversi.
 
@@ -208,3 +210,27 @@ I token sono *input-equivalenti* sugli ultimi 30 giorni e le righe non si somman
 **Is it working?** elenca i controlli: contesto attivo, quota di run che ricevono un pacchetto, peso delle riletture, stima netta positiva, stato dell'esperimento. Cache dei prompt (misurata) e routing dei modelli (stimato) sono in fondo alla pagina, separati, perché non dipendono dal pacchetto.
 
 Nella console di una run il risparmio diventa netto a fine run (*Net saving*) e una riga indica i file riletti; le run di controllo sono marcate *control*.
+
+## 11. Limiti dell'abbonamento Claude
+
+Con un account Claude Max, Claude Code riporta durante le run lo stato delle finestre dell'abbonamento (`rate_limit_event`): quale finestra (5 ore, settimanale, settimanale Opus o Sonnet), quanto è usata e quando si azzera. Onyx tiene l'ultimo valore di ciascuna, anche dopo un riavvio, e lo mostra in **Telemetry → Claude subscription limits**.
+
+| Stato | Quando | Cosa fa Onyx |
+|---|---|---|
+| *Not reported* | Nessuna run ha ancora riportato i limiti | Niente |
+| *Within limits* | Sotto la soglia di avviso | Niente |
+| *Close to the limit* | Sopra la soglia di avviso (default 80%) | Indicatore nella barra laterale; le run partono |
+| *Holding tasks that can wait* | Sopra la soglia di attesa (default 90%), o avviso di Claude senza percentuale | I task *Can wait* restano in coda fino al reset; gli altri partono |
+| *Limit reached* | Claude ha rifiutato per il limite | Tutta la coda aspetta il reset |
+
+- **Can wait** si sceglie nella finestra *New task* o nella pagina del task, anche mentre è in coda: togliendolo il task parte subito.
+- Al reset Onyx rilancia la coda da solo. Un limite riportato senza ora di reset scade dopo 30 minuti; **Resume now** dimentica subito i limiti noti (utile se il reset è già avvenuto o hai cambiato account). Se il limite c'è ancora, la run successiva lo riporta e la coda torna ad aspettare.
+- Soglie e attesa si cambiano nella stessa card; *Hold tasks marked "can wait"* spento lascia solo gli avvisi.
+- In Savings la riga *Tasks held near the Claude limit* conta le run che hanno aspettato e quelle fermate dal limite negli ultimi 30 giorni.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| Un task resta *Queued* e la pagina dice *Waiting for the Claude subscription limit* | La finestra è sopra la soglia di attesa e il task è *Can wait* | Aspetta il reset indicato, togli *Can wait* o usa *Resume now* |
+| Tutta la coda è ferma con *Limit reached* | Claude ha rifiutato una run per il limite | Aspetta il reset; con un altro account usa *Resume now* |
+| La card resta *Not reported* | La versione di Claude Code non manda l'evento, o non c'è ancora stata una run | Niente da fare: senza dati Onyx non trattiene nulla |
+

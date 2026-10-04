@@ -31,6 +31,7 @@ Scala di gravità:
 | B1 | Corretto nella milestone 1 (`165531d`): `turn_usage` dei sotto-agenti escluso dal contesto della sessione |
 | B26 | Corretto nella milestone 1: aree scorrevoli di Telemetry raggiungibili da tastiera |
 | B27 | Corretto nella milestone 1: modello d'uso dei token e della cache nello stub (`CLAUDE_STUB_USAGE=model`) |
+| M30 | Corretto nella milestone 2: workspace proposti dalla struttura reale alla registrazione (ADR-059) |
 | Altri | Aperti; assegnati alle milestone di `docs/roadmap-2.0.md` |
 
 ## 2. Metodo
