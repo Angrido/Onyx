@@ -145,6 +145,7 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | Piano fermo su *Waiting for a merge decision* | Conflitto di merge | **Approvals**: *Retry the merge* dopo averlo risolto sul branch del task, oppure *Drop this task* |
 | Piano *Stopped* dopo un riavvio | Onyx riavviato durante l'esecuzione | *Resume* nella pagina del piano |
 | `/api/ready` non pronto per `disk` | Meno del 10% di spazio libero | Libera spazio (backup vecchi, worktree di piani annullati in `worktrees/`) |
+| Run fallita con *error_during_execution*, 0 turni, $0.00 | Claude Code non ha più la sessione che Onyx riprende (creata col simulatore, con un'altra HOME o svuotata con `/clear` nel terminale): *No conversation found with session ID* | Nessuna azione: Onyx chiude la sessione persa e rimette in coda la run in una sessione nuova, con la nota di passaggio |
 | `onyx-update` si ferma su *database is locked* | Versione di `onyx-update` precedente al 4 ottobre 2026, che migrava con Onyx acceso | `onyx-stop`, poi `onyx-update`, poi `onyx-start`: il database non è stato toccato e il backup `pre-update` c'è |
 | Console *Offline* | API ferma o WebSocket bloccato dal proxy | `onyx-status`, `onyx-logs`; con Caddy controlla la rotta `/ws` |
 | **Savings**: *Only N of M runs got a context pack* | Progetto non indicizzato o task senza file target | Imposta i *target paths* del task o nomina i file nel prompt; controlla l'indice nella pagina del progetto |

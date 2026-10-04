@@ -49,6 +49,7 @@ export const RawResultEventSchema = z.looseObject({
   structured_output: z.unknown().optional(),
   session_id: z.string().optional(),
   total_cost_usd: z.number().optional(),
+  errors: z.array(z.unknown()).optional(),
   usage: UsageRecordSchema.optional(),
   modelUsage: UsageRecordSchema.optional(),
   model_usage: UsageRecordSchema.optional(),

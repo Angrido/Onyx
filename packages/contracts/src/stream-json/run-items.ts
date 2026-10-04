@@ -92,6 +92,7 @@ export const ResultItemSchema = z.object({
   usage: TokenUsageSchema,
   resultText: z.string().nullable(),
   structuredOutput: z.unknown().optional(),
+  errors: z.array(z.string()).optional(),
   sessionId: z.string().nullable(),
   modelUsage: z.record(z.string(), ModelUsageSchema),
 });

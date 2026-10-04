@@ -14,6 +14,7 @@ import {
 } from "./run-items";
 
 export const MAX_TOOL_RESULT_CHARS = 4_000;
+const MAX_ERROR_CHARS = 1_000;
 export const MAX_TOOL_INPUT_CHARS = 8_000;
 export const ONYX_EVENT_TYPE = "onyx";
 export const ONYX_ITEMS_EVENT_TYPE = "onyx.items";
@@ -213,6 +214,10 @@ function normalizeResult(raw: unknown): RunItem[] {
   const parsed = RawResultEventSchema.safeParse(raw);
   if (!parsed.success) return [{ kind: "unknown", type: "result" }];
   const event = parsed.data;
+  const errors = (event.errors ?? [])
+    .map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)))
+    .filter((entry) => entry.length > 0)
+    .map((entry) => truncateText(entry, MAX_ERROR_CHARS).text);
   const denials: RunItem[] = (event.permission_denials ?? []).map((denial) => ({
     kind: "guard",
     source: "permission",
@@ -237,6 +242,7 @@ function normalizeResult(raw: unknown): RunItem[] {
       ...(event.structured_output === undefined
         ? {}
         : { structuredOutput: event.structured_output }),
+      ...(errors.length > 0 ? { errors } : {}),
       sessionId: event.session_id ?? null,
       modelUsage: toModelUsage(event.modelUsage ?? event.model_usage),
     },

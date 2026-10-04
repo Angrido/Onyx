@@ -1,7 +1,7 @@
 import type { ProcessExit } from "@onyx/agent-runtime";
 import type { RunItemOf } from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
-import { resolveRunOutcome } from "../../src/domain/run-outcome";
+import { lostSession, resolveRunOutcome } from "../../src/domain/run-outcome";
 import {
   decideSession,
   wantsHandoff,
@@ -52,6 +52,23 @@ describe("resolveRunOutcome", () => {
       runStatus: "FAILED",
       errorMessage: "Claude Code finished with error_max_turns",
     });
+  });
+
+  it("explains failed results with the errors Claude Code reports", () => {
+    const lost = {
+      ...result("error_during_execution", true),
+      numTurns: 0,
+      errors: ["No conversation found with session ID: abc"],
+    };
+    expect(resolveRunOutcome(exit({ exitCode: 1 }), lost).errorMessage).toBe(
+      "Claude Code finished with error_during_execution: No conversation found with session ID: abc",
+    );
+    expect(lostSession(lost)).toBe(true);
+    expect(lostSession({ ...lost, errors: [] })).toBe(true);
+    expect(lostSession({ ...lost, errors: ["Invalid agents file"] })).toBe(false);
+    expect(lostSession({ ...lost, numTurns: 3 })).toBe(false);
+    expect(lostSession(result("error_max_turns", true))).toBe(false);
+    expect(lostSession(null)).toBe(false);
   });
 
   it("maps operator aborts and shutdowns", () => {

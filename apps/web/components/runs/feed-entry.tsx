@@ -526,6 +526,15 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
               {entry.item.resultText}
             </p>
           ) : null}
+          {entry.item.errors && entry.item.errors.length > 0 ? (
+            <ul className="mt-2 space-y-1" data-testid="result-errors">
+              {entry.item.errors.map((error, index) => (
+                <li key={index} className="whitespace-pre-wrap font-mono text-xs text-destructive">
+                  {error}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       );
     case "system":

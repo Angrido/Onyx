@@ -166,6 +166,52 @@ describe("task execution", () => {
     });
   });
 
+  it("starts a new session when Claude Code no longer has the one it resumes", async () => {
+    const task = await createTask("First pass [stub:quick]");
+    await runTask(task.id);
+    const first = await waitForTask(task.id, ["COMPLETED"]);
+    const original = first.runs[0] as RunDto;
+
+    await runTask(task.id, { prompt: "Again [stub:lost-session]" });
+    const done = await waitForTask(task.id, ["COMPLETED", "FAILED"]);
+    expect(done.status).toBe("COMPLETED");
+    const [retried, lost] = done.runs as [RunDto, RunDto];
+    expect(lost).toMatchObject({
+      status: "FAILED",
+      resultSubtype: "error_during_execution",
+      numTurns: 0,
+      sessionId: original.sessionId,
+    });
+    expect(lost.errorMessage).toBe(
+      `Claude Code finished with error_during_execution: No conversation found with session ID: ${original.sessionId}`,
+    );
+    const lostItems = await eventItems(lost.id);
+    expect(
+      lostItems.some(
+        (item) =>
+          item.kind === "status" &&
+          item.status === "FAILED" &&
+          (item.message ?? "").endsWith("re-queued in a new one."),
+      ),
+    ).toBe(true);
+
+    expect(retried).toMatchObject({ status: "COMPLETED", prompt: "Again [stub:lost-session]" });
+    expect(retried.sessionId).not.toBe(original.sessionId);
+    const retriedArgs = (
+      await context.container.prisma.agentRun.findUniqueOrThrow({ where: { id: retried.id } })
+    ).args as string[];
+    expect(retriedArgs).not.toContain("--resume");
+    expect(retriedArgs).toContain("--session-id");
+
+    const sessions = await api.get<{ items: SessionDto[] }>(
+      `/api/workspaces/${workspaceId("Frontend")}/sessions`,
+    );
+    expect(sessions.body.items.find((session) => session.id === original.sessionId)).toMatchObject({
+      status: "CLOSED",
+      endReason: "ERROR",
+    });
+  });
+
   it("aborts a running task and kills the agent", async () => {
     const task = await createTask("Long job [stub:hang]");
     await runTask(task.id);

@@ -28,7 +28,7 @@ import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
 import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
-import { resolveRunOutcome } from "../domain/run-outcome";
+import { lostSession, resolveRunOutcome } from "../domain/run-outcome";
 import { shouldEscalate, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import {
   auditReads,
@@ -263,9 +263,14 @@ export class RunExecutor {
     const ctxBaselineTokens =
       prepared.context.baselineTokens > 0 ? prepared.context.baselineTokens : null;
     const outcome = resolveRunOutcome(exit, result);
+    const lostResume = !prepared.sessionIsNew && lostSession(result);
+    const sessionAlive = established && !lostResume;
+    const retryInNewSession = lostResume && !prepared.request.tdd;
     const followUp = prepared.request.tdd
       ? null
-      : await this.escalationFollowUp(prepared, outcome.runStatus, result?.subtype ?? null);
+      : retryInNewSession
+        ? { ...prepared.request, newSession: false }
+        : await this.escalationFollowUp(prepared, outcome.runStatus, result?.subtype ?? null);
     const taskStatus: TaskStatus = followUp
       ? "QUEUED"
       : prepared.request.tdd && outcome.taskStatus !== "CANCELLED"
@@ -275,9 +280,11 @@ export class RunExecutor {
       statusItem(outcome.runStatus, {
         exitCode: exit.exitCode,
         signal: exit.signal,
-        message: followUp
-          ? `${outcome.errorMessage ?? "Run failed"}. Re-queued on a higher tier.`
-          : outcome.errorMessage,
+        message: retryInNewSession
+          ? `${outcome.errorMessage ?? "Run failed"}. Claude Code no longer has this session: re-queued in a new one.`
+          : followUp
+            ? `${outcome.errorMessage ?? "Run failed"}. Re-queued on a higher tier.`
+            : outcome.errorMessage,
       }),
     );
     await writer.flush();
@@ -353,12 +360,12 @@ export class RunExecutor {
             ...(recorder.lastContextTokens > 0
               ? { contextTokens: recorder.lastContextTokens }
               : {}),
-            ...(established
+            ...(sessionAlive
               ? { status: "IDLE" as const }
               : { status: "CLOSED" as const, endReason: "ERROR" as const, endedAt }),
           },
         });
-        if (!established) {
+        if (!sessionAlive) {
           await tx.workspace.updateMany({
             where: { id: session.workspaceId, activeSessionId: session.id },
             data: { activeSessionId: null },

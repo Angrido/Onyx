@@ -145,6 +145,27 @@ describe("normalizeClaudeEvent", () => {
     });
   });
 
+  it("keeps the errors Claude Code reports with a failed result", () => {
+    const [lost] = normalizeClaudeEvent({
+      type: "result",
+      subtype: "error_during_execution",
+      duration_ms: 0,
+      is_error: true,
+      num_turns: 0,
+      session_id: "3f0c6a52-1b7e-4c35-9a59-0d7cf0b8a111",
+      total_cost_usd: 0,
+      errors: ["No conversation found with session ID: 3f0c6a52-1b7e-4c35-9a59-0d7cf0b8a111", ""],
+    });
+    expect(lost).toMatchObject({
+      kind: "result",
+      subtype: "error_during_execution",
+      numTurns: 0,
+      errors: ["No conversation found with session ID: 3f0c6a52-1b7e-4c35-9a59-0d7cf0b8a111"],
+    });
+    const [plain] = normalizeClaudeEvent({ type: "result", subtype: "success" });
+    expect(plain).not.toHaveProperty("errors");
+  });
+
   it("degrades unknown and malformed events to unknown items", () => {
     expect(normalizeClaudeEvent("nope")).toEqual([{ kind: "unknown", type: "invalid" }]);
     expect(normalizeClaudeEvent({ type: "future_event" })).toEqual([

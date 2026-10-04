@@ -1278,6 +1278,35 @@ async function main(): Promise<void> {
       applyLikelyEdits(prompt);
       await replay(renderFixture(scenario, prompt));
       return;
+    case "lost-session":
+      if (flagValue("--resume") !== null) {
+        process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
+        await writeLine(
+          JSON.stringify({
+            type: "result",
+            subtype: "error_during_execution",
+            duration_ms: 0,
+            duration_api_ms: 0,
+            is_error: true,
+            num_turns: 0,
+            stop_reason: null,
+            session_id: sessionId,
+            total_cost_usd: 0,
+            usage: {
+              input_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+              output_tokens: 0,
+            },
+            modelUsage: {},
+            permission_denials: [],
+            errors: [`No conversation found with session ID: ${sessionId}`],
+          }),
+        );
+        process.exit(1);
+      }
+      await replay(renderFixture("quick", prompt));
+      return;
     case "crash":
       await replay([initLine()]);
       process.stderr.write("fatal: simulated crash\n");

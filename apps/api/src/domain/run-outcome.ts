@@ -64,12 +64,15 @@ export function resolveRunOutcome(
       };
     }
     const reported = result.subtype === "success" ? lastLine(result.resultText ?? "") : null;
+    const cause = result.errors?.[0] ?? null;
     return {
       runStatus: "FAILED",
       taskStatus: "FAILED",
       errorMessage: reported
         ? `Claude Code reported an error: ${reported.slice(0, 300)}`
-        : `Claude Code finished with ${result.subtype}`,
+        : cause
+          ? `Claude Code finished with ${result.subtype}: ${cause.slice(0, 300)}`
+          : `Claude Code finished with ${result.subtype}`,
     };
   }
 
@@ -81,4 +84,11 @@ export function resolveRunOutcome(
     taskStatus: "FAILED",
     errorMessage: `Claude Code exited without a result (${exitDescription})${detail ? `: ${detail}` : ""}`,
   };
+}
+
+export function lostSession(result: RunItemOf<"result"> | null): boolean {
+  if (result === null || result.subtype !== "error_during_execution") return false;
+  if ((result.numTurns ?? 0) > 0) return false;
+  const errors = result.errors ?? [];
+  return errors.length === 0 || errors.some((error) => /conversation|session/i.test(error));
 }
