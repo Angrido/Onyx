@@ -34,6 +34,7 @@ export interface TestContextOptions {
   summarizer?: HandoffSummarizer | null;
   sourceEnv?: Record<string, string>;
   checkCli?: boolean;
+  armRandom?: () => number;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -75,6 +76,7 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     classifier: options.classifier ?? null,
     summarizer: options.summarizer ?? null,
     checkCli: options.checkCli ?? false,
+    ...(options.armRandom ? { armRandom: options.armRandom } : {}),
   });
   await container.start();
   const app = await buildApp(container);

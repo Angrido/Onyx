@@ -1,7 +1,15 @@
 import { z } from "zod";
-import { DOMAINS, MODEL_TIERS, RESET_STRATEGIES, RUN_STATUSES, TASK_KINDS } from "./client";
+import {
+  CONTEXT_ARMS,
+  DOMAINS,
+  MODEL_TIERS,
+  RESET_STRATEGIES,
+  RUN_STATUSES,
+  TASK_KINDS,
+} from "./client";
 
 export {
+  CONTEXT_ARMS,
   DOMAINS,
   EMPTY_USAGE,
   MODEL_TIERS,
@@ -14,6 +22,9 @@ export {
   contextTokensOf,
   oneOf,
 } from "./client";
+
+export const ContextArmSchema = z.enum(CONTEXT_ARMS);
+export type ContextArm = z.infer<typeof ContextArmSchema>;
 
 export const DomainSchema = z.enum(DOMAINS);
 export type Domain = z.infer<typeof DomainSchema>;

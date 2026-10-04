@@ -146,15 +146,41 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | Piano *Stopped* dopo un riavvio | Onyx riavviato durante l'esecuzione | *Resume* nella pagina del piano |
 | `/api/ready` non pronto per `disk` | Meno del 10% di spazio libero | Libera spazio (backup vecchi, worktree di piani annullati in `worktrees/`) |
 | Console *Offline* | API ferma o WebSocket bloccato dal proxy | `onyx-status`, `onyx-logs`; con Caddy controlla la rotta `/ws` |
+| **Savings**: *Only N of M runs got a context pack* | Progetto non indicizzato o task senza file target | Imposta i *target paths* del task o nomina i file nel prompt; controlla l'indice nella pagina del progetto |
+| **Savings**: *The agent re-reads files it already has* | L'agente rilegge i file del pacchetto (sempre, prima di modificarli) | Guarda *Most read again*; abbassa `ONYX_CONTEXT_BUDGET_TOKENS` o restringi i target |
+| **Savings**: *Not paying off* | Con il pacchetto le run consumano più token di quelle senza | Controlla riletture e budget del pacchetto; con `ONYX_CONTEXT_ENABLED=false` le run girano senza contesto |
 
 ## 9. Accessibilità e prestazioni
 
-Ogni pagina principale (login, console, progetti, progetto, piano, roadmap, task, approvazioni, impostazioni, telemetria, router) è misurata con Lighthouse 13 e axe-core 4 sulla build di produzione:
+Ogni pagina principale (login, console, progetti, progetto, piano, roadmap, task, approvazioni, impostazioni, telemetria, router, savings) è misurata con Lighthouse 13 e axe-core 4 sulla build di produzione:
 
 | | Desktop | Mobile (Moto G Power simulato) |
 |---|---|---|
-| Performance | 100 su tutte | 91–98 |
+| Performance | 100 su tutte | 91–99 |
 | Accessibilità | 100 su tutte | 100 su tutte |
 | axe (WCAG 2.1 AA) | 0 violazioni | 0 violazioni |
 
 Navigazione da tastiera: link *Skip to content*, focus visibile su ogni elemento, palette dei comandi con **Ctrl+K** (⌘K su Mac) per pagine, progetti, task recenti e azioni. Con `prefers-reduced-motion` le firme di movimento restano ferme nello stato finale.
+
+## 10. Il risparmio di token funziona?
+
+La pagina **Savings** risponde in cima con un verdetto. Ogni cifra porta l'etichetta *Measured* (token reali riportati da Claude) o *Estimate* (calcolo di Onyx).
+
+| Verdetto | Significato |
+|---|---|
+| *Saving confirmed* | Misurato: con il contesto le run usano meno token di input, con differenza statisticamente significativa |
+| *Not paying off* | Misurato: con il contesto le run usano più token |
+| *No clear difference* | Misurato, ma la differenza può ancora essere caso: lascia girare l'esperimento |
+| *Measuring* | Esperimento attivo, servono almeno 10 run finite per gruppo |
+| *Estimate only* | Esperimento spento: c'è solo la stima |
+| *No data yet* | Nessuna run con un pacchetto di contesto |
+
+**La stima.** Per ogni run Onyx calcola quanti token servirebbero per leggere per intero i file target e le loro dipendenze dirette (la *baseline*) e quanti ne ha consegnati: pacchetto, mappa del progetto ed espansioni MCP. A fine run sottrae i file della baseline che l'agente ha riletto con `Read`: Claude Code legge sempre un file prima di modificarlo, quindi i target modificati vengono riletti. Il risultato è la *net estimate*. La stima presuppone che senza Onyx l'agente leggerebbe quei file una volta, per intero: per questo resta una stima.
+
+**La misura.** Con *Run the experiment* attivo, una quota delle run che aprono una sessione nuova (10–50%, default 25%) parte senza contesto Onyx: niente pacchetto, mappa o tool MCP. Le run che riprendono una sessione non partecipano. Onyx confronta i due gruppi sui token di input per run (mediana) e con il test di Mann–Whitney; sotto p = 0,05 la differenza conta. La tabella mostra anche costo, turni, file letti ed esito, così un risparmio ottenuto con più fallimenti salta all'occhio.
+
+Le run di controllo costano quanto costerebbero senza Onyx, quindi l'esperimento consuma qualcosa in più finché è attivo. Conviene accenderlo per qualche decina di run e spegnerlo quando il verdetto è chiaro: i risultati restano visibili per 90 giorni.
+
+**Is it working?** elenca i controlli: contesto attivo, quota di run che ricevono un pacchetto, peso delle riletture, stima netta positiva, stato dell'esperimento. Cache dei prompt (misurata) e routing dei modelli (stimato) sono in fondo alla pagina, separati, perché non dipendono dal pacchetto.
+
+Nella console di una run il risparmio diventa netto a fine run (*Net saving*) e una riga indica i file riletti; le run di controllo sono marcate *control*.

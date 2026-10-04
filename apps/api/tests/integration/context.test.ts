@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
+  ContextExperimentSettings,
   FileContextDto,
   GraphResponse,
   IndexStatusDto,
@@ -10,6 +11,7 @@ import type {
   RunDto,
   RunEventsResponse,
   RunItem,
+  SavingsReport,
   TaskDetailDto,
   TaskDto,
 } from "@onyx/contracts";
@@ -54,12 +56,14 @@ const PROJECT_FILES: Record<string, string> = {
 let context: TestContext;
 let api: ApiClient;
 let project: ProjectDetailDto;
+let nextDraw = 0.9;
 
 beforeAll(async () => {
   execFileSync("pnpm", ["exec", "tsup"], { cwd: MCP_PACKAGE, stdio: "ignore" });
   context = await createTestContext({
     projectFiles: PROJECT_FILES,
     env: { ONYX_MCP_SERVER: MCP_BUNDLE },
+    armRandom: () => nextDraw,
   });
   await context.app.listen({ host: "127.0.0.1", port: 0 });
   const address = context.app.server.address();
@@ -222,4 +226,144 @@ describe("runs with Onyx context", () => {
     });
     expect(remote.statusCode).toBe(403);
   });
+});
+
+async function runTask(input: {
+  title: string;
+  prompt: string;
+  targetPaths: string[];
+  newSession?: boolean;
+}): Promise<{ run: RunDto; items: RunItem[] }> {
+  const workspace = project.workspaces.find((candidate) => candidate.name === "Backend");
+  const created = await api.post<TaskDto>("/api/tasks", {
+    projectId: project.id,
+    workspaceId: workspace?.id,
+    title: input.title,
+    prompt: input.prompt,
+    targetPaths: input.targetPaths,
+  });
+  expect(created.status).toBe(201);
+  await api.post(`/api/tasks/${created.body.id}/run`, { newSession: input.newSession ?? false });
+  const task = await waitFor(
+    async () => (await api.get<TaskDetailDto>(`/api/tasks/${created.body.id}`)).body,
+    (detail) => detail.status === "COMPLETED" || detail.status === "FAILED",
+    30_000,
+  );
+  await context.container.scheduler.settledTask(task.id);
+  expect(task.status).toBe("COMPLETED");
+  const run = (await api.get<RunDto>(`/api/runs/${task.runs[0]?.id}`)).body;
+  const events = (await api.get<RunEventsResponse>(`/api/runs/${run.id}/events`)).body;
+  return { run, items: events.items.flatMap((event) => event.items) };
+}
+
+async function rawTokens(relPath: string): Promise<number> {
+  const file = (
+    await api.get<FileContextDto>(`/api/projects/${project.id}/context?path=${relPath}&level=3`)
+  ).body;
+  return file.rawTokens;
+}
+
+describe("savings measurement", () => {
+  it("counts the files the agent reads again after the pack delivered them", async () => {
+    const { run } = await runTask({
+      title: "Read around checkout",
+      prompt:
+        "[stub:guard] read:src/checkout.ts read:src/cart.ts read:src/math.ts read:tsconfig.json",
+      targetPaths: ["src/checkout.ts"],
+    });
+    expect(run.context).toMatchObject({
+      arm: null,
+      readFiles: 4,
+      rereadFiles: 2,
+      missedFiles: 1,
+      rereadPaths: ["src/cart.ts", "src/checkout.ts"],
+    });
+    expect(run.context.rereadTokens).toBe(
+      (await rawTokens("src/checkout.ts")) + (await rawTokens("src/cart.ts")),
+    );
+
+    const report = (await api.get<SavingsReport>("/api/telemetry/savings")).body;
+    expect(report.contextEnabled).toBe(true);
+    expect(report.experiment.state).toBe("OFF");
+    expect(report.verdict.state).toBe("ESTIMATE_ONLY");
+    expect(report.pack).toMatchObject({ runsWithPack: 2, runsWithRereads: 1, rereadFiles: 2 });
+    expect(report.pack.topRereads).toEqual([
+      { relPath: "src/cart.ts", runs: 1 },
+      { relPath: "src/checkout.ts", runs: 1 },
+    ]);
+    expect(report.pack.netSaving).toBeLessThan(report.pack.grossSaving ?? 0);
+    expect(report.checks.map((check) => check.id)).toEqual([
+      "context",
+      "coverage",
+      "rereads",
+      "net",
+      "experiment",
+    ]);
+  }, 60_000);
+
+  it("validates the experiment settings", async () => {
+    const initial = await api.get<ContextExperimentSettings>("/api/telemetry/savings/experiment");
+    expect(initial.body).toEqual({ enabled: false, controlShare: 0.25 });
+    const invalid = await api.put("/api/telemetry/savings/experiment", {
+      enabled: true,
+      controlShare: 0.9,
+    });
+    expect(invalid.status).toBe(400);
+    const saved = await api.put<ContextExperimentSettings>("/api/telemetry/savings/experiment", {
+      enabled: true,
+      controlShare: 0.5,
+    });
+    expect(saved.body).toEqual({ enabled: true, controlShare: 0.5 });
+  });
+
+  it("withholds the Onyx context from control runs of the experiment", async () => {
+    nextDraw = 0.1;
+    const control = await runTask({
+      title: "Control run",
+      prompt: "Explain checkout.",
+      targetPaths: ["src/checkout.ts"],
+      newSession: true,
+    });
+    expect(control.run.context).toMatchObject({ arm: "CONTROL", baselineTokens: null });
+    expect(control.items.find((item) => item.kind === "context")).toMatchObject({
+      arm: "CONTROL",
+      entries: [],
+      mcpEnabled: false,
+      note: "Control run of the savings experiment: the Onyx context is withheld",
+    });
+    const runtimeDir = join(context.dataDir, "runtime", control.run.id);
+    expect(existsSync(join(runtimeDir, "primer.md"))).toBe(false);
+    expect(existsSync(join(runtimeDir, "context-pack.md"))).toBe(false);
+    expect(JSON.parse(readFileSync(join(runtimeDir, "mcp.json"), "utf8"))).toEqual({
+      mcpServers: {},
+    });
+
+    nextDraw = 0.9;
+    const packed = await runTask({
+      title: "Pack run",
+      prompt: "Explain checkout.",
+      targetPaths: ["src/checkout.ts"],
+      newSession: true,
+    });
+    expect(packed.run.context.arm).toBe("PACK");
+    expect(packed.run.context.baselineTokens).toBeGreaterThan(0);
+
+    const resumed = await runTask({
+      title: "Resumed run",
+      prompt: "Explain checkout again.",
+      targetPaths: ["src/checkout.ts"],
+    });
+    expect(resumed.run.context.arm).toBeNull();
+
+    const report = (await api.get<SavingsReport>("/api/telemetry/savings")).body;
+    expect(report.experiment).toMatchObject({
+      state: "COLLECTING",
+      pack: { runs: 1, completed: 1 },
+      control: { runs: 1, completed: 1 },
+    });
+    expect(report.experiment.since).not.toBeNull();
+    expect(report.verdict.state).toBe("COLLECTING");
+    expect(report.pack.controlRuns).toBe(1);
+    await api.put("/api/telemetry/savings/experiment", { enabled: false, controlShare: 0.5 });
+  }, 90_000);
 });

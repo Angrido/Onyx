@@ -93,6 +93,11 @@ enum RoutingStrategy {
   DEESCALATION
 }
 
+enum ContextArm {
+  PACK
+  CONTROL
+}
+
 enum TokenScope {
   TURN
   RUN_TOTAL
@@ -410,34 +415,40 @@ model Session {
 }
 
 model AgentRun {
-  id                 String    @id @default(cuid())
+  id                 String      @id @default(cuid())
   taskId             String
   sessionId          String
   agentConfigId      String?
   routingDecisionId  String?
-  mode               RunMode   @default(HEADLESS)
+  mode               RunMode     @default(HEADLESS)
   modelId            String
   prompt             String
   cliVersion         String?
   pid                Int?
   args               Json
   ignoreHash         String?
-  status             RunStatus @default(SPAWNING)
+  status             RunStatus   @default(SPAWNING)
   exitCode           Int?
   signal             String?
   resultSubtype      String?
-  isError            Boolean   @default(false)
+  isError            Boolean     @default(false)
   numTurns           Int?
   durationMs         Int?
   durationApiMs      Int?
   costUsd            Float?
   ctxBaselineTokens  Int?
   ctxDeliveredTokens Int?
-  ctxExpansions      Int       @default(0)
-  guardDenials       Int       @default(0)
+  ctxExpansions      Int         @default(0)
+  contextArm         ContextArm?
+  ctxReadFiles       Int?
+  ctxRereadFiles     Int?
+  ctxRereadTokens    Int?
+  ctxMissedFiles     Int?
+  ctxRereadPaths     Json?
+  guardDenials       Int         @default(0)
   changedFiles       Json?
   errorMessage       String?
-  startedAt          DateTime  @default(now())
+  startedAt          DateTime    @default(now())
   endedAt            DateTime?
 
   task            Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -451,6 +462,7 @@ model AgentRun {
   @@index([taskId])
   @@index([sessionId])
   @@index([status])
+  @@index([contextArm, startedAt])
 }
 
 model AgentEvent {

@@ -29,6 +29,16 @@ export const TASK_KINDS = [
   "CHORE",
 ] as const;
 export const TEST_RUNNERS = ["VITEST", "JEST"] as const;
+export const CONTEXT_ARMS = ["PACK", "CONTROL"] as const;
+export const SAVINGS_VERDICTS = [
+  "CONFIRMED",
+  "NOT_PAYING",
+  "NO_DIFFERENCE",
+  "COLLECTING",
+  "ESTIMATE_ONLY",
+  "NO_DATA",
+] as const;
+export const SAVINGS_CHECK_STATES = ["ok", "warn", "fail", "idle"] as const;
 export const RUN_STATUSES = [
   "SPAWNING",
   "RUNNING",

@@ -33,6 +33,7 @@ import { RunService } from "./application/run-service";
 import { SurgeonService } from "./application/surgeon-service";
 import { TaskService } from "./application/task-service";
 import { TddService } from "./application/tdd-service";
+import { SavingsService } from "./application/savings-service";
 import { TelemetryService } from "./application/telemetry-service";
 import { TerminalService } from "./application/terminal-service";
 import { WorkspaceService } from "./application/workspace-service";
@@ -60,6 +61,7 @@ export interface ContainerOverrides {
   classifier?: TaskClassifier | null;
   summarizer?: HandoffSummarizer | null;
   checkCli?: boolean;
+  armRandom?: () => number;
 }
 
 export interface Container {
@@ -94,6 +96,7 @@ export interface Container {
   tasks: TaskService;
   runs: RunService;
   telemetry: TelemetryService;
+  savings: SavingsService;
   catalog: CatalogService;
   cliVersion(): string | null;
   cliCompatibility(): CliCompatibility | null;
@@ -226,6 +229,11 @@ export async function createContainer(
       : { testTimeoutMs: overrides.credentialTestTimeoutMs }),
   });
 
+  const savings = new SavingsService({
+    prisma,
+    router,
+    contextEnabled: config.context.enabled,
+  });
   const executor = new RunExecutor({
     prisma,
     pool,
@@ -240,6 +248,9 @@ export async function createContainer(
     runTokens,
     credentials,
     cliVersion: () => cliVersion,
+    experiment: () => savings.experimentSettings(),
+    estimator,
+    ...(overrides.armRandom ? { random: overrides.armRandom } : {}),
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
@@ -418,6 +429,7 @@ export async function createContainer(
     backups,
     vault,
     runs: runService,
+    savings,
     telemetry: new TelemetryService(prisma, () => ({
       activeRuns: scheduler.activeCount,
       queuedTasks: scheduler.queuedCount,

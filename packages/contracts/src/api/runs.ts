@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  ContextArmSchema,
   ModelTierSchema,
   RoutingStrategySchema,
   RunModeSchema,
@@ -12,6 +13,12 @@ export const RunContextDtoSchema = z.object({
   baselineTokens: z.number().int().nullable(),
   deliveredTokens: z.number().int().nullable(),
   expansions: z.number().int(),
+  arm: ContextArmSchema.nullable(),
+  readFiles: z.number().int().nullable(),
+  rereadFiles: z.number().int().nullable(),
+  rereadTokens: z.number().int().nullable(),
+  missedFiles: z.number().int().nullable(),
+  rereadPaths: z.array(z.string()),
 });
 export type RunContextDto = z.infer<typeof RunContextDtoSchema>;
 

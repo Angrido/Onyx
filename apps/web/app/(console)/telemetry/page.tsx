@@ -73,32 +73,34 @@ export default async function TelemetryPage() {
           {summary.byModel.length === 0 ? (
             <p className="text-sm text-muted-foreground">No completed runs yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="pb-2 font-medium">Model</th>
-                  <th className="pb-2 text-right font-medium">Runs</th>
-                  <th className="pb-2 text-right font-medium">Input</th>
-                  <th className="pb-2 text-right font-medium">Output</th>
-                  <th className="pb-2 text-right font-medium">Cache read</th>
-                  <th className="pb-2 text-right font-medium">Cost</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {summary.byModel.map((row) => (
-                  <tr key={row.modelId} className="tabular">
-                    <td className="py-2">
-                      <ModelBadge modelId={row.modelId} />
-                    </td>
-                    <td className="py-2 text-right">{row.runs}</td>
-                    <td className="py-2 text-right">{formatTokens(row.usage.inputTokens)}</td>
-                    <td className="py-2 text-right">{formatTokens(row.usage.outputTokens)}</td>
-                    <td className="py-2 text-right">{formatTokens(row.usage.cacheReadTokens)}</td>
-                    <td className="py-2 text-right font-medium">{formatUsd(row.costUsd)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[30rem] text-sm">
+                <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="pb-2 font-medium">Model</th>
+                    <th className="pb-2 text-right font-medium">Runs</th>
+                    <th className="pb-2 text-right font-medium">Input</th>
+                    <th className="pb-2 text-right font-medium">Output</th>
+                    <th className="pb-2 text-right font-medium">Cache read</th>
+                    <th className="pb-2 text-right font-medium">Cost</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {summary.byModel.map((row) => (
+                    <tr key={row.modelId} className="tabular">
+                      <td className="py-2">
+                        <ModelBadge modelId={row.modelId} />
+                      </td>
+                      <td className="py-2 text-right">{row.runs}</td>
+                      <td className="py-2 text-right">{formatTokens(row.usage.inputTokens)}</td>
+                      <td className="py-2 text-right">{formatTokens(row.usage.outputTokens)}</td>
+                      <td className="py-2 text-right">{formatTokens(row.usage.cacheReadTokens)}</td>
+                      <td className="py-2 text-right font-medium">{formatUsd(row.costUsd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -108,39 +110,43 @@ export default async function TelemetryPage() {
           <CardDescription>Prices drive estimates and counterfactuals only.</CardDescription>
         </CardHeader>
         <CardContent>
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="pb-2 font-medium">Model</th>
-                <th className="pb-2 font-medium">Tier</th>
-                <th className="pb-2 text-right font-medium">Context</th>
-                <th className="pb-2 text-right font-medium">Input $/MTok</th>
-                <th className="pb-2 text-right font-medium">Output $/MTok</th>
-                <th className="pb-2 text-right font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {catalog.models.map((model) => (
-                <tr key={model.id} className="tabular">
-                  <td className="py-2">
-                    <span className="font-medium">{model.displayName}</span>
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">{model.id}</span>
-                  </td>
-                  <td className={`py-2 ${TIER_STYLES[model.tier].text}`}>
-                    {TIER_STYLES[model.tier].label}
-                  </td>
-                  <td className="py-2 text-right">{formatTokens(model.contextWindow)}</td>
-                  <td className="py-2 text-right">${model.inputUsdPerMTok.toFixed(2)}</td>
-                  <td className="py-2 text-right">${model.outputUsdPerMTok.toFixed(2)}</td>
-                  <td className="py-2 text-right">
-                    <Badge tone={model.enabled ? "success" : "neutral"}>
-                      {model.enabled ? "enabled" : "disabled"}
-                    </Badge>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[30rem] text-sm">
+              <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="pb-2 font-medium">Model</th>
+                  <th className="pb-2 font-medium">Tier</th>
+                  <th className="pb-2 text-right font-medium">Context</th>
+                  <th className="pb-2 text-right font-medium">Input $/MTok</th>
+                  <th className="pb-2 text-right font-medium">Output $/MTok</th>
+                  <th className="pb-2 text-right font-medium">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {catalog.models.map((model) => (
+                  <tr key={model.id} className="tabular">
+                    <td className="py-2">
+                      <span className="font-medium">{model.displayName}</span>
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {model.id}
+                      </span>
+                    </td>
+                    <td className={`py-2 ${TIER_STYLES[model.tier].text}`}>
+                      {TIER_STYLES[model.tier].label}
+                    </td>
+                    <td className="py-2 text-right">{formatTokens(model.contextWindow)}</td>
+                    <td className="py-2 text-right">${model.inputUsdPerMTok.toFixed(2)}</td>
+                    <td className="py-2 text-right">${model.outputUsdPerMTok.toFixed(2)}</td>
+                    <td className="py-2 text-right">
+                      <Badge tone={model.enabled ? "success" : "neutral"}>
+                        {model.enabled ? "enabled" : "disabled"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </>

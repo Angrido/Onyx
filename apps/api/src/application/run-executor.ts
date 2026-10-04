@@ -9,6 +9,8 @@ import {
 } from "@onyx/agent-runtime";
 import {
   PermissionModeSchema,
+  type ContextArm,
+  type ContextExperimentSettings,
   type ContextItem,
   type GuardItem,
   type ModelTier,
@@ -23,10 +25,18 @@ import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "
 import type { Logger } from "pino";
 import type { AppConfig } from "../config";
 import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
+import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { resolveRunOutcome } from "../domain/run-outcome";
 import { shouldEscalate, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
+import {
+  auditReads,
+  DEFAULT_EXPERIMENT,
+  drawArm,
+  type FileRead,
+  type ReadAudit,
+} from "../domain/savings";
 import type { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, notFound } from "../errors";
 import type { EventWriter } from "../infrastructure/event-writer";
@@ -46,7 +56,7 @@ import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 import { priceUsage, type RouterService } from "./router-service";
 import type { SurgeonService } from "./surgeon-service";
-import { RunRecorder } from "./run-recorder";
+import { RunRecorder, type RecordedRead } from "./run-recorder";
 import type { ForeignChange } from "./terminal-service";
 
 export interface TddRunScope {
@@ -89,6 +99,9 @@ export interface RunExecutorDeps {
   runTokens: RunTokenRegistry;
   credentials: Pick<CredentialService, "childEnv">;
   cliVersion: () => string | null;
+  experiment: () => Promise<ContextExperimentSettings>;
+  estimator: TokenEstimator;
+  random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
   sourceEnv?: NodeJS.ProcessEnv;
 }
@@ -270,6 +283,7 @@ export class RunExecutor {
     await writer.flush();
     const changedFiles = this.normalizeChanged(prepared.projectRoot, recorder.changedFiles);
     const reference = await this.deps.router.referenceProfile().catch(() => null);
+    const audit = await this.readAudit(prepared, recorder.reads);
 
     const endedAt = new Date();
     const usage = recorder.usage;
@@ -293,6 +307,11 @@ export class RunExecutor {
             costUsd: result?.costUsd ?? null,
             ctxDeliveredTokens,
             ctxExpansions: expansions.calls,
+            ctxReadFiles: audit.readFiles,
+            ctxRereadFiles: audit.rereadFiles,
+            ctxRereadTokens: audit.rereadTokens,
+            ctxMissedFiles: audit.missedFiles,
+            ctxRereadPaths: audit.rereadPaths,
             guardDenials: recorder.guardDenials,
             changedFiles,
             errorMessage: outcome.errorMessage,
@@ -398,14 +417,41 @@ export class RunExecutor {
     return { ...prepared.request, modelId: null, newSession: false };
   }
 
+  private relativeInside(projectRoot: string, path: string): string | null {
+    const inside = isAbsolute(path) ? relative(projectRoot, path) : path.replace(/^\.\//, "");
+    if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) return null;
+    return inside.split("\\").join("/");
+  }
+
   private normalizeChanged(projectRoot: string, paths: readonly string[]): string[] {
     const normalized = new Set<string>();
     for (const path of paths) {
-      const inside = isAbsolute(path) ? relative(projectRoot, path) : path.replace(/^\.\//, "");
-      if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) continue;
-      normalized.add(inside.split("\\").join("/"));
+      const inside = this.relativeInside(projectRoot, path);
+      if (inside !== null) normalized.add(inside);
     }
     return [...normalized].sort().slice(0, MAX_CHANGED_FILES);
+  }
+
+  private async readAudit(
+    prepared: PreparedRun,
+    reads: readonly RecordedRead[],
+  ): Promise<ReadAudit> {
+    const project =
+      reads.length > 0
+        ? await this.deps.indexes.context(prepared.projectId).catch(() => null)
+        : null;
+    const files: FileRead[] = [];
+    for (const read of reads) {
+      const relPath = this.relativeInside(prepared.projectRoot, read.path);
+      if (relPath === null) continue;
+      const measured = this.deps.estimator.estimate(read.content, "text");
+      const indexed = project?.fileFacts(relPath)?.rawTokens ?? null;
+      files.push({
+        relPath,
+        tokens: read.partial && !read.truncated ? measured : (indexed ?? measured),
+      });
+    }
+    return auditReads(files, prepared.context.entries);
   }
 
   private async prepare(request: RunRequest): Promise<PreparedRun> {
@@ -469,6 +515,12 @@ export class RunExecutor {
         });
     const session = plan.session;
     const permissionMode = PermissionModeSchema.parse(agentConfig.permissionMode);
+    const arm = drawArm({
+      settings: await this.deps.experiment().catch(() => DEFAULT_EXPERIMENT),
+      freshSession: plan.decision.action === "start",
+      contextEnabled: config.context.enabled,
+      random: this.deps.random ?? Math.random,
+    });
 
     const { run, startedAt } = await prisma.$transaction(async (tx) => {
       const routingDecisionId = await router.record(tx, task.id, evaluation);
@@ -482,6 +534,7 @@ export class RunExecutor {
           prompt,
           args: [],
           cliVersion: cliVersion(),
+          contextArm: arm,
         },
       });
       await tx.task.update({
@@ -511,7 +564,7 @@ export class RunExecutor {
       fence,
       tests: request.tdd?.guard ?? null,
     });
-    const context = await this.prepareContext(run.id, task, prompt, scope.policy, runToken);
+    const context = await this.prepareContext(run.id, task, prompt, scope.policy, runToken, arm);
     await prisma.agentRun.update({
       where: { id: run.id },
       data: {
@@ -620,6 +673,7 @@ export class RunExecutor {
     prompt: string,
     policy: ContextPolicy,
     runToken: string,
+    arm: ContextArm | null,
   ): Promise<PreparedContext> {
     const { indexes, config, logger } = this.deps;
     const targetPaths = toStringArray(task.targetPaths);
@@ -636,6 +690,7 @@ export class RunExecutor {
         indexedAt: null,
         mcpEnabled: false,
         note,
+        arm,
       },
       primerMap: null,
       packText: null,
@@ -643,6 +698,8 @@ export class RunExecutor {
       mcpEnabled: false,
     });
     if (!config.context.enabled) return empty("Onyx context is disabled");
+    if (arm === "CONTROL")
+      return empty("Control run of the savings experiment: the Onyx context is withheld");
 
     const project = await indexes
       .waitForIndex(task.projectId, config.context.indexWaitMs)
@@ -694,6 +751,7 @@ export class RunExecutor {
             : targets.length === 0
               ? "No target files: set target paths on the task or name files in the prompt"
               : null,
+        arm,
       },
       primerMap: map,
       packText: pack?.text ?? null,

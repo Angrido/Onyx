@@ -26,11 +26,11 @@ export function OnyxMark({ className }: { className?: string }) {
   );
 }
 
-export function Wordmark() {
+export function Wordmark({ condensed = false }: { condensed?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <OnyxMark />
-      <div className="leading-none">
+      <div className={cn("leading-none", condensed && "max-[479px]:sr-only")}>
         <p className="text-sm font-semibold tracking-[0.18em]">ONYX</p>
         <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
           Agent control

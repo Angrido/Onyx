@@ -83,6 +83,16 @@ Ogni progetto viene indicizzato alla registrazione e dopo ogni run: tree-sitter 
 
 Sui benchmark (`pnpm --filter @onyx/graphify bench <cartella…>`) il pacchetto costa dal 46% all'81% in meno del contesto naive "file target + dipendenze dirette". La pagina del progetto mostra lo stato dell'indice e porta alla vista Graph; la console della run mostra il contesto inviato e le chiamate ai tool `onyx`.
 
+### Il risparmio è reale?
+
+La pagina **Savings** lo dice con un verdetto e separa ciò che è misurato da ciò che è stimato:
+
+- **stima netta**: pacchetto, mappa ed espansioni MCP contro la lettura completa di target e dipendenze, meno i file che l'agente ha riletto comunque con `Read` (succede sempre prima di modificarli);
+- **misura**: con *Run the experiment* una quota delle sessioni nuove (default 25%) parte senza contesto Onyx; i due gruppi si confrontano sui token reali riportati da Claude, con un test statistico. Le run di controllo costano come senza Onyx, quindi l'esperimento è spento di default;
+- **controlli** su copertura del pacchetto, riletture e stima netta, con i file più riletti; cache dei prompt e routing sono mostrati a parte.
+
+Dettagli in [docs/operations.md §10](docs/operations.md#10-il-risparmio-di-token-funziona).
+
 ## Context Surgeon (Fase 3)
 
 Dalla pagina del progetto, **Context Surgeon** apre l'albero dei file con la heatmap dei token: ogni checkbox decide se un file o una directory resta visibile agli agenti. Si parte dal preset aggressivo (dipendenze, build, lockfile, generati, minificati, log) più le regole di sicurezza bloccate (`.env*`, chiavi, `.npmrc`…); i suggerimenti propongono asset binari, file di dati voluminosi e codice generato. Il pannello laterale mostra il risparmio in token e dollari, la differenza rispetto al profilo salvato e gli avvisi quando si nasconde un file centrale nel grafo. Ogni workspace può aggiungere un overlay al profilo di progetto.
@@ -183,7 +193,7 @@ La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le 
 | Percorso | Ruolo |
 |---|---|
 | `apps/api` | Fastify 5: auth, progetti, workspace, task, run, Context Surgeon, router, compartimenti, terminali, hook interni, WebSocket, scheduler, telemetria |
-| `apps/web` | Next.js 16: console, progetti, workspace con terminale, Context Surgeon, grafo, router, task, run live, telemetria |
+| `apps/web` | Next.js 16: console, progetti, workspace con terminale, Context Surgeon, grafo, router, task, run live, telemetria, verifica del risparmio di token |
 | `packages/contracts` | Schemi zod condivisi: REST, WebSocket, eventi `stream-json` e normalizzatore |
 | `packages/db` | Schema Prisma 7 + SQLite, migrazioni, seed |
 | `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool con abort sul process group, terminali PTY (`node-pty`), stub |

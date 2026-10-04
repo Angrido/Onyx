@@ -214,7 +214,7 @@ export function isTerminal(status: RunStatus | null): boolean {
 
 export function contextSavings(item: ContextItem): number | null {
   if (item.baselineTokens <= 0) return null;
-  return 1 - item.packTokens / item.baselineTokens;
+  return 1 - item.deliveredTokens / item.baselineTokens;
 }
 
 export type ToolFamily = "read" | "edit" | "shell" | "context" | "delegate" | "web" | "other";

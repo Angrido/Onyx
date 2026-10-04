@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  ContextArmSchema,
   ModelTierSchema,
   RoutingStrategySchema,
   RunStatusSchema,
@@ -135,6 +136,7 @@ export const ContextItemSchema = z.object({
   indexedAt: z.string().nullable(),
   mcpEnabled: z.boolean(),
   note: z.string().nullable(),
+  arm: ContextArmSchema.nullable().default(null),
 });
 export type ContextItem = z.infer<typeof ContextItemSchema>;
 

@@ -1,9 +1,12 @@
-import type {
-  CatalogResponse,
-  HealthResponse,
-  NetworkInfo,
-  ReadyResponse,
-  TelemetrySummary,
+import {
+  ContextExperimentSettingsSchema,
+  type CatalogResponse,
+  type ContextExperimentSettings,
+  type HealthResponse,
+  type NetworkInfo,
+  type ReadyResponse,
+  type SavingsReport,
+  type TelemetrySummary,
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
@@ -29,6 +32,21 @@ export function registerSystemRoutes(app: FastifyInstance, container: Container)
 
   app.get("/api/telemetry/summary", async (): Promise<TelemetrySummary> =>
     container.telemetry.summary(),
+  );
+
+  app.get("/api/telemetry/savings", async (): Promise<SavingsReport> => container.savings.report());
+
+  app.get("/api/telemetry/savings/experiment", async (): Promise<ContextExperimentSettings> =>
+    container.savings.experimentSettings(),
+  );
+
+  app.put(
+    "/api/telemetry/savings/experiment",
+    async (request): Promise<ContextExperimentSettings> =>
+      container.savings.updateExperiment(
+        ContextExperimentSettingsSchema.parse(request.body),
+        request.user ? `user:${request.user.username}` : "user:unknown",
+      ),
   );
 
   app.get("/api/system/network", async (request): Promise<NetworkInfo> =>

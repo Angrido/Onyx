@@ -718,6 +718,10 @@ Il server MCP chiama `POST /internal/mcp/:tool` sull'API. La rotta accetta solo 
 
 - `ctxBaselineTokens`: token del contesto naive, cioè file target più dipendenze dirette (barrel risolti) in L3.
 - `ctxDeliveredTokens`: mappa L0 + pacchetto + output dei tool MCP chiamati; `ctxExpansions` conta le chiamate.
+- **Riletture**: a fine run Onyx confronta le chiamate `Read` riuscite con le voci del pacchetto. Una lettura di un target o di una dipendenza diretta (i file della baseline) è una rilettura: `ctxRereadFiles`, `ctxRereadTokens` (token del file indicizzato, o del contenuto restituito per le letture parziali) e `ctxRereadPaths`. `ctxReadFiles` conta i file letti, `ctxMissedFiles` quelli che il pacchetto non citava. Claude Code legge un file prima di modificarlo, quindi i target modificati vengono sempre riletti.
+- **Risparmio netto stimato** = 1 − (consegnati + riletti) / baseline. Le letture di file fuori dalla baseline ci sarebbero state anche senza Onyx e non entrano nel conto. Le run precedenti a questa misura hanno i campi a `null` e restano fuori dai totali.
+- **Esperimento A/B** (ADR-050): con l'esperimento attivo, ogni run che apre una sessione nuova di Claude viene assegnata a caso al braccio `PACK` o `CONTROL` (`AgentRun.contextArm`, quota di controllo 10–50% in `AppSetting` `context.experiment`). Le run di controllo partono senza pacchetto, mappa e server MCP; le run che riprendono una sessione restano fuori, perché il loro contesto contiene già quello delle run precedenti. Il confronto usa i token reali della CLI: mediana dei token di input per run (input + cache write + cache read), costo, turni, file letti ed esito, con il test di Mann–Whitney a due code (approssimazione normale con correzione per i pari merito). Servono almeno 10 run finite per braccio negli ultimi 90 giorni; con p < 0,05 il risparmio è confermato (o smentito), altrimenti la differenza può essere caso.
+- **Pagina Savings** (`GET /api/telemetry/savings`, `GET/PUT /api/telemetry/savings/experiment`): verdetto (*Saving confirmed*, *Not paying off*, *No clear difference*, *Measuring*, *Estimate only*, *No data yet*), esperimento con i due bracci, controlli sul funzionamento (contesto attivo, copertura del pacchetto, riletture, stima netta, stato dell'esperimento), conti del pacchetto negli ultimi 30 giorni con i file più riletti, e a parte i risparmi che non dipendono dal pacchetto: cache dei prompt (misurato) e routing (stimato). Ogni cifra è etichettata *Measured* o *Estimate*. Nella console della run il risparmio diventa netto a fine run e le run di controllo sono indicate come tali.
 - La stima è offline (`HeuristicTokenEstimator`, caratteri per token per linguaggio). I token **reali** consumati arrivano sempre dalla CLI; la stima serve per baseline e controfattuali, e in UI è indicata come tale. La ricalibrazione con l'endpoint `count_tokens` dell'API Anthropic resta da fare (serve una API key).
 - `pnpm --filter @onyx/graphify bench <cartella…>` ripete la misura su qualsiasi repository (risultati nel [§16](#fase-2--lean-ctx-e-graphify)).
 
@@ -1083,6 +1087,11 @@ enum RoutingStrategy {
   DEESCALATION
 }
 
+enum ContextArm {
+  PACK
+  CONTROL
+}
+
 enum TokenScope {
   TURN
   RUN_TOTAL
@@ -1403,6 +1412,12 @@ model AgentRun {
   ctxBaselineTokens  Int?
   ctxDeliveredTokens Int?
   ctxExpansions      Int       @default(0)
+  contextArm         ContextArm?
+  ctxReadFiles       Int?
+  ctxRereadFiles     Int?
+  ctxRereadTokens    Int?
+  ctxMissedFiles     Int?
+  ctxRereadPaths     Json?
   guardDenials       Int       @default(0)
   errorMessage       String?
   startedAt          DateTime  @default(now())
@@ -2005,6 +2020,7 @@ Principi: `layout` e `AnimatePresence` per riordino e ingresso/uscita delle card
 | TDD Loop | Terminale headless, iterazioni, digest inviato, firma dei fallimenti |
 | Router | Regole ordinabili, simulatore ("che modello sceglieresti per…"), log delle decisioni |
 | Telemetria | Serie temporali, cache hit ratio, risparmio, budget |
+| Savings | Verdetto sul risparmio di token, esperimento A/B con e senza contesto, controlli sul funzionamento, conti del pacchetto con le riletture, cache e routing a parte |
 
 Navigazione keyboard-first con command palette (`cmdk` tramite il componente Command di shadcn/ui). Sotto i 768 px la barra laterale diventa una barra superiore compatta, così la console resta usabile da telefono sulla LAN.
 
@@ -2598,6 +2614,8 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-047 | Trascrizioni reali per i test di contratto registrate solo su richiesta esplicita (`--yes`), con budget per scenario e anonimizzazione | Registrazione automatica a ogni aggiornamento | Registrare costa (poco) e richiede un account: deve essere una scelta dell'operatore; senza trascrizioni i test di contratto restano sulle fixture sintetiche |
 | ADR-048 | Il codice del browser importa da `@onyx/contracts/client` (canali, enum, helper dei token) senza zod; gli schemi zod sono costruiti dalle stesse liste | Importare dal barrel dei contratti anche nel browser | Toglie zod e la costruzione di tutti gli schemi dal bundle iniziale (first load della console da 294 a 259 kB; il tempo di blocco su mobile scende sotto la soglia di Lighthouse su tutte le pagine) senza duplicare gli enum |
 | ADR-049 | Frontend su Next.js 16.3.8: build e sviluppo con Turbopack, `proxy.ts` al posto di `middleware.ts`, lint solo da ESLint nel monorepo | Restare su Next.js 15.5 | La 16 è la versione stabile corrente; Turbopack accorcia build e avvio, il resto del codice (App Router, `output: "standalone"`, rewrites verso l'API) non cambia |
+| ADR-050 | Risparmio misurato con un esperimento A/B sulle run che aprono una sessione nuova, bracci assegnati a caso, mediane e test di Mann–Whitney sui token reali della CLI | Confronto tra run con e senza pacchetto già avvenute; solo la stima | Le run senza pacchetto oggi sono quelle senza indice o senza file target, cioè task diversi: il confronto sarebbe falsato. L'assegnazione casuale sulle sessioni nuove rende confrontabili i due gruppi senza toccare le sessioni riprese |
+| ADR-051 | Stima netta che sottrae le riletture dei file della baseline rilevate dalle chiamate `Read` | Stima lorda (baseline contro consegnati) | La stima lorda conta come risparmiato anche un file che l'agente poi rilegge per intero, come fa sempre prima di modificarlo; la netta è più bassa ma onesta, e i file più riletti indicano dove il pacchetto non serve |
 
 ---
 
@@ -2840,6 +2858,20 @@ Firme di movimento complete, accessibilità (tastiera, contrasto, `reduced-motio
 - Accessibilità: skip link, `main` focalizzabile, titoli delle card come `h2`, palette dei comandi con titolo e descrizione per gli screen reader. Con `prefers-reduced-motion` l'orb resta nello stato finale e le animazioni CSS si fermano dopo un fotogramma.
 - Prestazioni: entry point `@onyx/contracts/client` senza zod (ADR-048), palette caricata al primo uso, TDD loop caricati lato server nella pagina del task (CLS su mobile da 0,51 a sotto 0,1).
 - Documentazione operativa in `docs/operations.md`.
+
+
+### Misura reale del risparmio di token (dopo la Fase 7)
+
+La telemetria mostrava solo la stima *baseline contro consegnati*: diceva quanto era piccolo il pacchetto, non se Onyx facesse davvero risparmiare token. Ora la misura ha tre livelli, ognuno dichiarato in UI.
+
+- **Stima netta**: le chiamate `Read` dell'agente vengono confrontate con il pacchetto, e i file della baseline riletti si sottraggono al risparmio (ADR-051).
+- **Misura**: esperimento A/B opzionale sulle sessioni nuove, con i token riportati dalla CLI e un test statistico (ADR-050). Le run di controllo costano quanto costerebbero senza Onyx, per questo l'esperimento è spento di default e la quota è configurabile.
+- **Pagina Savings** con verdetto, controlli sul funzionamento e risparmi esterni al pacchetto (cache dei prompt misurata, routing stimato) tenuti separati.
+- La voce del contesto nella console della run conta ora anche la mappa del progetto (prima confrontava con la baseline solo il pacchetto) ed è la stessa cifra che usa il server.
+- Migrazione `20261008090000_context_savings`: `AgentRun.contextArm` e i campi `ctxReadFiles`, `ctxRereadFiles`, `ctxRereadTokens`, `ctxMissedFiles`, `ctxRereadPaths`.
+- Verifica: test di dominio su assegnazione dei bracci, audit delle letture, mediana, Mann–Whitney (confrontato con l'approssimazione asintotica di riferimento), verdetti e controlli; test di integrazione con lo stub su riletture e file fuori dal pacchetto, run di controllo senza pacchetto, mappa e server MCP, run riprese escluse dall'esperimento e report. End-to-end con Playwright su una copia di questo repository: una run che rilegge due file del pacchetto passa da −38% a −17% di contesto rispetto alla lettura completa, l'esperimento si attiva dalla pagina e assegna i bracci, la palette trova *Savings*. Lighthouse sulla pagina Savings: 100/100 desktop, 99/100 mobile, axe senza violazioni.
+- Lo stub riporta sempre lo stesso uso di token, quindi con lo stub l'esperimento non può che dire *No clear difference*: la misura vera arriva dalle run con Claude Code.
+- Su un progetto molto piccolo (pochi file da poche decine di token) la pagina dice correttamente che il pacchetto costa più di quanto risparmia: mappa e intestazioni pesano più dei file.
 
 ---
 

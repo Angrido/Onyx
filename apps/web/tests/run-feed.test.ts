@@ -127,11 +127,12 @@ describe("context items", () => {
       indexedAt: null,
       mcpEnabled: true,
       note: null,
+      arm: null,
     };
     const state = applyRunEvent(INITIAL_FEED, 1, [context]);
     expect(state.entries.at(-1)).toEqual({ kind: "context", key: "1:0", item: context });
     expect(state.context).toBe(context);
-    expect(contextSavings(context)).toBeCloseTo(0.75);
+    expect(contextSavings(context)).toBeCloseTo(0.69);
     expect(contextSavings({ ...context, baselineTokens: 0 })).toBeNull();
   });
 });

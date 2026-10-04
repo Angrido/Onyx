@@ -9,6 +9,7 @@ import {
   Inbox,
   LayoutDashboard,
   LogOut,
+  PiggyBank,
   Route,
   Search,
   Settings,
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/approvals", label: "Approvals", icon: Inbox },
   { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },
+  { href: "/savings", label: "Savings", icon: PiggyBank },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -98,7 +100,7 @@ export function Sidebar({ user }: { user: UserDto }) {
   return (
     <>
       <header className="glass sticky top-0 z-30 flex items-center gap-2 border-b border-border px-4 py-2.5 md:hidden">
-        <Wordmark />
+        <Wordmark condensed />
         <nav className="ml-auto flex items-center">
           {NAV.map((item) => (
             <Link

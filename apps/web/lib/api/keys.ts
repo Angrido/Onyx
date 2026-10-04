@@ -2,6 +2,7 @@ export const queryKeys = {
   me: ["me"] as const,
   catalog: ["catalog"] as const,
   telemetry: ["telemetry"] as const,
+  savings: ["telemetry", "savings"] as const,
   projects: ["projects"] as const,
   paletteProjects: ["projects", "palette"] as const,
   project: (id: string) => ["projects", id] as const,

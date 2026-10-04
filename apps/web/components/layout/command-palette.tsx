@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   ListTodo,
   LogOut,
+  PiggyBank,
   Map as MapIcon,
   Route,
   Search,
@@ -31,6 +32,7 @@ const PAGES = [
   { href: "/approvals", label: "Approvals", icon: Inbox },
   { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },
+  { href: "/savings", label: "Savings", icon: PiggyBank },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

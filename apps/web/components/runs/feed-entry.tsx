@@ -214,7 +214,7 @@ function ContextView({ item }: { item: ContextItem }) {
                 savings >= 0 ? "bg-success/15 text-success" : "bg-warning/15 text-warning",
               )}
             >
-              {formatSaving(savings)} vs naive
+              {formatSaving(savings)} vs full reads
             </span>
           ) : null}
           {item.mcpEnabled ? (
@@ -229,7 +229,7 @@ function ContextView({ item }: { item: ContextItem }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
             ["Delivered", formatTokens(item.deliveredTokens)],
-            ["Naive baseline", item.baselineTokens > 0 ? formatTokens(item.baselineTokens) : "—"],
+            ["Full reads", item.baselineTokens > 0 ? formatTokens(item.baselineTokens) : "—"],
             ["Context pack", formatTokens(item.packTokens)],
             ["Project map", formatTokens(item.mapTokens)],
           ].map(([label, value]) => (

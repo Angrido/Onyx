@@ -2,8 +2,8 @@
 
 import type { RunDto, RunEventsResponse, ServerMessage } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, ShieldX, Square } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FlaskConical, Loader2, Repeat2, ShieldX, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -20,13 +20,13 @@ import {
   INITIAL_FEED,
   applyDelta,
   applyRunEvent,
-  contextSavings,
   activeTool,
   feedContextTokens,
   feedUsage,
   isTerminal,
   type FeedState,
 } from "@/lib/run-feed";
+import { runSaving } from "@/lib/savings";
 import { tierOfModel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
@@ -59,13 +59,15 @@ function Metric({
   label,
   value,
   className,
+  title,
 }: {
   label: string;
   value: string;
   className?: string | undefined;
+  title?: string;
 }) {
   return (
-    <div className={cn("min-w-0", className)}>
+    <div className={cn("min-w-0", className)} title={title}>
       <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
@@ -121,9 +123,10 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
       void queryClient.invalidateQueries({ queryKey: queryKeys.task(run.taskId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
       void queryClient.invalidateQueries({ queryKey: queryKeys.telemetry });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.run(run.id) });
     }
     wasTerminal.current = terminal;
-  }, [terminal, queryClient, run.taskId]);
+  }, [terminal, queryClient, run.taskId, run.id]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -139,7 +142,14 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
   const costUsd = feed.result?.costUsd ?? run.costUsd;
   const elapsedLive = useElapsed(run.startedAt, run.endedAt, !terminal);
   const elapsed = feed.result?.durationMs ?? elapsedLive;
-  const savings = feed.context ? contextSavings(feed.context) : null;
+  const { data: latest = run } = useQuery({
+    queryKey: queryKeys.run(run.id),
+    queryFn: () => api.get<RunDto>(`/api/runs/${run.id}`),
+    initialData: run,
+    staleTime: Infinity,
+  });
+  const saving = runSaving(feed.context, terminal ? latest.context : null);
+  const savingRatio = saving.kind === "estimate" ? (saving.net ?? saving.gross) : null;
   const model = feed.model ?? run.modelId;
 
   return (
@@ -185,15 +195,42 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
           <Metric label="Cache read" value={formatTokens(usage.cacheReadTokens)} />
           <Metric label="Window" value={formatTokens(feedContextTokens(feed))} />
           <Metric
-            label="Onyx saving"
-            value={savings === null ? "—" : formatSaving(savings)}
+            label={saving.kind === "estimate" && saving.net !== null ? "Net context" : "Context"}
+            title="Context tokens with Onyx compared with reading the target files and their dependencies in full: negative is fewer tokens. Net subtracts the files read again. Estimate."
+            value={
+              saving.kind === "control"
+                ? "control"
+                : savingRatio === null
+                  ? "—"
+                  : formatSaving(savingRatio)
+            }
             className={
-              savings === null ? undefined : savings >= 0 ? "text-success" : "text-warning"
+              savingRatio === null ? undefined : savingRatio >= 0 ? "text-success" : "text-warning"
             }
           />
           <Metric label="Cost" value={formatUsd(costUsd)} />
           <Metric label="Elapsed" value={formatDuration(elapsed)} />
         </div>
+        {saving.kind === "control" ? (
+          <p
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            data-testid="run-saving-note"
+          >
+            <FlaskConical className="size-3.5 shrink-0 text-primary" />
+            Control run of the savings experiment: no context pack, project map or MCP tools.
+          </p>
+        ) : saving.kind === "estimate" && saving.net !== null && saving.rereadFiles > 0 ? (
+          <p
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            data-testid="run-saving-note"
+          >
+            <Repeat2 className="size-3.5 shrink-0 text-warning" />
+            Read again {saving.rereadFiles} {saving.rereadFiles === 1 ? "file" : "files"} the pack
+            already covered (~{formatTokens(saving.rereadTokens)} tokens). Context vs full reads:{" "}
+            {formatSaving(saving.net)} after re-reads, {formatSaving(saving.gross)} before
+            (estimate).
+          </p>
+        ) : null}
       </div>
       <div
         ref={scrollRef}

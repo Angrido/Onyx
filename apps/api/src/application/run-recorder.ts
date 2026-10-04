@@ -29,6 +29,21 @@ const EDIT_TOOL_KEYS: Readonly<Record<string, string>> = {
   NotebookEdit: "notebook_path",
 };
 
+export interface RecordedRead {
+  path: string;
+  partial: boolean;
+  content: string;
+  truncated: boolean;
+}
+
+function readRequest(toolName: string, input: unknown): { path: string; partial: boolean } | null {
+  if (toolName !== "Read" || input === null || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  const path = record["file_path"];
+  if (typeof path !== "string" || path.length === 0) return null;
+  return { path, partial: record["offset"] !== undefined || record["limit"] !== undefined };
+}
+
 function editedPath(toolName: string, input: unknown): string | null {
   const key = EDIT_TOOL_KEYS[toolName];
   if (key === undefined || input === null || typeof input !== "object") return null;
@@ -47,6 +62,8 @@ export class RunRecorder {
   private readonly pendingEdits = new Map<string, string>();
   private readonly edited = new Set<string>();
   private readonly deniedToolUses = new Set<string>();
+  private readonly pendingReads = new Map<string, { path: string; partial: boolean }>();
+  private readonly completedReads: RecordedRead[] = [];
 
   constructor(
     private readonly runId: string,
@@ -81,6 +98,10 @@ export class RunRecorder {
 
   get changedFiles(): string[] {
     return [...this.edited];
+  }
+
+  get reads(): readonly RecordedRead[] {
+    return this.completedReads;
   }
 
   turnUsages(): TurnUsageRecord[] {
@@ -126,11 +147,19 @@ export class RunRecorder {
       } else if (item.kind === "tool_use") {
         const path = editedPath(item.name, item.input);
         if (path !== null) this.pendingEdits.set(item.toolUseId, path);
+        const read = readRequest(item.name, item.input);
+        if (read !== null) this.pendingReads.set(item.toolUseId, read);
       } else if (item.kind === "tool_result") {
         const path = this.pendingEdits.get(item.toolUseId);
         if (path !== undefined) {
           this.pendingEdits.delete(item.toolUseId);
           if (!item.isError) this.edited.add(path);
+        }
+        const read = this.pendingReads.get(item.toolUseId);
+        if (read !== undefined) {
+          this.pendingReads.delete(item.toolUseId);
+          if (!item.isError)
+            this.completedReads.push({ ...read, content: item.content, truncated: item.truncated });
         }
       } else if (item.kind === "guard") {
         if (item.toolUseId !== null && this.deniedToolUses.has(item.toolUseId)) continue;
