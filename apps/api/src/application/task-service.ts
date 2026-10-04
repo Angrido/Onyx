@@ -12,9 +12,10 @@ import type {
 import type { PrismaClient } from "@onyx/db";
 import type { z } from "zod";
 import { RUNNABLE_STATUSES, isActive, isRunnable } from "../domain/task-state";
+import { isSmallTask } from "../domain/batch";
 import { badRequest, conflict, notFound } from "../errors";
 import type { WsHub } from "../infrastructure/ws-hub";
-import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toTaskDto } from "./mappers";
+import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toStringArray, toTaskDto } from "./mappers";
 import { runLockKey, type RunScheduler } from "./run-scheduler";
 
 type CreateTaskInput = z.output<typeof CreateTaskRequestSchema>;
@@ -149,9 +150,34 @@ export class TaskService {
       lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
       priority: task.priority,
       canWait: task.canWait,
+      small:
+        !input.prompt &&
+        !input.modelId &&
+        !input.agentConfigId &&
+        !input.newSession &&
+        isSmallTask({ ...task, targetPaths: toStringArray(task.targetPaths) }),
       enqueuedAt: Date.now(),
     });
     return { task: toTaskDto(updated), queuePosition };
+  }
+
+  async requeue(id: string): Promise<void> {
+    const task = await this.prisma.task.update({
+      where: { id },
+      data: { status: "QUEUED", batchRunId: null },
+    });
+    if (!task.workspaceId) return;
+    this.publish(task.id, task.projectId, "QUEUED");
+    this.scheduler.enqueue({
+      request: { taskId: id, modelId: null, agentConfigId: null, prompt: null, newSession: false },
+      workspaceId: task.workspaceId,
+      projectId: task.projectId,
+      lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
+      priority: task.priority,
+      canWait: task.canWait,
+      small: false,
+      enqueuedAt: Date.now(),
+    });
   }
 
   async cancel(id: string, actor = "user:unknown"): Promise<TaskDto> {

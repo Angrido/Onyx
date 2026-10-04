@@ -493,6 +493,127 @@ export interface LedgerInput {
   quota: { deferredRuns: number; limitedRuns: number; windowDays: number };
   memory: { experiment: MemoryExperiment; sessions: number; tokens: number; windowDays: number };
   signatures: { runs: number; tokens: number; windowDays: number };
+  concise: ConciseInput;
+  exploration: ExplorationInput;
+  batching: BatchingInput;
+}
+
+export interface ConciseInput {
+  enabled: boolean;
+  since: string | null;
+  before: readonly number[];
+  after: readonly number[];
+  windowDays: number;
+}
+
+export interface ExplorationInput {
+  enabled: boolean;
+  withExplorer: readonly number[];
+  without: readonly number[];
+}
+
+export interface BatchingInput {
+  enabled: boolean;
+  batched: { runs: number; tokens: number; tasks: number };
+  single: { runs: number; tokens: number; tasks: number };
+}
+
+export const MIN_BEFORE_AFTER_RUNS = 10;
+export const MIN_PLANS = 3;
+export const MIN_BATCH_RUNS = 5;
+
+function signedPercent(ratio: number | null): string {
+  if (ratio === null) return "n/a";
+  const value = Math.round(ratio * 100);
+  return `${value > 0 ? "+" : ""}${value}%`;
+}
+
+export function conciseRow(input: ConciseInput): SavingsLedgerRow {
+  const before = median(input.before);
+  const after = median(input.after);
+  const enough =
+    input.since !== null &&
+    input.before.length >= MIN_BEFORE_AFTER_RUNS &&
+    input.after.length >= MIN_BEFORE_AFTER_RUNS;
+  if (enough && before !== null && after !== null)
+    return {
+      source: "concise-answers",
+      evidence: "MEASURED",
+      tokens: null,
+      usd: null,
+      runs: input.after.length,
+      detail: `Output tokens per completed run: ${compactTokens(before)} before short summaries, ${compactTokens(after)} after (${signedPercent(relativeChange(after, before))}, medians over ${input.before.length} and ${input.after.length} runs of ${input.windowDays} days each side). Before and after, not an A/B: the tasks differ too.`,
+    };
+  return {
+    source: "concise-answers",
+    evidence: "ESTIMATED",
+    tokens: null,
+    usd: null,
+    runs: input.after.length,
+    detail: input.enabled
+      ? `Expected 20–40% fewer output tokens per run (output costs five times the input). Measured once there are ${MIN_BEFORE_AFTER_RUNS} completed runs before and after the switch: now ${input.before.length} and ${input.after.length}.`
+      : "Off: final summaries are as long as the agent makes them.",
+  };
+}
+
+export function explorationRow(input: ExplorationInput): SavingsLedgerRow {
+  const withExplorer = median(input.withExplorer);
+  const without = median(input.without);
+  if (
+    input.withExplorer.length >= MIN_PLANS &&
+    input.without.length >= MIN_PLANS &&
+    withExplorer !== null &&
+    without !== null
+  )
+    return {
+      source: "exploration-models",
+      evidence: "MEASURED",
+      tokens: null,
+      usd: null,
+      runs: input.withExplorer.length + input.without.length,
+      detail: `Planner-model cost per plan: $${without.toFixed(3)} without the explorer, $${withExplorer.toFixed(3)} with it (${signedPercent(relativeChange(withExplorer, without))}, medians over ${input.without.length} and ${input.withExplorer.length} plans). On Claude Max this is the share that weighs on the Opus quota.`,
+    };
+  return {
+    source: "exploration-models",
+    evidence: "ESTIMATED",
+    tokens: null,
+    usd: null,
+    runs: input.withExplorer.length,
+    detail: input.enabled
+      ? `The planner and the roadmap delegate searches to an explorer on Haiku and the roadmap runs on Sonnet, so less of the Opus quota goes to reading files. Measured once there are ${MIN_PLANS} plans with and ${MIN_PLANS} without it: now ${input.withExplorer.length} and ${input.without.length}.`
+      : "Off: the planner and the roadmap explore on their own model.",
+  };
+}
+
+export function batchingRow(input: BatchingInput): SavingsLedgerRow {
+  const perTask = (group: BatchingInput["batched"]) =>
+    group.tasks > 0 ? group.tokens / group.tasks : null;
+  const batched = perTask(input.batched);
+  const single = perTask(input.single);
+  if (
+    input.batched.runs >= MIN_BATCH_RUNS &&
+    input.single.runs >= MIN_BATCH_RUNS &&
+    batched !== null &&
+    single !== null
+  )
+    return {
+      source: "small-task-batching",
+      evidence: "MEASURED",
+      tokens: Math.max(0, Math.round((single - batched) * input.batched.tasks)),
+      usd: null,
+      runs: input.batched.runs,
+      detail: `Tokens per completed small task: ${compactTokens(single)} alone, ${compactTokens(batched)} in a grouped run (${signedPercent(relativeChange(batched, single))}, ${input.batched.tasks} tasks in ${input.batched.runs} grouped runs against ${input.single.tasks} in ${input.single.runs} single runs).`,
+    };
+  return {
+    source: "small-task-batching",
+    evidence: "ESTIMATED",
+    tokens: null,
+    usd: null,
+    runs: input.batched.runs,
+    detail: input.enabled
+      ? `Expected 10–30% fewer tokens per completed small task. Measured after ${MIN_BATCH_RUNS} grouped and ${MIN_BATCH_RUNS} single runs of small tasks: now ${input.batched.runs} and ${input.single.runs}.`
+      : "Off: turn it on in Settings to let Onyx group small queued tasks of the same workspace.",
+  };
 }
 
 export interface RunTokens {
@@ -675,5 +796,8 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
     quotaRow(input.quota),
     memoryRow(input.memory),
     signaturesRow(input.experiment, input.signatures),
+    conciseRow(input.concise),
+    explorationRow(input.exploration),
+    batchingRow(input.batching),
   ];
 }

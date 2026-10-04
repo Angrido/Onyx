@@ -1,6 +1,8 @@
 import {
   MemorySettingsSchema,
   PushSubscriptionRequestSchema,
+  SavingsOptionsSchema,
+  type SavingsOptionsDto,
   type MemorySettings,
   PushUnsubscribeRequestSchema,
   SaveClaudeTokenRequestSchema,
@@ -61,7 +63,16 @@ export function registerSettingsRoutes(app: FastifyInstance, container: Containe
     credentials.cancelLogin(),
   );
 
-  const { notifications, memory } = container;
+  const { notifications, memory, options } = container;
+
+  app.get("/api/settings/savings-options", async (): Promise<SavingsOptionsDto> => options.get());
+
+  app.put("/api/settings/savings-options", async (request): Promise<SavingsOptionsDto> => {
+    const saved = await options.update(SavingsOptionsSchema.parse(request.body ?? {}));
+    container.scheduler.poke();
+    container.savings.forget();
+    return saved;
+  });
 
   app.get("/api/settings/memory", async (): Promise<MemorySettings> => memory.settings());
 

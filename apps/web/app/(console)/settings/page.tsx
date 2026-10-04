@@ -8,6 +8,7 @@ import type {
   NotificationSettingsDto,
   ProjectListResponse,
   QueueDto,
+  SavingsOptionsDto,
 } from "@onyx/contracts";
 import { PageHeader } from "@/components/layout/page-header";
 import { BackupsCard } from "@/components/settings/backups-card";
@@ -18,23 +19,35 @@ import { GitIdentityCard } from "@/components/settings/git-identity-card";
 import { MemoryCard } from "@/components/settings/memory-card";
 import { NotificationsCard } from "@/components/settings/notifications-card";
 import { QueueCard } from "@/components/settings/queue-card";
+import { SavingsOptionsCard } from "@/components/settings/savings-options-card";
 import { serverFetch } from "@/lib/api/server";
 
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [claude, github, identity, budgets, projects, backups, queue, notifications, memory] =
-    await Promise.all([
-      serverFetch<ClaudeAccountDto>("/api/settings/claude"),
-      serverFetch<GitHubAccountDto>("/api/github/account"),
-      serverFetch<GitIdentityDto>("/api/settings/git"),
-      serverFetch<BudgetListResponse>("/api/budgets"),
-      serverFetch<ProjectListResponse>("/api/projects"),
-      serverFetch<BackupListResponse>("/api/backups"),
-      serverFetch<QueueDto>("/api/queue"),
-      serverFetch<NotificationSettingsDto>("/api/settings/notifications"),
-      serverFetch<MemorySettings>("/api/settings/memory"),
-    ]);
+  const [
+    claude,
+    github,
+    identity,
+    budgets,
+    projects,
+    backups,
+    queue,
+    notifications,
+    memory,
+    savingsOptions,
+  ] = await Promise.all([
+    serverFetch<ClaudeAccountDto>("/api/settings/claude"),
+    serverFetch<GitHubAccountDto>("/api/github/account"),
+    serverFetch<GitIdentityDto>("/api/settings/git"),
+    serverFetch<BudgetListResponse>("/api/budgets"),
+    serverFetch<ProjectListResponse>("/api/projects"),
+    serverFetch<BackupListResponse>("/api/backups"),
+    serverFetch<QueueDto>("/api/queue"),
+    serverFetch<NotificationSettingsDto>("/api/settings/notifications"),
+    serverFetch<MemorySettings>("/api/settings/memory"),
+    serverFetch<SavingsOptionsDto>("/api/settings/savings-options"),
+  ]);
   return (
     <>
       <PageHeader
@@ -57,6 +70,7 @@ export default async function SettingsPage() {
         <div className="space-y-6">
           <QueueCard initial={queue} />
           <MemoryCard initial={memory} />
+          <SavingsOptionsCard initial={savingsOptions} />
           <BackupsCard initial={backups} />
         </div>
       </div>

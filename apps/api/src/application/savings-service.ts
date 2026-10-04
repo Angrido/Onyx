@@ -12,6 +12,7 @@ import { CONTINUE_PROMPT_PREFIX } from "../domain/command-rules";
 import { compareMemoryArms } from "../domain/memory";
 import { experimentRuns, sqlDate } from "../infrastructure/run-totals";
 import type { MemoryService } from "./memory-service";
+import type { OptionsService } from "./options-service";
 
 const EMPTY_MEMORY_EXPERIMENT = compareMemoryArms({
   enabled: false,
@@ -47,6 +48,7 @@ export interface SavingsServiceDeps {
   router: Pick<RouterService, "telemetry">;
   contextEnabled: boolean;
   memory?: Pick<MemoryService, "experiment">;
+  options?: Pick<OptionsService, "get">;
 }
 
 function round(value: number, digits = 6): number {
@@ -109,6 +111,7 @@ export class SavingsService {
       quota,
       memory,
       signatures,
+      choices,
     ] = await Promise.all([
       this.experimentSettings(),
       this.accounting(now),
@@ -120,6 +123,7 @@ export class SavingsService {
       this.quotaRuns(now),
       this.memoryUse(now),
       this.signatureUse(now),
+      this.choices(now),
     ]);
     const experiment = compareArms({
       settings,
@@ -147,6 +151,7 @@ export class SavingsService {
         quota,
         memory,
         signatures,
+        ...choices,
       }),
       cache: sessions.cache,
       memory: memory.experiment,
@@ -312,6 +317,72 @@ export class SavingsService {
         )
         .slice(0, TOP_REREADS)
         .map(([relPath, count]) => ({ relPath, runs: count })),
+    };
+  }
+
+  private async choices(now: Date) {
+    const { prisma } = this.deps;
+    const options = await this.deps.options?.get();
+    const since = options?.conciseSince ? new Date(options.conciseSince) : null;
+    const from = new Date((since ?? now).getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const window = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const [outputs, plans, batchRuns] = await Promise.all([
+      prisma.$queryRaw<{ outputTokens: unknown; startedAt: unknown }[]>`
+        SELECT l.outputTokens AS outputTokens, r.startedAt AS startedAt
+        FROM AgentRun r JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
+        WHERE r.status = 'COMPLETED' AND r.startedAt >= ${sqlDate(from)}`,
+      prisma.orchestration.findMany({
+        where: {
+          createdAt: { gte: new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS) },
+          plannerCostUsd: { not: null },
+        },
+        select: { plannerCostUsd: true, plannerModelCostUsd: true, plannerExplorer: true },
+      }),
+      prisma.$queryRaw<{ batchSize: unknown; status: unknown; tokens: unknown; mates: unknown }[]>`
+        SELECT r.batchSize AS batchSize, t.status AS status,
+          COALESCE(l.inputTokens + l.outputTokens + l.cacheCreationTokens, 0) AS tokens,
+          (SELECT COUNT(*) FROM Task m WHERE m.batchRunId = r.id AND m.status = 'COMPLETED') AS mates
+        FROM AgentRun r
+        JOIN Task t ON t.id = r.taskId
+        LEFT JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
+        WHERE r.batchSize IS NOT NULL AND r.startedAt >= ${sqlDate(window)}`,
+    ]);
+    const before: number[] = [];
+    const after: number[] = [];
+    for (const row of outputs) {
+      const at = new Date(String(row.startedAt)).getTime();
+      const value = Number(row.outputTokens ?? 0);
+      if (since && at >= since.getTime()) after.push(value);
+      else if (since && at >= from.getTime()) before.push(value);
+    }
+    const batched = { runs: 0, tokens: 0, tasks: 0 };
+    const single = { runs: 0, tokens: 0, tasks: 0 };
+    for (const row of batchRuns) {
+      const group = Number(row.batchSize) > 1 ? batched : single;
+      group.runs += 1;
+      group.tokens += Number(row.tokens ?? 0);
+      group.tasks += (row.status === "COMPLETED" ? 1 : 0) + Number(row.mates ?? 0);
+    }
+    return {
+      concise: {
+        enabled: options?.conciseAnswers ?? false,
+        since: options?.conciseSince ?? null,
+        before,
+        after,
+        windowDays: ACCOUNTING_DAYS,
+      },
+      exploration: {
+        enabled: options?.cheapExploration ?? false,
+        withExplorer: plans.flatMap((plan) =>
+          plan.plannerExplorer === true
+            ? [plan.plannerModelCostUsd ?? plan.plannerCostUsd ?? 0]
+            : [],
+        ),
+        without: plans.flatMap((plan) =>
+          plan.plannerExplorer === true ? [] : [plan.plannerCostUsd ?? 0],
+        ),
+      },
+      batching: { enabled: options?.batchSmallTasks ?? false, batched, single },
     };
   }
 

@@ -2,6 +2,7 @@ import type { AgentPool } from "@onyx/agent-runtime";
 import type { QueueItemKind, QueueWaitReason, RunStatus } from "@onyx/contracts";
 import type { Logger } from "pino";
 import type { WsHub } from "../infrastructure/ws-hub";
+import { MAX_BATCH } from "../domain/batch";
 import type { ExecutionResult, RunExecutor, RunRequest } from "./run-executor";
 
 export interface QueuedRun {
@@ -14,6 +15,7 @@ export interface QueuedRun {
   enqueuedAt: number;
   rank?: number;
   kind?: QueueItemKind;
+  small?: boolean;
   holdId?: string;
   onFinished?: (result: ExecutionResult | null) => void;
 }
@@ -42,6 +44,7 @@ export type Admission =
 export interface QueuePolicy {
   agingMs: number;
   limitOf: (projectId: string) => number | null;
+  batching?: boolean;
 }
 
 export type QueueMove = "top" | "up" | "down" | "bottom";
@@ -331,6 +334,7 @@ export class RunScheduler {
       if (owner !== null) running.set(owner, (running.get(owner) ?? 0) + 1);
     this.waiting.clear();
     for (const item of this.ordered()) {
+      if (!this.queue.includes(item)) continue;
       const taskId = item.request.taskId;
       if (this.inFlight + this.reserved >= this.deps.maxConcurrent) {
         this.waiting.set(taskId, "SLOTS");
@@ -365,8 +369,32 @@ export class RunScheduler {
       }
       this.queue.splice(this.queue.indexOf(item), 1);
       if (item.projectId) running.set(item.projectId, (running.get(item.projectId) ?? 0) + 1);
+      if (policy.batching) this.gather(item);
       this.start(item);
     }
+  }
+
+  private gather(item: QueuedRun): void {
+    if (!item.small || (item.kind ?? "TASK") !== "TASK" || item.request.batch || item.onFinished)
+      return;
+    const mates = this.ordered()
+      .filter(
+        (other) =>
+          other !== item &&
+          other.small === true &&
+          (other.kind ?? "TASK") === "TASK" &&
+          other.onFinished === undefined &&
+          other.request.batch === undefined &&
+          lockOf(other) === lockOf(item),
+      )
+      .slice(0, MAX_BATCH - 1);
+    if (mates.length === 0) return;
+    for (const mate of mates) {
+      this.queue.splice(this.queue.indexOf(mate), 1);
+      this.waiting.delete(mate.request.taskId);
+    }
+    item.request.batch = mates.map((mate) => mate.request.taskId);
+    this.announce("reordered", item.request.taskId, null, null);
   }
 
   private start(item: QueuedRun): void {

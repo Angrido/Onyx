@@ -19,6 +19,7 @@ export interface QueueServiceDeps {
   logger: Logger;
   scheduler: () => RunScheduler | null;
   maxConcurrent: number;
+  batching?: () => boolean;
 }
 
 export class QueueService {
@@ -46,6 +47,7 @@ export class QueueService {
     return {
       agingMs: this.settings.agingMinutes * 60_000,
       limitOf: (projectId) => this.limitOf(projectId),
+      batching: this.deps.batching?.() ?? false,
     };
   }
 

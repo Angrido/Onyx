@@ -161,3 +161,17 @@ export const SavingsReportSchema = z.object({
   memory: MemoryExperimentSchema,
 });
 export type SavingsReport = z.infer<typeof SavingsReportSchema>;
+
+export const SavingsOptionsSchema = z.object({
+  conciseAnswers: z.boolean(),
+  cheapExploration: z.boolean(),
+  batchSmallTasks: z.boolean(),
+});
+export type SavingsOptions = z.infer<typeof SavingsOptionsSchema>;
+
+export const SavingsOptionsDtoSchema = SavingsOptionsSchema.extend({
+  conciseSince: z.string().nullable(),
+  explorationSince: z.string().nullable(),
+  batchingSince: z.string().nullable(),
+});
+export type SavingsOptionsDto = z.infer<typeof SavingsOptionsDtoSchema>;

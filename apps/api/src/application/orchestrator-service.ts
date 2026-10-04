@@ -48,6 +48,15 @@ import {
 } from "../infrastructure/mcp-config";
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
+import {
+  EXPLORER_AGENTS,
+  EXPLORER_HINT,
+  EXPLORER_TOOLS,
+  costOfModel,
+  usageByModel,
+  type ModelUsageRow,
+} from "../domain/exploration";
+import type { OptionsService } from "./options-service";
 import { orchestrationStateMessage, type WsHub } from "../infrastructure/ws-hub";
 import type { ApprovalPayload, ApprovalService } from "./approval-service";
 import type { BudgetService } from "./budget-service";
@@ -65,6 +74,7 @@ import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 type CreateInput = z.output<typeof CreateOrchestrationRequestSchema>;
 
 export interface OrchestratorDeps {
+  options?: Pick<OptionsService, "get">;
   prisma: PrismaClient;
   logger: Logger;
   hub: WsHub;
@@ -479,9 +489,11 @@ export class OrchestratorService {
       config.context.enabled &&
       config.context.mcpServerPath !== null &&
       isReadableFile(config.context.mcpServerPath);
+    const cheap = (await this.deps.options?.get())?.cheapExploration === true;
     const files = await writeRuntimeFiles({
       runtimeDir: config.runtimeDir,
       runId: planner.runId,
+      agents: cheap ? EXPLORER_AGENTS : null,
       settings: buildRunSettings({
         deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
         protectedPaths: config.agentProtectedPaths,
@@ -507,11 +519,12 @@ export class OrchestratorService {
         {
           runId: planner.runId,
           cwd: project.rootPath,
-          prompt,
+          prompt: cheap ? `${prompt}\n\n${EXPLORER_HINT}` : prompt,
           model: modelId,
           fallbackModels: [],
           permissionMode: "plan",
           maxTurns: PLANNER_MAX_TURNS,
+          agentsFile: files.agentsFile,
           session: { mode: "ephemeral" },
           allowedTools: [
             "Read",
@@ -519,6 +532,7 @@ export class OrchestratorService {
             "Glob",
             "LS",
             ...(mcpEnabled ? [ONYX_MCP_ALLOW_RULE] : []),
+            ...(cheap ? EXPLORER_TOOLS : []),
           ],
           disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"],
           settingsFile: files.settingsFile,
@@ -568,11 +582,17 @@ export class OrchestratorService {
           : `Claude Code stopped before answering (${exit.reason})`,
       );
     }
-    const costUsd = await this.recordUsage(modelId, final);
+    const rows = usageByModel(final, modelId);
+    const costUsd = await this.recordUsage(modelId, final, rows);
     void this.deps.budgets.refresh().catch(() => undefined);
     await prisma.orchestration.update({
       where: { id: orchestration.id },
-      data: { plannerCostUsd: costUsd, plannerTurns: final.numTurns },
+      data: {
+        plannerCostUsd: costUsd,
+        plannerTurns: final.numTurns,
+        plannerExplorer: cheap,
+        plannerModelCostUsd: costOfModel(rows, modelId) ?? costUsd,
+      },
     });
     if (final.isError) {
       return fail(
@@ -1352,12 +1372,22 @@ export class OrchestratorService {
     };
   }
 
-  private async recordUsage(modelId: string, result: RunItemOf<"result">): Promise<number | null> {
+  private async recordUsage(
+    modelId: string,
+    result: RunItemOf<"result">,
+    rows: readonly ModelUsageRow[],
+  ): Promise<number | null> {
     const profile = await this.deps.prisma.modelProfile.findUnique({ where: { id: modelId } });
     const costUsd = result.costUsd ?? (profile ? priceUsage(result.usage, profile) : null);
     await this.deps.prisma.tokenLog
-      .create({
-        data: { modelId, scope: "AUX", purpose: "planner", ...result.usage, costUsd },
+      .createMany({
+        data: rows.map((row) => ({
+          modelId: row.modelId,
+          scope: "AUX" as const,
+          purpose: "planner",
+          ...row.usage,
+          costUsd: rows.length === 1 ? costUsd : row.costUsd,
+        })),
       })
       .catch((error: unknown) => this.deps.logger.warn({ err: error }, "Planner token log failed"));
     return costUsd;

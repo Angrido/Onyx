@@ -164,6 +164,25 @@ describe("global run queue", () => {
     ]);
   });
 
+  it("groups small tasks of the same workspace when batching is on", async () => {
+    const { scheduler, started, finish } = harness(1, { batching: true });
+    scheduler.enqueue(item("blocker", { workspace: "other" }));
+    const small = (taskId: string, workspace = "w") => ({
+      ...item(taskId, { workspace }),
+      small: true,
+    });
+    const first = small("a");
+    scheduler.enqueue(first);
+    scheduler.enqueue(small("b"));
+    scheduler.enqueue(small("c", "elsewhere"));
+    scheduler.enqueue(item("big", { workspace: "w" }));
+    scheduler.enqueue(small("d"));
+    await finish("blocker");
+    expect(started).toEqual(["blocker", "a"]);
+    expect(first.request.batch).toEqual(["b", "d"]);
+    expect(scheduler.queuedRuns().map((entry) => entry.request.taskId)).toEqual(["c", "big"]);
+  });
+
   it("refuses to queue the same task twice", () => {
     const { scheduler } = harness(0);
     scheduler.enqueue(item("twice"));

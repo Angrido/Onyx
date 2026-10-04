@@ -113,6 +113,9 @@ export const SOURCE_LABELS: Record<SavingsSource, string> = {
   quota: "Tasks held near the Claude limit",
   "project-memory": "Project memory in new sessions",
   "target-signatures": "Files to edit sent as signatures",
+  "concise-answers": "Short final summaries",
+  "exploration-models": "Plan exploration on a cheaper model",
+  "small-task-batching": "Small tasks grouped in one run",
 };
 
 export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {

@@ -116,6 +116,7 @@ function readPrompt(): Promise<string> {
 
 function scenarioFor(prompt: string): string {
   const marker = /\[stub:([a-z-]+)\]/.exec(taskSection(prompt));
+  if (marker?.[1] === "fail-task" || marker?.[1] === "skip-task") return "success";
   return marker?.[1] ?? process.env.CLAUDE_STUB_SCENARIO ?? "success";
 }
 
@@ -1409,8 +1410,52 @@ async function runPlanScenario(prompt: string): Promise<void> {
   const text = JSON.stringify(plan);
   await writeLine(assistantLine("msg_stub_plan_done", [{ type: "text", text }]));
   await writeLine(
-    resultLine(text, [], process.env.CLAUDE_STUB_PLAN_AS_TEXT === "1" ? undefined : plan),
+    withExplorerUsage(
+      resultLine(text, [], process.env.CLAUDE_STUB_PLAN_AS_TEXT === "1" ? undefined : plan),
+    ),
   );
+}
+
+async function runBatchScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const sections = prompt.split(/^## Task \d+: /m).slice(1);
+  const lines = sections.flatMap((section, index) => {
+    if (section.includes("[stub:skip-task]")) return [];
+    if (section.includes("[stub:fail-task]"))
+      return [`TASK ${index + 1}: FAILED the stub could not do this one`];
+    return [`TASK ${index + 1}: DONE`];
+  });
+  const text = ["Worked through the grouped tasks.", ...lines].join("\n");
+  await writeLine(assistantLine("msg_stub_batch_done", [{ type: "text", text }]));
+  await writeLine(resultLine(text));
+}
+
+function withExplorerUsage(line: string): string {
+  const agentsPath = flagValue("--agents");
+  if (!agentsPath) return line;
+  let agents: unknown;
+  try {
+    agents = JSON.parse(readFileSync(agentsPath, "utf8"));
+  } catch {
+    return line;
+  }
+  if (!isRecord(agents) || !isRecord(agents.explorer)) return line;
+  const parsed = JSON.parse(line) as Record<string, unknown>;
+  const usage = (tokens: number) => ({
+    inputTokens: tokens,
+    outputTokens: Math.round(tokens / 10),
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    webSearchRequests: 0,
+    contextWindow: 200_000,
+  });
+  parsed.modelUsage = {
+    [model]: { ...usage(600), costUSD: 0.0025 },
+    "claude-haiku-4-5": { ...usage(900), costUSD: 0.0006 },
+  };
+  parsed.total_cost_usd = 0.0031;
+  return JSON.stringify(parsed);
 }
 
 function base64Url(bytes: number): string {
@@ -1617,6 +1662,10 @@ async function main(): Promise<void> {
   }
   if (prompt.includes("Onyx TDD loop")) {
     await runTddScenario(prompt);
+    return;
+  }
+  if (/^# \d+ small tasks$/m.test(prompt)) {
+    await runBatchScenario(prompt);
     return;
   }
   const keyed = keyedStep(prompt);

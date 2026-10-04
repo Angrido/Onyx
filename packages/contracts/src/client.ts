@@ -71,6 +71,9 @@ export const SAVINGS_SOURCES = [
   "quota",
   "project-memory",
   "target-signatures",
+  "concise-answers",
+  "exploration-models",
+  "small-task-batching",
 ] as const;
 export const CACHE_LOSSES = [
   "NEW_SESSION",

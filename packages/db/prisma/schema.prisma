@@ -398,6 +398,7 @@ model Task {
   mergeCommit   String?
   mergedAt      DateTime?
   canWait       Boolean    @default(false)
+  batchRunId    String?
   createdAt     DateTime   @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
@@ -449,6 +450,7 @@ model Session {
   deliveredPack   Json?
   memory          Json?
   memoryArm       MemoryArm?
+  concise         Boolean?
   turns           Int               @default(0)
   contextTokens   Int               @default(0)
   startedAt       DateTime          @default(now())
@@ -499,6 +501,7 @@ model AgentRun {
   ctxRereadPaths     Json?
   ctxReusedTokens    Int?
   ctxSignatureTokens Int?
+  batchSize          Int?
   cachePrefixHash    String?
   cacheReadTokens    Int?
   cacheWriteTokens   Int?
@@ -790,28 +793,30 @@ model Approval {
 }
 
 model Orchestration {
-  id              String              @id @default(cuid())
-  projectId       String
-  rootTaskId      String              @unique
-  status          OrchestrationStatus @default(PLANNING)
-  goal            String
-  summary         String?
-  plan            Json?
-  baseBranch      String?
-  baseCommit      String?
-  workBranch      String?
-  integrationPath String?
-  parallelism     Int                 @default(2)
-  verify          Boolean             @default(true)
-  plannerModelId  String?
-  plannerCostUsd  Float?
-  plannerTurns    Int?
-  message         String?
-  createdAt       DateTime            @default(now())
-  approvedAt      DateTime?
-  startedAt       DateTime?
-  endedAt         DateTime?
-  updatedAt       DateTime            @updatedAt
+  id                  String              @id @default(cuid())
+  projectId           String
+  rootTaskId          String              @unique
+  status              OrchestrationStatus @default(PLANNING)
+  goal                String
+  summary             String?
+  plan                Json?
+  baseBranch          String?
+  baseCommit          String?
+  workBranch          String?
+  integrationPath     String?
+  parallelism         Int                 @default(2)
+  verify              Boolean             @default(true)
+  plannerModelId      String?
+  plannerCostUsd      Float?
+  plannerTurns        Int?
+  message             String?
+  createdAt           DateTime            @default(now())
+  approvedAt          DateTime?
+  startedAt           DateTime?
+  endedAt             DateTime?
+  updatedAt           DateTime            @updatedAt
+  plannerModelCostUsd Float?
+  plannerExplorer     Boolean?
 
   project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   rootTask Task    @relation("OrchestrationRoot", fields: [rootTaskId], references: [id], onDelete: Cascade)

@@ -18,6 +18,7 @@ import { BudgetService } from "./application/budget-service";
 import { MemoryService } from "./application/memory-service";
 import { MissionService } from "./application/mission-service";
 import { NotificationService } from "./application/notification-service";
+import { OptionsService } from "./application/options-service";
 import { QueueService } from "./application/queue-service";
 import { SearchService } from "./application/search-service";
 import { QuotaService } from "./application/quota-service";
@@ -108,6 +109,7 @@ export interface Container {
   queue: QueueService;
   mission: MissionService;
   memory: MemoryService;
+  options: OptionsService;
   notifications: NotificationService;
   search: SearchService;
   orchestrator: OrchestratorService;
@@ -194,6 +196,7 @@ export async function createContainer(
   );
 
   const estimator = new AdjustableTokenEstimator();
+  const options = new OptionsService(prisma, overrides.now);
   const memory = new MemoryService({
     prisma,
     logger,
@@ -271,6 +274,7 @@ export async function createContainer(
     router,
     contextEnabled: config.context.enabled,
     memory,
+    options,
   });
   const activity = new WorkTreeActivity();
   const executor = new RunExecutor({
@@ -290,6 +294,8 @@ export async function createContainer(
     experiment: () => savings.experimentSettings(),
     estimator,
     memory,
+    options,
+    onBatchLeftover: (taskId: string): Promise<void> => tasks.requeue(taskId),
     ...(overrides.armRandom ? { random: overrides.armRandom } : {}),
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     onRateLimit: (item) => quota.observe(item),
@@ -341,6 +347,7 @@ export async function createContainer(
     logger,
     scheduler: () => scheduling.scheduler,
     maxConcurrent: config.maxConcurrentAgents,
+    batching: () => options.current()?.batchSmallTasks === true,
   });
   const scheduler = new RunScheduler({
     executor,
@@ -464,6 +471,7 @@ export async function createContainer(
     vault,
   });
   const roadmap = new RoadmapService({
+    options,
     prisma,
     logger,
     pool,
@@ -521,6 +529,7 @@ export async function createContainer(
     ...(overrides.now ? { now: overrides.now } : {}),
   });
   const orchestrator = new OrchestratorService({
+    options,
     prisma,
     logger,
     hub,
@@ -577,6 +586,7 @@ export async function createContainer(
     queue,
     mission,
     memory,
+    options,
     notifications,
     search: new SearchService(prisma),
     orchestrator,
@@ -672,6 +682,7 @@ export async function createContainer(
       await budgets.refresh();
       await quota.load();
       await queue.load();
+      await options.get();
       await notifications.load();
       if (await ensureSearchIndex(prisma)) logger.info("Built the search index");
       const recovery = await recoverInterruptedWork(prisma, logger, {

@@ -39,6 +39,8 @@ import {
 } from "../infrastructure/mcp-config";
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
+import { EXPLORER_AGENTS, EXPLORER_HINT, EXPLORER_TOOLS } from "../domain/exploration";
+import type { OptionsService } from "./options-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
@@ -51,6 +53,7 @@ import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 type GenerateInput = z.output<typeof GenerateRoadmapRequestSchema>;
 
 export interface RoadmapServiceDeps {
+  options?: Pick<OptionsService, "get">;
   prisma: PrismaClient;
   logger: Logger;
   pool: AgentPool;
@@ -173,7 +176,11 @@ export class RoadmapService {
         data: { status: "FAILED", error: "Interrupted", endedAt: new Date() },
       });
     }
-    const modelId = input.modelId ?? (await this.deps.router.referenceProfile())?.id;
+    const cheap = (await this.deps.options?.get())?.cheapExploration === true;
+    const modelId =
+      input.modelId ??
+      (cheap ? (await this.deps.router.profileForTier("BUILDER"))?.id : undefined) ??
+      (await this.deps.router.referenceProfile())?.id;
     if (!modelId) throw new AppError(400, ErrorCode.BadRequest, "No enabled model for the roadmap");
     const reservation = this.deps.reserve(null);
     if (!reservation.ok) {
@@ -334,9 +341,11 @@ export class RoadmapService {
         config.context.enabled &&
         config.context.mcpServerPath !== null &&
         isReadableFile(config.context.mcpServerPath);
+      const cheap = (await this.deps.options?.get())?.cheapExploration === true;
       const files = await writeRuntimeFiles({
         runtimeDir: config.runtimeDir,
         runId: entry.runId,
+        agents: cheap ? EXPLORER_AGENTS : null,
         settings: buildRunSettings({
           deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
           protectedPaths: config.agentProtectedPaths,
@@ -361,11 +370,12 @@ export class RoadmapService {
           {
             runId: entry.runId,
             cwd: project.rootPath,
-            prompt,
+            prompt: cheap ? `${prompt}\n\n${EXPLORER_HINT}` : prompt,
             model: generation.modelId,
             fallbackModels: [],
             permissionMode: "plan",
             maxTurns: MAX_TURNS,
+            agentsFile: files.agentsFile,
             session: { mode: "ephemeral" },
             allowedTools: [
               "Read",
@@ -373,6 +383,7 @@ export class RoadmapService {
               "Glob",
               "LS",
               ...(mcpEnabled ? [ONYX_MCP_ALLOW_RULE] : []),
+              ...(cheap ? EXPLORER_TOOLS : []),
             ],
             disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"],
             settingsFile: files.settingsFile,

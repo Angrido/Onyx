@@ -638,6 +638,15 @@ export class RouterService {
     };
   }
 
+  async profileForTier(tier: ModelTier): Promise<ModelProfile | null> {
+    const [models, preferred] = await Promise.all([
+      this.deps.prisma.modelProfile.findMany(),
+      this.tierPreferences(),
+    ]);
+    const chosen = modelForTier(tier, models, preferred);
+    return chosen ? (models.find((model) => model.id === chosen.modelId) ?? null) : null;
+  }
+
   async referenceProfile(): Promise<ModelProfile | null> {
     const [models, preferred] = await Promise.all([
       this.deps.prisma.modelProfile.findMany(),

@@ -302,7 +302,18 @@ describe("multi-agent orchestrator", () => {
     );
     expect(planned.status).toBe("AWAITING_APPROVAL");
     expect(planned.summary).toBe(CART_PLAN.summary);
-    expect(planned.plannerCostUsd).toBeGreaterThan(0);
+    expect(planned.plannerCostUsd).toBeCloseTo(0.0031);
+    const stored = await context.container.prisma.orchestration.findUnique({
+      where: { id: planned.id },
+    });
+    expect(stored).toMatchObject({ plannerExplorer: true, plannerModelCostUsd: 0.0025 });
+    const logs = await context.container.prisma.tokenLog.findMany({
+      where: { purpose: "planner" },
+    });
+    expect(logs.map((log) => log.modelId).sort()).toEqual([
+      "claude-haiku-4-5",
+      planned.plannerModelId,
+    ]);
     expect(planned.approvalId).not.toBeNull();
     expect(
       planned.nodes.map((node) => [node.key, node.level, node.workspaceName, node.state]),

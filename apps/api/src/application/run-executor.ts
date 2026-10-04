@@ -36,6 +36,7 @@ import { captureFence, reviewFence, type FenceSnapshot } from "../infrastructure
 import type { WorkTreeActivity } from "../infrastructure/work-tree-activity";
 import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
+import { batchPrompt, isSmallTask, parseBatchOutcome } from "../domain/batch";
 import { drawMemoryArm } from "../domain/memory";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { classifyCacheLoss, DEFAULT_PROMPT_CACHE_TTL_MS, prefixHash } from "../domain/prompt-cache";
@@ -65,6 +66,7 @@ import type { CompartmentService } from "./compartment-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
 import { storedMemory, type MemoryService } from "./memory-service";
+import type { OptionsService } from "./options-service";
 import { toStringArray } from "./mappers";
 import { priceUsage, type RouterService } from "./router-service";
 import type { SurgeonService } from "./surgeon-service";
@@ -86,6 +88,7 @@ export interface RunRequest {
   tdd?: TddRunScope;
   tierHint?: RoutingEscalation | null;
   quotaDeferred?: boolean;
+  batch?: string[];
 }
 
 export interface RunLifecycleHooks {
@@ -118,6 +121,8 @@ export interface RunExecutorDeps {
   experiment: () => Promise<ContextExperimentSettings>;
   estimator: TokenEstimator;
   memory?: Pick<MemoryService, "compose" | "settings">;
+  options?: Pick<OptionsService, "get">;
+  onBatchLeftover?: (taskId: string) => Promise<void>;
   random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
   onRateLimit?: (item: RunItemOf<"rate_limit">) => void;
@@ -159,6 +164,7 @@ interface PreparedRun {
   packFingerprints: readonly (readonly [string, string])[];
   fence: WriteFence;
   workspaceName: string;
+  batch: string[];
 }
 
 interface PrimerMap {
@@ -580,11 +586,68 @@ export class RunExecutor {
         logger.warn({ err: error, runId: prepared.runId }, "Run finished listener failed");
       }
     }
+    if (prepared.batch.length > 0) {
+      if (followUp) followUp.batch = prepared.batch;
+      else
+        await this.settleBatch(prepared, outcome.runStatus, result?.resultText ?? null).catch(
+          (error: unknown) =>
+            logger.error(
+              { err: error, runId: prepared.runId },
+              "Could not settle the grouped tasks",
+            ),
+        );
+    }
     logger.info(
       { runId: prepared.runId, status: outcome.runStatus, reason: exit.reason },
       "Run finished",
     );
     return { runId: prepared.runId, status: outcome.runStatus, followUp };
+  }
+
+  private async settleBatch(
+    prepared: PreparedRun,
+    runStatus: RunStatus,
+    text: string | null,
+  ): Promise<void> {
+    const { prisma, hub } = this.deps;
+    const count = prepared.batch.length + 1;
+    const outcomes = parseBatchOutcome(text, count);
+    const now = new Date();
+    const settle = async (taskId: string, status: "COMPLETED" | "FAILED", summary: string) => {
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          status,
+          resultSummary: summary,
+          ...(status === "COMPLETED" ? { completedAt: now } : {}),
+        },
+      });
+      hub.publishTaskStatus({
+        taskId,
+        projectId: prepared.projectId,
+        status,
+        runId: prepared.runId,
+      });
+    };
+    const first = outcomes[0];
+    if (runStatus === "COMPLETED" && first?.status === "FAILED")
+      await settle(prepared.taskId, "FAILED", `Task 1 of the grouped run failed: ${first.reason}`);
+    for (const [index, taskId] of prepared.batch.entries()) {
+      const outcome = outcomes[index + 1];
+      if (runStatus === "COMPLETED" && outcome?.status === "DONE")
+        await settle(
+          taskId,
+          "COMPLETED",
+          `Done in a grouped run of ${count} small tasks (task ${index + 2}).`,
+        );
+      else if (outcome?.status === "FAILED")
+        await settle(
+          taskId,
+          "FAILED",
+          `Task ${index + 2} of the grouped run failed: ${outcome.reason}`,
+        );
+      else await this.deps.onBatchLeftover?.(taskId);
+    }
   }
 
   private async escalationFollowUp(
@@ -661,7 +724,39 @@ export class RunExecutor {
     const agentConfig = await this.resolveAgentConfig(
       request.agentConfigId ?? workspace.agentConfigId,
     );
-    const prompt = request.prompt ?? task.prompt;
+    const mates =
+      request.batch && request.batch.length > 0 && request.prompt === null
+        ? (
+            await prisma.task.findMany({
+              where: { id: { in: request.batch }, workspaceId: task.workspaceId, status: "QUEUED" },
+            })
+          ).sort(
+            (left, right) => request.batch!.indexOf(left.id) - request.batch!.indexOf(right.id),
+          )
+        : [];
+    const grouped = [task, ...mates];
+    const prompt =
+      mates.length > 0
+        ? batchPrompt(
+            grouped.map((entry) => ({
+              title: entry.title,
+              prompt: entry.prompt,
+              acceptance: toStringArray(entry.acceptance),
+              targetPaths: toStringArray(entry.targetPaths),
+            })),
+          )
+        : (request.prompt ?? task.prompt);
+    const groupedTargets = [
+      ...new Set(grouped.flatMap((entry) => toStringArray(entry.targetPaths))),
+    ];
+    const batchSize =
+      mates.length > 0
+        ? grouped.length
+        : request.prompt === null &&
+            !request.tdd &&
+            isSmallTask({ ...task, targetPaths: toStringArray(task.targetPaths) })
+          ? 1
+          : null;
     const evaluation = await router.evaluate({
       projectId: task.projectId,
       workspace: { id: workspace.id, name: workspace.name, domain: workspace.domain },
@@ -708,6 +803,10 @@ export class RunExecutor {
       session,
       plan.decision.action === "start",
     );
+    const concise =
+      arm === "CONTROL"
+        ? false
+        : await this.sessionConcise(session, plan.decision.action === "start");
 
     const { run, startedAt } = await prisma.$transaction(async (tx) => {
       const routingDecisionId = await router.record(tx, task.id, evaluation);
@@ -723,6 +822,7 @@ export class RunExecutor {
           cliVersion: cliVersion(),
           contextArm: arm,
           memoryArm: memory.arm,
+          batchSize,
           quotaDeferred: request.quotaDeferred === true,
         },
       });
@@ -733,6 +833,11 @@ export class RunExecutor {
           ...(task.startedAt ? {} : { startedAt: new Date() }),
         },
       });
+      if (mates.length > 0)
+        await tx.task.updateMany({
+          where: { id: { in: mates.map((mate) => mate.id) } },
+          data: { status: "RUNNING", batchRunId: created.id, startedAt: new Date() },
+        });
       return { run: created, startedAt: created.startedAt.getTime() };
     });
 
@@ -766,7 +871,7 @@ export class RunExecutor {
     };
     const context = await this.prepareContext(
       run.id,
-      task,
+      { projectId: task.projectId, targetPaths: groupedTargets },
       prompt,
       scope.policy,
       runToken,
@@ -792,6 +897,7 @@ export class RunExecutor {
       projectName: task.project.name,
       map: context.primerMap,
       memory: memory.text,
+      concise,
       mcpEnabled: context.mcpEnabled,
     });
     const prefix = prefixHash({ modelId, primer, agents, mcpEnabled: context.mcpEnabled });
@@ -893,6 +999,7 @@ export class RunExecutor {
       request,
       startedAt,
       displayPrompt: prompt,
+      batch: mates.map((mate) => mate.id),
       routing: {
         kind: "routing",
         strategy: evaluation.plan.strategy,
@@ -913,6 +1020,16 @@ export class RunExecutor {
       fence,
       workspaceName: workspace.name,
     };
+  }
+
+  private async sessionConcise(
+    session: { id: string; concise: boolean | null },
+    fresh: boolean,
+  ): Promise<boolean> {
+    if (!fresh || !this.deps.options) return session.concise === true;
+    const concise = (await this.deps.options.get()).conciseAnswers;
+    await this.deps.prisma.session.update({ where: { id: session.id }, data: { concise } });
+    return concise;
   }
 
   private async sessionMemory(
