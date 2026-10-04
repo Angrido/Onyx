@@ -116,7 +116,8 @@ function readPrompt(): Promise<string> {
 
 function scenarioFor(prompt: string): string {
   const marker = /\[stub:([a-z-]+)\]/.exec(taskSection(prompt));
-  if (marker?.[1] === "fail-task" || marker?.[1] === "skip-task") return "success";
+  const name = marker?.[1] ?? "";
+  if (/^(fail-task|skip-task|qa-|resolve-)/.test(name)) return "success";
   return marker?.[1] ?? process.env.CLAUDE_STUB_SCENARIO ?? "success";
 }
 
@@ -1431,6 +1432,67 @@ async function runBatchScenario(prompt: string): Promise<void> {
   await writeLine(resultLine(text));
 }
 
+function headingSection(prompt: string, title: string): string {
+  const start = prompt.indexOf(`# ${title}\n`);
+  if (start === -1) return "";
+  const rest = prompt.slice(start + title.length + 3);
+  const end = rest.search(/\n# /);
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+async function runQaScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const criteria = [...headingSection(prompt, "Acceptance criteria").matchAll(/^(\d+)\. /gm)].map(
+    (match) => Number(match[1]),
+  );
+  const files = [...headingSection(prompt, "Changed files").matchAll(/^- (.+)$/gm)].map(
+    (match) => match[1] ?? "",
+  );
+  const attempt = Number(/Review attempt: (\d+)/.exec(prompt)?.[1] ?? "1");
+  const fail =
+    prompt.includes("[stub:qa-fail]") || (prompt.includes("[stub:qa-fail-once]") && attempt === 1);
+  const file = files[0] ?? "README.md";
+  const verdict = {
+    verdict: fail ? "fail" : "pass",
+    summary: fail ? "The change misses the empty case." : "The change does what the task asks.",
+    criteria: criteria.map((index) => ({
+      index,
+      met: !(fail && index === 1),
+      evidence: prompt.includes("[stub:qa-no-evidence]")
+        ? "Looks right to me"
+        : `${file}:1 the change is in the diff`,
+    })),
+    issues: fail ? [{ file, problem: "The empty case is not handled" }] : [],
+  };
+  const text = JSON.stringify(verdict);
+  await writeLine(assistantLine("msg_stub_qa", [{ type: "text", text }]));
+  await writeLine(resultLine(text, [], verdict));
+}
+
+async function runResolutionScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const files = [...headingSection(prompt, "Conflicted files").matchAll(/^- (.+)$/gm)].map(
+    (match) => match[1] ?? "",
+  );
+  if (!prompt.includes("[stub:resolve-leave]"))
+    for (const file of files) {
+      const path = join(process.cwd(), file);
+      const content = readFileSync(path, "utf8");
+      writeFileSync(
+        path,
+        content.replace(
+          /^<{7}[^\n]*\n([\s\S]*?)^={7}\n([\s\S]*?)^>{7}[^\n]*\n/gm,
+          (_block, ours: string, theirs: string) => `${ours}${theirs}`,
+        ),
+      );
+    }
+  const text = `Kept both sides in ${files.join(", ")}.`;
+  await writeLine(assistantLine("msg_stub_resolve", [{ type: "text", text }]));
+  await writeLine(resultLine(text));
+}
+
 function withExplorerUsage(line: string): string {
   const agentsPath = flagValue("--agents");
   if (!agentsPath) return line;
@@ -1658,6 +1720,14 @@ async function main(): Promise<void> {
   }
   if (prompt.includes("ONYX_PLAN_REQUEST")) {
     await runPlanScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_QA_REQUEST")) {
+    await runQaScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_MERGE_RESOLUTION")) {
+    await runResolutionScenario(prompt);
     return;
   }
   if (prompt.includes("Onyx TDD loop")) {

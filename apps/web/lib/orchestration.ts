@@ -5,6 +5,8 @@ import type {
   BudgetLevelName,
   NodeStateName,
   OrchestrationDto,
+  QaVerdict,
+  ResolutionState,
   OrchestrationNode,
   OrchestrationStatus,
 } from "@onyx/contracts";
@@ -36,6 +38,8 @@ export const NODE_STATE_TONES: Record<NodeStateName, Tone> = {
   pending: "neutral",
   running: "primary",
   verifying: "primary",
+  reviewing: "primary",
+  review: "warning",
   merging: "architect",
   merged: "success",
   conflict: "warning",
@@ -48,6 +52,8 @@ export const NODE_STATE_LABELS: Record<NodeStateName, string> = {
   pending: "Waiting",
   running: "Agent working",
   verifying: "Running tests",
+  reviewing: "QA review",
+  review: "QA found problems",
   merging: "Merging",
   merged: "Merged",
   conflict: "Merge conflict",
@@ -56,12 +62,39 @@ export const NODE_STATE_LABELS: Record<NodeStateName, string> = {
   cancelled: "Cancelled",
 };
 
+export const QA_VERDICT_LABELS: Record<QaVerdict, string> = {
+  PASS: "QA passed",
+  FAIL: "QA found problems",
+  ERROR: "QA did not finish",
+};
+
+export const QA_VERDICT_TONES: Record<QaVerdict, Tone> = {
+  PASS: "success",
+  FAIL: "warning",
+  ERROR: "danger",
+};
+
+export const RESOLUTION_LABELS: Record<ResolutionState, string> = {
+  PROPOSED: "Resolution proposed",
+  APPLIED: "Resolution applied",
+  DISCARDED: "Resolution refused",
+  FAILED: "Resolution not usable",
+};
+
+export const RESOLUTION_TONES: Record<ResolutionState, Tone> = {
+  PROPOSED: "warning",
+  APPLIED: "success",
+  DISCARDED: "neutral",
+  FAILED: "danger",
+};
+
 export const APPROVAL_KIND_LABELS: Record<ApprovalKind, string> = {
   PLAN: "Plan",
   MERGE: "Merge",
   BUDGET: "Budget",
   ESCALATION: "Escalation",
   PERMISSION: "Permission",
+  QA: "QA",
 };
 
 export const APPROVAL_KIND_TONES: Record<ApprovalKind, Tone> = {
@@ -70,6 +103,7 @@ export const APPROVAL_KIND_TONES: Record<ApprovalKind, Tone> = {
   BUDGET: "danger",
   ESCALATION: "apex",
   PERMISSION: "primary",
+  QA: "warning",
 };
 
 export const BUDGET_LEVEL_TONES: Record<BudgetLevelName, Tone> = {
@@ -91,7 +125,12 @@ export function canResume(plan: Pick<OrchestrationDto, "status" | "workBranch">)
 }
 
 export function isNodeBusy(node: Pick<OrchestrationNode, "state">): boolean {
-  return node.state === "running" || node.state === "verifying" || node.state === "merging";
+  return (
+    node.state === "running" ||
+    node.state === "verifying" ||
+    node.state === "reviewing" ||
+    node.state === "merging"
+  );
 }
 
 export function planLevels(nodes: readonly OrchestrationNode[]): OrchestrationNode[][] {

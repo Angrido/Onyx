@@ -192,6 +192,7 @@ enum ApprovalKind {
   BUDGET
   ESCALATION
   PERMISSION
+  QA
 }
 
 enum ApprovalStatus {
@@ -824,9 +825,13 @@ model Orchestration {
   updatedAt           DateTime            @updatedAt
   plannerModelCostUsd Float?
   plannerExplorer     Boolean?
+  qa                  Boolean?
+  resolveConflicts    Boolean?
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  rootTask Task    @relation("OrchestrationRoot", fields: [rootTaskId], references: [id], onDelete: Cascade)
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rootTask    Task              @relation("OrchestrationRoot", fields: [rootTaskId], references: [id], onDelete: Cascade)
+  reviews     QaReview[]
+  resolutions MergeResolution[]
 
   @@index([projectId, createdAt])
 }
@@ -1017,4 +1022,63 @@ model ChangelogRelease {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, createdAt])
+}
+
+enum QaVerdict {
+  PASS
+  FAIL
+  ERROR
+}
+
+enum ResolutionState {
+  PROPOSED
+  APPLIED
+  DISCARDED
+  FAILED
+}
+
+model QaReview {
+  id              String    @id @default(cuid())
+  orchestrationId String
+  taskId          String
+  attempt         Int
+  verdict         QaVerdict
+  summary         String
+  criteria        Json
+  issues          Json
+  diffTokens      Int
+  diffTruncated   Boolean   @default(false)
+  modelId         String
+  costUsd         Float?
+  inputTokens     Int?
+  outputTokens    Int?
+  createdAt       DateTime  @default(now())
+
+  orchestration Orchestration @relation(fields: [orchestrationId], references: [id], onDelete: Cascade)
+
+  @@index([orchestrationId, taskId])
+  @@index([createdAt])
+}
+
+model MergeResolution {
+  id              String          @id @default(cuid())
+  orchestrationId String
+  taskId          String
+  state           ResolutionState @default(PROPOSED)
+  files           Json
+  diff            String
+  checks          String?
+  checksPassed    Boolean?
+  baseCommit      String
+  commit          String?
+  modelId         String
+  costUsd         Float?
+  message         String?
+  createdAt       DateTime        @default(now())
+  decidedAt       DateTime?
+
+  orchestration Orchestration @relation(fields: [orchestrationId], references: [id], onDelete: Cascade)
+
+  @@index([orchestrationId, taskId])
+  @@index([createdAt])
 }

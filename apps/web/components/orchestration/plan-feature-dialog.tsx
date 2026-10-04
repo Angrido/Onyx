@@ -34,6 +34,8 @@ export function PlanFeatureDialog({
   const [goal, setGoal] = useState("");
   const [parallelism, setParallelism] = useState(2);
   const [verify, setVerify] = useState(true);
+  const [qa, setQa] = useState(true);
+  const [resolveConflicts, setResolveConflicts] = useState(true);
   const [model, setModel] = useState("");
 
   const create = useMutation({
@@ -42,6 +44,8 @@ export function PlanFeatureDialog({
         goal: goal.trim(),
         parallelism,
         verify,
+        qa,
+        resolveConflicts,
         ...(model ? { modelId: model } : {}),
       }),
     onSuccess: (plan) => {
@@ -128,6 +132,39 @@ export function PlanFeatureDialog({
               <span className="block text-xs text-muted-foreground">
                 Each task runs the TDD loop in its worktree before merging, and the merged branch
                 runs the whole suite and the type checker at the end.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-[var(--primary)]"
+              checked={qa}
+              onChange={(event) => setQa(event.target.checked)}
+              data-testid="plan-qa"
+            />
+            <span>
+              <span className="font-medium">Review each task before merging (QA)</span>
+              <span className="block text-xs text-muted-foreground">
+                A read-only reviewer on the Builder model checks the diff against the acceptance
+                criteria, about 5–20K tokens per task. Problems go back to the agent once; if they
+                remain, Approvals asks you.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-[var(--primary)]"
+              checked={resolveConflicts}
+              onChange={(event) => setResolveConflicts(event.target.checked)}
+              data-testid="plan-resolve"
+            />
+            <span>
+              <span className="font-medium">Let Claude propose conflict resolutions</span>
+              <span className="block text-xs text-muted-foreground">
+                Only when a merge conflicts: Claude edits the conflicted files, the tests run on the
+                result, and nothing is applied until you approve the diff.
               </span>
             </span>
           </label>

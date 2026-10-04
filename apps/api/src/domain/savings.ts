@@ -496,6 +496,27 @@ export interface LedgerInput {
   concise: ConciseInput;
   exploration: ExplorationInput;
   batching: BatchingInput;
+  review: ReviewInput;
+  resolution: ResolutionInput;
+}
+
+export interface ReviewInput {
+  reviews: number;
+  nodes: number;
+  caught: number;
+  fixed: number;
+  tokens: number;
+  usd: number;
+  windowDays: number;
+}
+
+export interface ResolutionInput {
+  proposals: number;
+  applied: number;
+  unusable: number;
+  refused: number;
+  usd: number;
+  windowDays: number;
 }
 
 export interface ConciseInput {
@@ -613,6 +634,50 @@ export function batchingRow(input: BatchingInput): SavingsLedgerRow {
     detail: input.enabled
       ? `Expected 10–30% fewer tokens per completed small task. Measured after ${MIN_BATCH_RUNS} grouped and ${MIN_BATCH_RUNS} single runs of small tasks: now ${input.batched.runs} and ${input.single.runs}.`
       : "Off: turn it on in Settings to let Onyx group small queued tasks of the same workspace.",
+  };
+}
+
+function dollars(value: number): string {
+  return `$${value.toFixed(value >= 1 ? 2 : 3)}`;
+}
+
+export function qaReviewRow(input: ReviewInput): SavingsLedgerRow {
+  if (input.reviews === 0)
+    return {
+      source: "qa-review",
+      evidence: "ESTIMATED",
+      tokens: null,
+      usd: null,
+      runs: 0,
+      detail: `No plan used QA in the last ${input.windowDays} days. It is a cost, not a saving: each review reads the diff on the Builder model, an estimated 5–20K tokens per task, to avoid rework after the merge.`,
+    };
+  return {
+    source: "qa-review",
+    evidence: "MEASURED",
+    tokens: null,
+    usd: null,
+    runs: input.reviews,
+    detail: `A cost, not a saving: ${plural(input.reviews, "review")} of ${plural(input.nodes, "task")} used ${compactTokens(input.tokens)} tokens (${dollars(input.usd)}) in the last ${input.windowDays} days. They found problems in ${plural(input.caught, "task")} before the merge, and the agent fixed ${input.fixed} of them after the review. The rework this avoids after the merge is not measured.`,
+  };
+}
+
+export function conflictResolutionRow(input: ResolutionInput): SavingsLedgerRow {
+  if (input.proposals === 0)
+    return {
+      source: "conflict-resolution",
+      evidence: "ESTIMATED",
+      tokens: null,
+      usd: null,
+      runs: 0,
+      detail: `No merge conflict was handed to Claude in the last ${input.windowDays} days. It costs tokens only when a plan with the option on hits a conflict.`,
+    };
+  return {
+    source: "conflict-resolution",
+    evidence: "MEASURED",
+    tokens: null,
+    usd: null,
+    runs: input.proposals,
+    detail: `A cost, not a saving: ${plural(input.proposals, "conflict")} handed to Claude for ${dollars(input.usd)} in the last ${input.windowDays} days; ${input.applied} applied, ${input.refused} refused and ${input.unusable} not usable (markers left or tests failing).`,
   };
 }
 
@@ -799,5 +864,7 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
     conciseRow(input.concise),
     explorationRow(input.exploration),
     batchingRow(input.batching),
+    qaReviewRow(input.review),
+    conflictResolutionRow(input.resolution),
   ];
 }

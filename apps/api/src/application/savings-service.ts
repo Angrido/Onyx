@@ -326,7 +326,7 @@ export class SavingsService {
     const since = options?.conciseSince ? new Date(options.conciseSince) : null;
     const from = new Date((since ?? now).getTime() - ACCOUNTING_DAYS * DAY_MS);
     const window = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
-    const [outputs, plans, batchRuns] = await Promise.all([
+    const [outputs, plans, batchRuns, reviews, resolutions] = await Promise.all([
       prisma.$queryRaw<{ outputTokens: unknown; startedAt: unknown }[]>`
         SELECT l.outputTokens AS outputTokens, r.startedAt AS startedAt
         FROM AgentRun r JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
@@ -346,7 +346,27 @@ export class SavingsService {
         JOIN Task t ON t.id = r.taskId
         LEFT JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
         WHERE r.batchSize IS NOT NULL AND r.startedAt >= ${sqlDate(window)}`,
+      prisma.qaReview.findMany({
+        where: { createdAt: { gte: window } },
+        select: {
+          taskId: true,
+          attempt: true,
+          verdict: true,
+          costUsd: true,
+          inputTokens: true,
+          outputTokens: true,
+        },
+        orderBy: { attempt: "asc" },
+      }),
+      prisma.mergeResolution.findMany({
+        where: { createdAt: { gte: window } },
+        select: { state: true, costUsd: true },
+      }),
     ]);
+    const verdicts = new Map<string, string[]>();
+    for (const review of reviews)
+      verdicts.set(review.taskId, [...(verdicts.get(review.taskId) ?? []), review.verdict]);
+    const caught = [...verdicts.values()].filter((list) => list[0] === "FAIL");
     const before: number[] = [];
     const after: number[] = [];
     for (const row of outputs) {
@@ -383,6 +403,26 @@ export class SavingsService {
         ),
       },
       batching: { enabled: options?.batchSmallTasks ?? false, batched, single },
+      review: {
+        reviews: reviews.length,
+        nodes: verdicts.size,
+        caught: caught.length,
+        fixed: caught.filter((list) => list.at(-1) === "PASS").length,
+        tokens: reviews.reduce(
+          (sum, review) => sum + (review.inputTokens ?? 0) + (review.outputTokens ?? 0),
+          0,
+        ),
+        usd: reviews.reduce((sum, review) => sum + (review.costUsd ?? 0), 0),
+        windowDays: ACCOUNTING_DAYS,
+      },
+      resolution: {
+        proposals: resolutions.length,
+        applied: resolutions.filter((entry) => entry.state === "APPLIED").length,
+        unusable: resolutions.filter((entry) => entry.state === "FAILED").length,
+        refused: resolutions.filter((entry) => entry.state === "DISCARDED").length,
+        usd: resolutions.reduce((sum, entry) => sum + (entry.costUsd ?? 0), 0),
+        windowDays: ACCOUNTING_DAYS,
+      },
     };
   }
 

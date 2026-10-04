@@ -116,6 +116,8 @@ export const SOURCE_LABELS: Record<SavingsSource, string> = {
   "concise-answers": "Short final summaries",
   "exploration-models": "Plan exploration on a cheaper model",
   "small-task-batching": "Small tasks grouped in one run",
+  "qa-review": "QA before merging (cost)",
+  "conflict-resolution": "Merge conflicts resolved by Claude (cost)",
 };
 
 export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {

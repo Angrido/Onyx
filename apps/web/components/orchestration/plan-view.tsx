@@ -23,6 +23,7 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  SearchCheck,
   Sparkles,
   Square,
   Upload,
@@ -32,6 +33,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useCallback } from "react";
 import { toast } from "sonner";
+import { NodeResolution, NodeReview } from "@/components/orchestration/node-review";
 import { ModelBadge, TierBadge } from "@/components/tasks/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,6 +61,8 @@ const STATE_ICONS = {
   pending: CircleDashed,
   running: Loader2,
   verifying: FlaskConical,
+  reviewing: SearchCheck,
+  review: AlertTriangle,
   merging: GitMerge,
   merged: CircleCheck,
   conflict: AlertTriangle,
@@ -81,7 +85,7 @@ function NodeCard({ node, byKey }: { node: OrchestrationNode; byKey: Map<string,
       className={cn(
         "relative space-y-3 rounded-xl border bg-surface-1 p-4 transition-colors",
         busy ? "border-primary/50 shadow-[0_0_32px_-12px_var(--primary)]" : "border-border",
-        node.state === "conflict" && "border-warning/60",
+        (node.state === "conflict" || node.state === "review") && "border-warning/60",
         node.state === "failed" && "border-destructive/50",
         node.state === "merged" && "border-success/40",
       )}
@@ -140,7 +144,7 @@ function NodeCard({ node, byKey }: { node: OrchestrationNode; byKey: Map<string,
         <p
           className={cn(
             "rounded-md border px-2.5 py-1.5 text-[11px]",
-            node.state === "conflict"
+            node.state === "conflict" || node.state === "review"
               ? "border-warning/40 bg-warning/10 text-warning"
               : node.state === "failed"
                 ? "border-destructive/40 bg-destructive/10 text-destructive"
@@ -150,6 +154,8 @@ function NodeCard({ node, byKey }: { node: OrchestrationNode; byKey: Map<string,
           {node.message}
         </p>
       ) : null}
+      {node.review ? <NodeReview review={node.review} reviews={node.reviews} /> : null}
+      {node.resolution ? <NodeResolution resolution={node.resolution} /> : null}
       <div className="flex items-center justify-between gap-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
         <span className="truncate font-mono">
           {node.mergeCommit ? (
@@ -263,6 +269,9 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
             <span className="text-xs text-muted-foreground">
               {plan.parallelism === 1 ? "one agent at a time" : `up to ${plan.parallelism} agents`}
               {plan.verify ? " · verified with the tests" : " · no test verification"}
+              {plan.qa ? " · QA before merging" : ""}
+              {plan.resolveConflicts ? " · Claude proposes conflict fixes" : ""}
+              {plan.qaCostUsd > 0 ? ` · ${formatUsd(plan.qaCostUsd)} on QA and conflicts` : ""}
             </span>
             <span className="ml-auto text-xs text-muted-foreground">
               {formatUsd(plan.costUsd)} · <RelativeTime iso={plan.createdAt} />

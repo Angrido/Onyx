@@ -2,6 +2,8 @@ export const NODE_STATES = [
   "pending",
   "running",
   "verifying",
+  "reviewing",
+  "review",
   "merging",
   "merged",
   "conflict",
@@ -18,7 +20,8 @@ export interface DagNode {
   state: NodeState;
 }
 
-const ACTIVE: ReadonlySet<NodeState> = new Set(["running", "verifying", "merging"]);
+const ACTIVE: ReadonlySet<NodeState> = new Set(["running", "verifying", "reviewing", "merging"]);
+const WAITING: ReadonlySet<NodeState> = new Set(["conflict", "review"]);
 const DEAD: ReadonlySet<NodeState> = new Set(["failed", "blocked", "cancelled"]);
 
 export function parseNodeState(value: string | null | undefined): NodeState {
@@ -66,7 +69,7 @@ export type DagOutcome = "running" | "waiting" | "merged" | "failed";
 export function dagOutcome(nodes: readonly DagNode[]): DagOutcome {
   if (nodes.some((node) => ACTIVE.has(node.state))) return "running";
   if (readyNodes(nodes).length > 0) return "running";
-  if (nodes.some((node) => node.state === "conflict")) return "waiting";
+  if (nodes.some((node) => WAITING.has(node.state))) return "waiting";
   if (nodes.every((node) => node.state === "merged")) return "merged";
   return "failed";
 }

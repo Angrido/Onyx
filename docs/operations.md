@@ -386,3 +386,29 @@ La pagina **GitHub** di un progetto funziona quando `origin` (o il remote regist
 | *The GitHub token cannot do this* | Mancano i permessi Pull requests | Rigenera il token con i permessi della tabella e ricollegalo |
 | I controlli restano *No checks* | Il repository non ha CI, o il token non legge Checks | Aggiungi Checks e Commit statuses in lettura al token |
 | Il changelog ripete voci già rilasciate | Il rilascio precedente non è un antenato del branch attuale | Torna sul branch giusto o indica il punto di partenza con `?from=<tag>` nell'API |
+
+## 19. QA e conflitti nei piani
+
+Le due opzioni si scelgono quando si crea il piano e valgono per tutto il piano.
+
+**QA prima del merge.** Per ogni task, dopo l'agente e (se attiva) la verifica con i test, Onyx fa il commit nel worktree del task e avvia un revisore:
+
+1. Il revisore riceve titolo, descrizione, criteri di accettazione numerati e il diff rispetto al branch del piano, fino a circa 12.000 token: i file oltre il limite compaiono solo per nome e il revisore li può leggere. Non può modificare file né eseguire comandi.
+2. Risponde con un JSON: verdetto, riepilogo, per ogni criterio *soddisfatto sì/no* con la prova, e i problemi trovati. Onyx considera non soddisfatto un criterio senza una prova che citi un file del diff, e promuove il task solo se tutti i criteri sono soddisfatti.
+3. Se il verdetto è negativo, l'agente del task riprende la sua sessione con l'elenco dei problemi, poi test e commit di nuovo, poi una seconda revisione.
+4. Se anche la seconda è negativa, o il revisore non riesce a rispondere, il task resta in *QA found problems* e Approvals chiede: **Merge anyway** o **Drop this task**.
+
+**Conflitti.** Con l'opzione accesa, al primo conflitto Onyx:
+
+1. Crea un worktree temporaneo sul branch del piano e ripete il merge, lasciando i marcatori di conflitto.
+2. Chiede a Claude di risolvere solo i file in conflitto, senza eseguire comandi.
+3. Controlla che non restino marcatori, fa il commit e, se il piano verifica con i test, esegue test e type check confrontandoli con quelli del branch del piano: contano solo i fallimenti nuovi.
+4. Mette la proposta in Approvals con il diff combinato (anche nella pagina del piano). Se restano marcatori o i test falliscono, la proposta è *not usable* e Approvals offre direttamente la scelta manuale.
+
+Applicata la proposta, il task risulta unito come gli altri. Se nel frattempo il branch del piano è andato avanti e la proposta non si applica più, Onyx torna alla scelta manuale.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| Il revisore boccia criteri che sono stati fatti | Il criterio non è verificabile dal diff (per esempio "è veloce") | Scrivi criteri controllabili nel codice; *Merge anyway* in Approvals |
+| *QA did not finish* | Claude non ha restituito il JSON (limite, errore) | Leggi il messaggio nel task; riprova riprendendo il piano o unisci a mano |
+| La proposta di risoluzione è *not usable* | Marcatori rimasti o test nuovi rossi | Risolvi nel worktree indicato e scegli *Retry the merge* |

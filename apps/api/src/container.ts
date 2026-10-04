@@ -37,6 +37,7 @@ import { ChangelogService } from "./application/changelog-service";
 import { GitService } from "./application/git-service";
 import { IssueService } from "./application/issue-service";
 import { PullRequestService } from "./application/pull-request-service";
+import { ReviewService } from "./application/review-service";
 import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
 import { OrchestratorService } from "./application/orchestrator-service";
@@ -562,7 +563,20 @@ export async function createContainer(
     maxConcurrent: config.maxConcurrentAgents,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
+  const reviews = new ReviewService({
+    prisma,
+    logger,
+    pool,
+    router,
+    surgeon,
+    runTokens,
+    credentials,
+    count: (text) => estimator.estimate(text, "typescript"),
+    config,
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+  });
   const orchestrator = new OrchestratorService({
+    reviews,
     options,
     prisma,
     logger,

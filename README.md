@@ -24,6 +24,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 5 | Memoria di progetto: fatti stabili raccolti dalle run, curati da una pagina, sotto un limite di token, nel prompt delle sessioni nuove e misurabili con un A/B | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 6 | Esperimenti sul contesto: A/B con una variante (file da modificare come firme), riassunti finali brevi, esplorazione su un modello economico, task piccoli raggruppati, ognuno con la sua riga in Savings | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 7 | GitHub: issue importate come task, pull request aperte da Onyx con descrizione dai task, stato dei controlli nel task e nelle notifiche, changelog dai commit e dai task | **Completata** (manca la prova su un repository GitHub vero, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 8 | Piani con QA: un revisore in sola lettura controlla ogni task prima del merge con prove dal diff; conflitti di merge risolti da Claude e applicati solo dopo la tua approvazione | **Completata** (manca la prova con Claude reale, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -168,6 +169,17 @@ Dalla pagina del progetto, **GitHub** apre una pagina con tre sezioni (serve che
 Nessuna di queste funzioni usa token di Claude. Il token GitHub deve avere anche **Pull requests** in lettura e scrittura, e **Issues**, **Checks** e **Commit statuses** in lettura.
 
 Dettagli in [docs/operations.md §18](docs/operations.md#18-github-issue-pull-request-e-changelog).
+
+### QA e merge assistito nei piani (2.0, milestone 8)
+
+**Plan a feature** ha due opzioni nuove, accese di default:
+
+- **Review each task before merging (QA)**: dopo i test, un revisore in sola lettura sul modello Builder confronta il diff del task con i criteri di accettazione. Ogni criterio va dimostrato con un punto del diff (file, riga, citazione): senza prova non conta. Se trova problemi, l'agente del task li corregge una volta nella stessa sessione; se restano, **Approvals** chiede se unire comunque o lasciar perdere il task. Il report sta nella scheda del task nella pagina del piano.
+- **Let Claude propose conflict resolutions**: quando il merge di un task va in conflitto, Claude risolve i file in un worktree a parte, Onyx fa girare test e type check sulla proposta e la mette in **Approvals** con il diff. *Apply the resolution* la applica, *Resolve it myself* torna alla scelta manuale di prima (riprova il merge o lascia il task).
+
+Sono costi, non risparmi: Savings li mostra come righe *misurate* con token e dollari spesi, e il piano riporta quanto è andato in QA e conflitti.
+
+Dettagli in [docs/operations.md §19](docs/operations.md#19-qa-e-conflitti-nei-piani).
 
 ### Comandi bloccati
 

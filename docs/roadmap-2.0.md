@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–7 | **Fatte** (vedi sotto) |
-| 8–11 | Da fare, nell'ordine concordato |
+| 1–8 | **Fatte** (vedi sotto) |
+| 9–11 | Da fare, nell'ordine concordato |
 
 ### Milestone 1 — esito
 
@@ -270,3 +270,14 @@ Da verificare con Claude reale: con quale nome Claude Code espone la delega ai s
 Effetto sui token: nessuno, come previsto; niente righe nuove in Savings.
 
 Da verificare su GitHub vero: permessi del token, apertura di una PR e lettura dei controlli di un repository con CI.
+
+### Milestone 8 — esito
+
+| Voce | Stato | Token |
+|---|---|---|
+| 8.1 QA prima del merge | Fatta (ADR-077): revisore in sola lettura sul Builder, prova dal diff obbligatoria, una rilavorazione, poi Approvals. **Deviazione**: un report positivo non passa da Approvals (il piano si fermerebbe a ogni nodo); resta visibile nella pagina del piano | **Costo misurato** (riga *QA before merging*): con lo stub ~0,004 $ a revisione, la prima ~0,036 $ per la scrittura della cache. **Non misurato**: i rifacimenti evitati dopo il merge, perché Onyx non vede cosa succede dopo; la riga conta i problemi trovati e corretti prima |
+| 8.2 Conflitti risolti con l'AI | Fatta (ADR-078): proposta in un worktree a parte, test e type check sulla proposta, diff in Approvals e nella pagina del piano, alternativa manuale | **Costo misurato** (riga *Merge conflicts resolved by Claude*), solo quando c'è un conflitto |
+
+Effetto sui token: aumenta la spesa dei piani che usano le opzioni; Savings la mostra come costo, con il numero di problemi presi prima del merge e di conflitti risolti.
+
+Da verificare con Claude reale: che il revisore citi davvero il diff e non bocci a vuoto, il costo per task con diff veri, la qualità delle risoluzioni su conflitti reali.
