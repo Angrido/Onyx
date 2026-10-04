@@ -1,6 +1,10 @@
 import {
   ContextExperimentSettingsSchema,
+  MoveQueuedRequestSchema,
+  ProjectRunLimitRequestSchema,
+  QueueSettingsSchema,
   QuotaSettingsSchema,
+  type QueueDto,
   type QuotaDto,
   type CatalogResponse,
   type ContextExperimentSettings,
@@ -43,6 +47,25 @@ export function registerSystemRoutes(app: FastifyInstance, container: Container)
   );
 
   app.post("/api/quota/resume", async (): Promise<QuotaDto> => container.quota.resume());
+
+  app.get("/api/queue", async (): Promise<QueueDto> => container.queue.dto());
+
+  app.put("/api/queue/settings", async (request): Promise<QueueDto> =>
+    container.queue.updateSettings(QueueSettingsSchema.parse(request.body ?? {})),
+  );
+
+  app.post("/api/queue/:taskId/move", async (request): Promise<QueueDto> => {
+    const { taskId } = request.params as { taskId: string };
+    return container.queue.move(taskId, MoveQueuedRequestSchema.parse(request.body ?? {}).to);
+  });
+
+  app.put("/api/queue/projects/:projectId", async (request): Promise<QueueDto> => {
+    const { projectId } = request.params as { projectId: string };
+    return container.queue.setProjectLimit(
+      projectId,
+      ProjectRunLimitRequestSchema.parse(request.body ?? {}).limit,
+    );
+  });
 
   app.get("/api/telemetry/savings", async (): Promise<SavingsReport> => container.savings.report());
 

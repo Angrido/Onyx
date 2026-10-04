@@ -15,6 +15,7 @@ import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
+import { QueueService } from "./application/queue-service";
 import { QuotaService } from "./application/quota-service";
 import {
   prepareAgentSandbox,
@@ -97,6 +98,7 @@ export interface Container {
   approvals: ApprovalService;
   budgets: BudgetService;
   quota: QuotaService;
+  queue: QueueService;
   orchestrator: OrchestratorService;
   backups: BackupService;
   vault: SecretVault;
@@ -289,12 +291,19 @@ export async function createContainer(
       })),
     ...(overrides.now ? { now: overrides.now } : {}),
   });
+  const queue = new QueueService({
+    prisma,
+    logger,
+    scheduler: () => scheduling.scheduler,
+    maxConcurrent: config.maxConcurrentAgents,
+  });
   const scheduler = new RunScheduler({
     executor,
     pool,
     hub,
     logger,
     maxConcurrent: config.maxConcurrentAgents,
+    policy: () => queue.policy(),
     admit: (item) => {
       const budget = spending.budgets?.admit(item.projectId ?? null) ?? { decision: "go" };
       if (budget.decision !== "go") return budget;
@@ -484,6 +493,7 @@ export async function createContainer(
     approvals,
     budgets,
     quota,
+    queue,
     orchestrator,
     backups,
     vault,
@@ -576,6 +586,7 @@ export async function createContainer(
       await orchestrator.recover();
       await budgets.refresh();
       await quota.load();
+      await queue.load();
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,
         autoResumeQueued: config.autoResumeQueued,

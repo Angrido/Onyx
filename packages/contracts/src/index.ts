@@ -22,4 +22,5 @@ export * from "./api/tdd";
 export * from "./api/orchestration";
 export * from "./api/savings";
 export * from "./api/quota";
+export * from "./api/queue";
 export * from "./ws";

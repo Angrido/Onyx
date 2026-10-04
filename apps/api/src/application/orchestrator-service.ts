@@ -927,6 +927,7 @@ export class OrchestratorService {
         projectId: orchestration.projectId,
         lockKey: `task:${taskId}`,
         priority: NODE_PRIORITY,
+        kind: "PLAN",
         enqueuedAt: Date.now(),
       });
       if (driver.cancelled) return;

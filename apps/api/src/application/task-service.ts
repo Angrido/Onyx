@@ -99,10 +99,15 @@ export class TaskService {
     if (!existing) throw notFound("Task");
     const task = await this.prisma.task.update({
       where: { id },
-      data: { canWait: input.canWait },
+      data: {
+        ...(input.canWait !== undefined ? { canWait: input.canWait } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      },
       include: taskIncludeLastRun(),
     });
-    this.scheduler.setCanWait(id, input.canWait);
+    if (input.canWait !== undefined) this.scheduler.setCanWait(id, input.canWait);
+    if (input.priority !== undefined && this.scheduler.isQueued(id))
+      this.scheduler.setPriority(id, input.priority);
     return toTaskDto(task);
   }
 

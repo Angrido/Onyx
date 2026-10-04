@@ -84,7 +84,7 @@ export const TaskStatusDataSchema = z.object({
 });
 
 export const SystemRunsDataSchema = z.object({
-  event: z.enum(["queued", "started", "finished"]),
+  event: z.enum(["queued", "started", "finished", "reordered"]),
   runId: z.string().nullable(),
   taskId: z.string(),
   status: RunStatusSchema.nullable(),

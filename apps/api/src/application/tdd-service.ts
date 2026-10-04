@@ -707,6 +707,7 @@ export class TddService {
             projectId: loop.projectId,
             lockKey: loop.lockKey,
             priority: 100,
+            kind: "TDD",
             enqueuedAt: Date.now(),
             holdId: loop.holdId,
           });

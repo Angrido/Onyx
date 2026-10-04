@@ -1,8 +1,14 @@
-import type { ApprovalListResponse, TaskListResponse, TelemetrySummary } from "@onyx/contracts";
+import type {
+  ApprovalListResponse,
+  QueueDto,
+  TaskListResponse,
+  TelemetrySummary,
+} from "@onyx/contracts";
 import Link from "next/link";
 import { PendingApprovals } from "@/components/approvals/pending-approvals";
 import { NetworkCard } from "@/components/layout/network-card";
 import { PageHeader } from "@/components/layout/page-header";
+import { QueuePanel } from "@/components/queue/queue-panel";
 import { TaskList } from "@/components/tasks/task-list";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
 import { Button } from "@/components/ui/button";
@@ -12,10 +18,11 @@ import { serverFetch } from "@/lib/api/server";
 export const metadata = { title: "Console" };
 
 export default async function ConsolePage() {
-  const [telemetry, tasks, approvals] = await Promise.all([
+  const [telemetry, tasks, approvals, queue] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
     serverFetch<TaskListResponse>("/api/tasks?limit=20"),
     serverFetch<ApprovalListResponse>("/api/approvals?status=PENDING&limit=4"),
+    serverFetch<QueueDto>("/api/queue"),
   ]);
   return (
     <>
@@ -39,6 +46,7 @@ export default async function ConsolePage() {
       />
       <KpiTiles initial={telemetry} />
       <PendingApprovals initial={approvals} />
+      <QueuePanel initial={queue} />
       <NetworkCard />
       <section className="space-y-3">
         <h2 className="text-sm font-semibold tracking-tight">Recent tasks</h2>

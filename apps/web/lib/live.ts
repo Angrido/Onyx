@@ -1,6 +1,6 @@
 "use client";
 
-import type { QuotaDto, ServerMessage } from "@onyx/contracts";
+import type { QueueDto, QuotaDto, ServerMessage } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -34,6 +34,24 @@ export function useLiveSystem(): void {
     void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
   }, [queryClient]);
   useChannel(channels.system, onMessage);
+}
+
+export function useQueue(initial?: QueueDto) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: queryKeys.queue,
+    queryFn: () => api.get<QueueDto>("/api/queue"),
+    ...(initial ? { initialData: initial } : {}),
+  });
+  const onMessage = useCallback(
+    (message: ServerMessage) => {
+      if (message.type === "system.runs" || message.type === "quota.changed")
+        void queryClient.invalidateQueries({ queryKey: queryKeys.queue });
+    },
+    [queryClient],
+  );
+  useChannel(channels.system, onMessage);
+  return query;
 }
 
 export function useQuota(initial?: QuotaDto) {

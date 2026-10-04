@@ -34,6 +34,9 @@ export const SAVINGS_EVIDENCE = ["MEASURED", "ESTIMATED"] as const;
 export const QUOTA_LEVELS = ["UNKNOWN", "OK", "WARNING", "HOLDING", "LIMITED"] as const;
 export const RULE_SAFETY = ["SAFE", "REVIEW"] as const;
 export const GRANT_SCOPES = ["TASK", "AGENT", "PROJECT"] as const;
+export const QUEUE_WAIT_REASONS = ["SLOTS", "PROJECT", "WORKSPACE", "QUOTA"] as const;
+export const QUEUE_ITEM_KINDS = ["TASK", "TDD", "PLAN"] as const;
+export const QUEUE_MOVES = ["top", "up", "down", "bottom"] as const;
 export const SAVINGS_SOURCES = [
   "context-pack",
   "stable-prefix",

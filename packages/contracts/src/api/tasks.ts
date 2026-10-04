@@ -26,9 +26,14 @@ export const CreateTaskRequestSchema = z.object({
 });
 export type CreateTaskRequest = z.input<typeof CreateTaskRequestSchema>;
 
-export const UpdateTaskRequestSchema = z.object({
-  canWait: z.boolean(),
-});
+export const UpdateTaskRequestSchema = z
+  .object({
+    canWait: z.boolean().optional(),
+    priority: z.number().int().min(-100).max(100).optional(),
+  })
+  .refine((input) => input.canWait !== undefined || input.priority !== undefined, {
+    message: "Nothing to change",
+  });
 export type UpdateTaskRequest = z.input<typeof UpdateTaskRequestSchema>;
 
 export const RunTaskRequestSchema = z.object({

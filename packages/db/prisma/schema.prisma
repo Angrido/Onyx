@@ -223,6 +223,7 @@ model Project {
   indexStats    Json?
   indexError    String?
   allowedTools  Json?
+  runLimit      Int?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
