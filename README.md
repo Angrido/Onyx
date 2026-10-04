@@ -183,7 +183,7 @@ La console mostra gli indirizzi utilizzabili nella scheda "On your network". Le 
 | Percorso | Ruolo |
 |---|---|
 | `apps/api` | Fastify 5: auth, progetti, workspace, task, run, Context Surgeon, router, compartimenti, terminali, hook interni, WebSocket, scheduler, telemetria |
-| `apps/web` | Next.js 15: console, progetti, workspace con terminale, Context Surgeon, grafo, router, task, run live, telemetria |
+| `apps/web` | Next.js 16: console, progetti, workspace con terminale, Context Surgeon, grafo, router, task, run live, telemetria |
 | `packages/contracts` | Schemi zod condivisi: REST, WebSocket, eventi `stream-json` e normalizzatore |
 | `packages/db` | Schema Prisma 7 + SQLite, migrazioni, seed |
 | `packages/agent-runtime` | Spawn della CLI, parser `stream-json`, pool con abort sul process group, terminali PTY (`node-pty`), stub |

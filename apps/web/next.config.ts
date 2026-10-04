@@ -24,7 +24,6 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   allowedDevOrigins: localNetworkHosts(),
-  eslint: { ignoreDuringBuilds: true },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${internalApiUrl}/api/:path*` }];
   },

@@ -99,7 +99,7 @@ I valori sono target da validare con benchmark in Fase 2 e Fase 4, non promesse.
 
 | Livello | Tecnologia | Note |
 |---|---|---|
-| Frontend | Next.js 15 (App Router), React 19, TypeScript strict | Build `output: "standalone"` |
+| Frontend | Next.js 16 (App Router, Turbopack), React 19, TypeScript strict | Build `output: "standalone"` |
 | Styling | Tailwind CSS v4, shadcn/ui | Design token come variabili CSS |
 | Animazioni | Framer Motion (pacchetto `motion`, import `motion/react`) | Firme di movimento per stato agente |
 | Stato client | TanStack Query (stato server), `useReducer` + `useSyncExternalStore` (stato live) | Zustand non è servito in Fase 1; si valuta quando cresce lo stato UI |
@@ -157,7 +157,7 @@ flowchart LR
     BR["Bridge vmbr0"]
     subgraph CT["LXC onyx · Debian 13 unprivileged · 192.168.1.50"]
       CAD["Caddy :80 / :443"]
-      WEB["onyx-web<br/>Next.js 15 · 127.0.0.1:3000"]
+      WEB["onyx-web<br/>Next.js 16 · 127.0.0.1:3000"]
       API["onyx-api<br/>Fastify 5 · 127.0.0.1:4000"]
       DB[("SQLite WAL<br/>/var/lib/onyx/onyx.db")]
       subgraph POOL["Process pool · utente onyx"]
@@ -1733,7 +1733,7 @@ onyx/
 │   ├── web/
 │   │   ├── next.config.ts
 │   │   ├── components.json
-│   │   ├── middleware.ts
+│   │   ├── proxy.ts
 │   │   ├── app/
 │   │   │   ├── layout.tsx
 │   │   │   ├── globals.css
@@ -2597,6 +2597,7 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-046 | Compatibilità di Claude Code verificata senza richieste: opzioni documentate da `--help`, opzioni nascoste provate con input `stream-json` e stdin vuoto | Run di prova con un prompt reale | Non consuma token né quota dell'abbonamento; un'opzione sconosciuta fallisce durante il parsing, una valida termina senza nulla da inviare; l'esito compare in readiness e in Settings |
 | ADR-047 | Trascrizioni reali per i test di contratto registrate solo su richiesta esplicita (`--yes`), con budget per scenario e anonimizzazione | Registrazione automatica a ogni aggiornamento | Registrare costa (poco) e richiede un account: deve essere una scelta dell'operatore; senza trascrizioni i test di contratto restano sulle fixture sintetiche |
 | ADR-048 | Il codice del browser importa da `@onyx/contracts/client` (canali, enum, helper dei token) senza zod; gli schemi zod sono costruiti dalle stesse liste | Importare dal barrel dei contratti anche nel browser | Toglie zod e la costruzione di tutti gli schemi dal bundle iniziale (first load della console da 294 a 259 kB; il tempo di blocco su mobile scende sotto la soglia di Lighthouse su tutte le pagine) senza duplicare gli enum |
+| ADR-049 | Frontend su Next.js 16.3.8: build e sviluppo con Turbopack, `proxy.ts` al posto di `middleware.ts`, lint solo da ESLint nel monorepo | Restare su Next.js 15.5 | La 16 è la versione stabile corrente; Turbopack accorcia build e avvio, il resto del codice (App Router, `output: "standalone"`, rewrites verso l'API) non cambia |
 
 ---
 
@@ -2847,7 +2848,7 @@ Firme di movimento complete, accessibilità (tastiera, contrasto, `reduced-motio
 | # | Domanda | Default proposto |
 |---|---|---|
 | 1 | Autenticazione di Claude Code: API key Console o token di abbonamento? | API key (costi reali e client ausiliario diretto) |
-| 2 | Restare su Next.js 15 o adottare la 16, oggi stabile? | Next.js 15 come da requisito, migrazione valutata in Fase 7 |
+| 2 | Restare su Next.js 15 o adottare la 16, oggi stabile? | Risolta: Next.js 16.3.8 (ADR-049) |
 | 3 | Restare su Node.js 22 o passare al 24 Active LTS? | Node.js 22 come da requisito |
 | 4 | Dove vivono i progetti: clonati nel CT o montati dall'host (bind mount `mp0`)? | Clonati nel CT in `/srv/onyx/projects` |
 | 5 | HTTPS in LAN con la CA interna di Caddy? | Solo HTTP in Fase 0–1, HTTPS in Fase 7 |
