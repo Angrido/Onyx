@@ -23,6 +23,16 @@ interface SessionStartOutput {
   };
 }
 
+function denied(reason: string): PreToolUseOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    },
+  };
+}
+
 export function registerHookRoutes(app: FastifyInstance, container: Container): void {
   const { runTokens, executor, indexes, prisma, terminals } = container;
 
@@ -32,18 +42,29 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
     async (request): Promise<PreToolUseOutput> => {
       const { grant } = requireGrant(request, runTokens);
       const parsed = HookInputSchema.safeParse(request.body);
-      if (!parsed.success) return {};
+      if (!parsed.success)
+        return denied("Onyx could not read this tool call, so it could not check it.");
       const input = parsed.data;
       const call = {
         toolName: input.tool_name,
         toolInput: input.tool_input,
         cwd: input.cwd ?? null,
       };
-      const readDecision = grant.guard.evaluate(call);
-      const testDecision = readDecision.allowed && grant.tests ? grant.tests.evaluate(call) : null;
+      let readDecision: ReturnType<typeof grant.guard.evaluate>;
+      let testDecision: ReturnType<NonNullable<typeof grant.tests>["evaluate"]> | null;
+      let fenceDecision: ReturnType<NonNullable<typeof grant.fence>["evaluate"]> | null;
+      try {
+        readDecision = grant.guard.evaluate(call);
+        testDecision = readDecision.allowed && grant.tests ? grant.tests.evaluate(call) : null;
+        fenceDecision =
+          readDecision.allowed && !(testDecision && !testDecision.allowed) && grant.fence
+            ? grant.fence.evaluate(call)
+            : null;
+      } catch (error) {
+        request.log.error({ err: error, runId: grant.runId }, "Tool call check failed");
+        return denied("Onyx could not check this tool call, so it was blocked. Try a simpler one.");
+      }
       const testDenial = testDecision && !testDecision.allowed ? testDecision : null;
-      const fenceDecision =
-        readDecision.allowed && !testDenial && grant.fence ? grant.fence.evaluate(call) : null;
       const decision = testDenial ?? fenceDecision ?? readDecision;
       if (decision.allowed) return {};
 
@@ -80,13 +101,7 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
         { runId: grant.runId, tool: input.tool_name, target: decision.target, rule },
         "Tool call blocked by the context guard",
       );
-      return {
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: decision.reason ?? "Blocked by the Onyx context profile.",
-        },
-      };
+      return denied(decision.reason ?? "Blocked by the Onyx context profile.");
     },
   );
 

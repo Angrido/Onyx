@@ -1,9 +1,17 @@
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, normalize, relative, resolve } from "node:path";
+import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { parse, type ParseEntry } from "shell-quote";
 import type { ContextPolicy, Explanation } from "./policy";
 import type { PolicyRule } from "./rules";
-import { DirectoryTracker, pathWithin, separateLines, withoutKeywords } from "./shell";
+import {
+  DirectoryTracker,
+  commandStart,
+  pathWithin,
+  programName,
+  separateLines,
+  withoutKeywords,
+} from "./shell";
 
 export interface ToolCall {
   toolName: string;
@@ -19,6 +27,12 @@ export interface GuardDecision {
 }
 
 const ALLOW: GuardDecision = { allowed: true, target: null, rule: null, reason: null };
+const UNREADABLE: GuardDecision = {
+  allowed: false,
+  target: null,
+  rule: null,
+  reason: "Onyx could not read this tool call, so it cannot tell which files it opens.",
+};
 
 const FILE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   Read: ["file_path"],
@@ -71,8 +85,122 @@ const READ_COMMANDS = new Set([
 const COPY_COMMANDS = new Set(["cp", "rsync", "scp"]);
 const SCRIPTED_COMMANDS = new Set(["sed", "awk", "gawk"]);
 const SEARCH_COMMANDS = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack", "git"]);
-const WRAPPERS = new Set(["sudo", "env", "nice", "time", "xargs", "command", "exec"]);
 const GLOB_CHARS = /[*?[{]/;
+const NON_READERS = new Set([
+  "echo",
+  "printf",
+  "mkdir",
+  "rmdir",
+  "touch",
+  "rm",
+  "mv",
+  "ln",
+  "chmod",
+  "chown",
+  "chgrp",
+  "cd",
+  "pushd",
+  "popd",
+  "export",
+  "unset",
+  "set",
+  "true",
+  "false",
+  "test",
+  "[",
+  "[[",
+  "sleep",
+  "kill",
+  "pkill",
+  "which",
+  "type",
+  "wait",
+  "exit",
+  "return",
+  "trap",
+  "shift",
+  "alias",
+  "umask",
+  "ulimit",
+  "date",
+  "pwd",
+  "whoami",
+  "id",
+  "uname",
+  "seq",
+  "yes",
+  "clear",
+  "basename",
+  "dirname",
+  "realpath",
+  "readlink",
+  "mktemp",
+]);
+const BUILD_TOOLS = new Set([
+  "npm",
+  "pnpm",
+  "yarn",
+  "npx",
+  "pnpx",
+  "bunx",
+  "corepack",
+  "tsc",
+  "tsx",
+  "vite",
+  "vitest",
+  "jest",
+  "eslint",
+  "prettier",
+  "biome",
+  "webpack",
+  "rollup",
+  "esbuild",
+  "turbo",
+  "nx",
+  "next",
+  "playwright",
+  "make",
+  "cmake",
+  "cargo",
+  "go",
+  "rustc",
+  "gcc",
+  "g++",
+  "cc",
+  "clang",
+  "javac",
+  "mvn",
+  "gradle",
+  "pip",
+  "pip3",
+  "uv",
+  "poetry",
+  "pytest",
+  "ruff",
+  "mypy",
+  "black",
+  "isort",
+  "docker",
+  "podman",
+  "kubectl",
+  "helm",
+  "terraform",
+  "gh",
+  "prisma",
+]);
+const SOURCE_COMMANDS = new Set(["source", "."]);
+const RECURSIVE_SEARCH = new Set(["grep", "egrep", "fgrep"]);
+const UNRESTRICTED_SEARCH = /^(?:--hidden|--no-ignore\S*|--unrestricted|-u+|-\.|--all-types)$/;
+const EXCLUSION_FLAG =
+  /^--?(?:exclude|exclude-dir|exclude-from|ignore|ignore-dir|iglob|glob|x)(?:=|$)/;
+const PROC_CWD = /^\/proc\/(?:self|thread-self|\d+)\/cwd(?=\/|$)/;
+const PROC_ROOT = /^\/proc\/(?:self|thread-self|\d+)\/root(?=\/|$)/;
+const IFS_VARIABLE = /\$\{IFS\}|\$IFS\b/g;
+const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+const WALK_LIMIT = 20_000;
+const WALK_DEPTH = 8;
+const WALK_TTL_MS = 3_000;
+const WALK_SKIPPED = new Set([".git", "node_modules"]);
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 const INTERPRETERS = new Set(["python", "python3", "node", "perl", "ruby", "php", "deno", "bun"]);
 const CODE_FLAGS = new Set(["-c", "-e", "-E", "--eval", "-r", "-p", "--print"]);
@@ -129,6 +257,13 @@ export function globToRegExp(glob: string): RegExp {
       }
     } else if (char === "?") {
       source += "[^/]";
+    } else if (char === "[" && glob.indexOf("]", index + 2) > index) {
+      const end = glob.indexOf("]", index + 2);
+      const body = glob.slice(index + 1, end);
+      const negated = body.startsWith("!") || body.startsWith("^");
+      const members = (negated ? body.slice(1) : body).replace(/[\\\]^]/g, "\\$&");
+      source += negated ? `[^/${members}]` : `[${members}]`;
+      index = end;
     } else if (char === "{") {
       const end = glob.indexOf("}", index);
       if (end < 0) {
@@ -160,6 +295,8 @@ export class PathGuard {
 
   private readonly knownFiles: ReadonlySet<string>;
   private readonly coveredDirectories = new Map<string, Explanation | null>();
+  private readonly walks = new Map<string, { at: number; files: string[] }>();
+  private realRoot: string | null = null;
 
   constructor(
     private readonly policy: ContextPolicy,
@@ -184,7 +321,28 @@ export class PathGuard {
     };
   }
 
+  private realPath(absolute: string): string | null {
+    let real: string;
+    try {
+      real = realpathSync(absolute);
+    } catch {
+      return null;
+    }
+    this.realRoot ??= (() => {
+      try {
+        return realpathSync(this.projectRoot);
+      } catch {
+        return this.projectRoot;
+      }
+    })();
+    return pathWithin(real, this.realRoot)
+      ? join(this.projectRoot, relative(this.realRoot, real))
+      : real;
+  }
+
   private absolutePath(path: string, cwd: string): string | null {
+    if (PROC_CWD.test(path)) return resolve(cwd, `.${path.replace(PROC_CWD, "")}`);
+    if (PROC_ROOT.test(path)) return resolve("/", `.${path.replace(PROC_ROOT, "")}`);
     if (path === "~") return this.home;
     if (path.startsWith("~/")) return resolve(this.home, path.slice(2));
     if (path.startsWith("~")) return null;
@@ -192,11 +350,12 @@ export class PathGuard {
   }
 
   evaluate(call: ToolCall): GuardDecision {
-    if (!isRecord(call.toolInput)) return ALLOW;
+    const checked = call.toolName === "Bash" || FILE_TOOLS[call.toolName] !== undefined;
+    if (!isRecord(call.toolInput)) return checked ? UNREADABLE : ALLOW;
     const cwd = call.cwd ?? this.projectRoot;
     if (call.toolName === "Bash") {
       const command = call.toolInput["command"];
-      return typeof command === "string" ? this.evaluateCommand(command, cwd) : ALLOW;
+      return typeof command === "string" ? this.evaluateCommand(command, cwd) : UNREADABLE;
     }
     const keys = FILE_TOOLS[call.toolName];
     if (!keys) return ALLOW;
@@ -226,9 +385,20 @@ export class PathGuard {
   evaluateCommand(command: string, cwd: string, depth = 0): GuardDecision {
     let entries: ParseEntry[];
     try {
-      entries = parse(separateLines(command), (name) => `$${name}`);
+      const text = separateLines(command).replace(IFS_VARIABLE, " ");
+      const variables = this.variables(
+        parse(text, (name) => `$${name}`),
+        cwd,
+      );
+      entries = parse(text, (name) => variables.get(name) ?? `$${name}`);
     } catch {
-      return ALLOW;
+      return {
+        allowed: false,
+        target: null,
+        rule: null,
+        reason:
+          "Onyx could not read this command, so it cannot tell which files it opens. Split it into simpler commands.",
+      };
     }
     const tracker = new DirectoryTracker(cwd, this.projectRoot, this.home);
     let segment: string[] = [];
@@ -277,10 +447,32 @@ export class PathGuard {
     return /\bxargs\b/.test(command) ? this.sweep(command, cwd) : ALLOW;
   }
 
+  private variables(entries: readonly ParseEntry[], cwd: string): Map<string, string> {
+    const variables = new Map<string, string>([
+      ["PWD", cwd],
+      ["HOME", this.home],
+    ]);
+    let atStart = true;
+    for (const entry of entries) {
+      if (typeof entry !== "string") {
+        atStart = "op" in entry && entry.op !== "glob";
+        continue;
+      }
+      const assignment = atStart ? ASSIGNMENT.exec(entry) : null;
+      if (assignment?.[1] && assignment[2] !== undefined && !assignment[2].includes("$"))
+        variables.set(assignment[1], assignment[2]);
+      else atStart = false;
+    }
+    return variables;
+  }
+
   private nested(program: string, rest: readonly string[], cwd: string): GuardDecision {
     if (program === "eval") return this.evaluateCommand(rest.join(" "), cwd, MAX_NESTING - 1);
     const flag = rest.findIndex((word) => CODE_FLAGS.has(word) || /^-[a-z]*c$/.test(word));
-    if (flag === -1) return ALLOW;
+    if (flag === -1) {
+      const script = rest.find((word) => !word.startsWith("-"));
+      return script === undefined ? ALLOW : this.check(script, cwd, "Bash");
+    }
     const code = rest[flag + 1] ?? "";
     if (SHELLS.has(program)) return this.evaluateCommand(code, cwd, MAX_NESTING - 1);
     for (const match of code.matchAll(STRING_LITERAL)) {
@@ -378,42 +570,169 @@ export class PathGuard {
     return ALLOW;
   }
 
-  private evaluateWords(words: readonly string[], cwd: string): GuardDecision {
-    let index = 0;
-    while (
-      index < words.length &&
-      (WRAPPERS.has(words[index] ?? "") || /^\w+=/.test(words[index] ?? ""))
-    ) {
-      index += 1;
+  private readArguments(words: readonly string[]): string[] {
+    const targets: string[] = [];
+    let positional = false;
+    for (const word of words) {
+      if (!positional && word === "--") {
+        positional = true;
+        continue;
+      }
+      if (!positional && word.startsWith("-")) {
+        const equals = word.indexOf("=");
+        if (word.startsWith("--") && equals > 2) targets.push(word.slice(equals + 1));
+        continue;
+      }
+      const value = word.startsWith("@") ? word.slice(1) : word;
+      const assignment = /^[A-Za-z_][\w-]*=(.+)$/.exec(value);
+      targets.push(assignment?.[1] ?? value);
     }
-    const program = (words[index] ?? "").split("/").pop() ?? "";
-    const rest = words.slice(index + 1);
-    if (SHELLS.has(program) || INTERPRETERS.has(program) || program === "eval")
-      return this.nested(program, rest, cwd);
-    let args = rest.filter((word) => !word.startsWith("-"));
-    if (SEARCH_COMMANDS.has(program) && program !== "git") {
-      args = this.searchTargets(rest);
-    } else if (program === "find") {
-      args = this.findTargets(rest);
-    } else if (program === "tree") {
-      args = this.treeTargets(rest);
-    } else if (SCRIPTED_COMMANDS.has(program)) {
-      args = args.slice(1);
-    } else if (COPY_COMMANDS.has(program)) {
-      args = args.slice(0, -1);
-    } else if (program === "git") {
-      const sub = args[0];
-      if (sub !== "show" && sub !== "diff" && sub !== "log" && sub !== "blame") return ALLOW;
-      args = args.slice(1).map((arg) => arg.replace(/^[^:]*:/, ""));
-    } else if (!READ_COMMANDS.has(program)) {
-      return ALLOW;
-    }
-    for (const arg of args) {
-      if (arg.length === 0 || arg.startsWith("$")) continue;
-      const decision = this.check(arg, cwd, "Bash");
+    return targets;
+  }
+
+  private checkAll(targets: readonly string[], cwd: string): GuardDecision {
+    for (const target of targets) {
+      if (target.length === 0 || target.startsWith("$")) continue;
+      const decision = this.check(target, cwd, "Bash");
       if (!decision.allowed) return decision;
     }
     return ALLOW;
+  }
+
+  private evaluateGit(rest: readonly string[], cwd: string): GuardDecision {
+    let index = 0;
+    let directory = cwd;
+    while (index < rest.length && (rest[index] ?? "").startsWith("-")) {
+      const option = rest[index] ?? "";
+      if (option === "-C") directory = resolve(directory, rest[index + 1] ?? ".");
+      index += option === "-C" || option === "-c" ? 2 : 1;
+    }
+    const sub = rest[index] ?? "";
+    const args = rest.slice(index + 1);
+    if (sub === "grep") return this.checkAll(this.searchTargets(args), directory);
+    if (!["show", "diff", "log", "blame", "cat-file"].includes(sub)) return ALLOW;
+    for (const arg of this.readArguments(args)) {
+      const revision = /^[^:/]*:(.+)$/.exec(arg);
+      const decision = revision?.[1]
+        ? this.check(revision[1].replace(/^\.\//, ""), this.projectRoot, "Bash")
+        : this.checkAll([arg], directory);
+      if (!decision.allowed) return decision;
+    }
+    return ALLOW;
+  }
+
+  private recursiveTargets(program: string, rest: readonly string[]): string[] | null {
+    const flags = rest.filter((word) => word.startsWith("-"));
+    if (flags.some((flag) => EXCLUSION_FLAG.test(flag))) return null;
+    const cluster = (letters: RegExp) =>
+      flags.some((flag) => !flag.startsWith("--") && letters.test(flag.slice(1)));
+    const args = this.readArguments(rest);
+    if (RECURSIVE_SEARCH.has(program)) {
+      const recursive =
+        cluster(/[rR]/) || flags.some((flag) => /^--(?:dereference-)?recursive$/.test(flag));
+      if (!recursive) return null;
+      const targets = this.searchTargets(rest);
+      return targets.length > 0 ? targets : ["."];
+    }
+    if (program === "rg" || program === "ag") {
+      if (!flags.some((flag) => UNRESTRICTED_SEARCH.test(flag))) return null;
+      const targets = this.searchTargets(rest);
+      return targets.length > 0 ? targets : ["."];
+    }
+    if (program === "cp" || program === "scp" || program === "rsync") {
+      const recursive =
+        cluster(/[rRa]/) || flags.some((flag) => flag === "--recursive" || flag === "--archive");
+      return recursive ? args.slice(0, -1) : null;
+    }
+    if (program === "zip") return cluster(/r/) ? args.slice(1) : null;
+    if (program === "tar") {
+      const [mode = "", ...others] = rest;
+      const letters = mode.replace(/^-/, "");
+      if (!/^[A-Za-z]+$/.test(letters) || !/[cru]/.test(letters)) return null;
+      const inputs = this.readArguments(others);
+      return letters.includes("f") ? inputs.slice(1) : inputs;
+    }
+    return null;
+  }
+
+  private recursiveRead(program: string, targets: readonly string[], cwd: string): GuardDecision {
+    for (const target of targets) {
+      const absolute = this.absolutePath(target, cwd);
+      if (absolute === null) continue;
+      const inside = relative(this.projectRoot, normalize(absolute)).split("\\").join("/");
+      if (inside.startsWith("..") || isAbsolute(inside)) continue;
+      const secret = this.diskFiles(inside === "" ? "." : inside).find((file) => {
+        const explanation = this.policy.explain(file, false);
+        return explanation.excluded && explanation.rule?.source === "SECURITY";
+      });
+      if (secret === undefined) continue;
+      const explanation = this.policy.explain(secret, false);
+      return {
+        allowed: false,
+        target: secret,
+        rule: explanation.rule,
+        reason: `${program} would read ${secret} along with ${inside === "" ? "the project" : inside}, and ${secret} is protected (${explanation.rule?.reason ?? "secrets"}). Name the files or folders to read, or exclude it (for example --exclude).`,
+      };
+    }
+    return ALLOW;
+  }
+
+  private evaluateWords(words: readonly string[], cwd: string): GuardDecision {
+    const start = commandStart(words);
+    const head = words[start] ?? "";
+    if (head.length === 0) return ALLOW;
+    const rest = words.slice(start + 1);
+    if (head.startsWith("$")) return this.checkAll(this.readArguments(rest), cwd);
+    const program = programName(head);
+    if (SOURCE_COMMANDS.has(program)) return this.checkAll(rest.slice(0, 1), cwd);
+    if (SHELLS.has(program) || INTERPRETERS.has(program) || program === "eval")
+      return this.nested(program, rest, cwd);
+    if (program === "git") return this.evaluateGit(rest, cwd);
+    if (NON_READERS.has(program) || BUILD_TOOLS.has(program)) return ALLOW;
+    let targets: string[];
+    if (SEARCH_COMMANDS.has(program)) targets = this.searchTargets(rest);
+    else if (program === "find") targets = this.findTargets(rest);
+    else if (program === "tree") targets = this.treeTargets(rest);
+    else if (SCRIPTED_COMMANDS.has(program)) targets = this.readArguments(rest).slice(1);
+    else if (COPY_COMMANDS.has(program)) targets = this.readArguments(rest).slice(0, -1);
+    else targets = this.readArguments(rest);
+    const decision = this.checkAll(targets, cwd);
+    if (!decision.allowed) return decision;
+    const recursive = this.recursiveTargets(program, rest);
+    return recursive === null ? ALLOW : this.recursiveRead(program, recursive, cwd);
+  }
+
+  private diskFiles(relDir: string): string[] {
+    const absolute = relDir === "." ? this.projectRoot : join(this.projectRoot, relDir);
+    const cached = this.walks.get(absolute);
+    if (cached && Date.now() - cached.at < WALK_TTL_MS) return cached.files;
+    const files: string[] = [];
+    const visit = (directory: string, depth: number): void => {
+      if (files.length >= WALK_LIMIT) return;
+      let entries;
+      try {
+        entries = readdirSync(directory, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (files.length >= WALK_LIMIT) return;
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          if (depth < WALK_DEPTH && !WALK_SKIPPED.has(entry.name)) visit(path, depth + 1);
+        } else {
+          files.push(relative(this.projectRoot, path).split("\\").join("/"));
+        }
+      }
+    };
+    try {
+      if (lstatSync(absolute).isDirectory()) visit(absolute, 0);
+      else files.push(relative(this.projectRoot, absolute).split("\\").join("/"));
+    } catch {
+      return [];
+    }
+    this.walks.set(absolute, { at: Date.now(), files });
+    return files;
   }
 
   private checkGlob(
@@ -427,9 +746,11 @@ export class PathGuard {
     const inside = relative(this.projectRoot, absolute).split("\\").join("/");
     if (inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const matcher = globToRegExp(inside);
+    const prefix = staticPrefix(inside).replace(/\/$/, "");
+    const candidates = new Set([...this.files, ...this.diskFiles(prefix === "" ? "." : prefix)]);
     let first: GuardDecision | null = null;
     let matched = 0;
-    for (const file of this.files) {
+    for (const file of candidates) {
       if (!matcher.test(file)) continue;
       matched += 1;
       const decision = this.check(file, this.projectRoot, toolName, null);
@@ -478,6 +799,11 @@ export class PathGuard {
     const absolute = normalize(resolved);
     const shielded = this.shielded(absolute, cleaned !== rawPath);
     if (shielded) return shielded;
+    const real = this.realPath(absolute);
+    if (real !== null && real !== absolute) {
+      const decision = this.check(real, this.projectRoot, toolName, null);
+      if (!decision.allowed) return decision;
+    }
     const inside = relative(this.projectRoot, absolute);
     if (inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const relPath = inside.split("\\").join("/");

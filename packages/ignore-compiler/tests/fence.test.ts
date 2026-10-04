@@ -108,3 +108,27 @@ describe("WriteFence", () => {
     expect(fence.evaluateCommand(command, ROOT).allowed).toBe(true);
   });
 });
+
+describe("WriteFence after the audit", () => {
+  it.each([
+    "timeout 5 rm apps/api/src/server.ts",
+    "nice -n 5 rm apps/api/src/server.ts",
+    "env -i touch apps/api/src/new.ts",
+    "sudo -u x tee apps/api/src/server.ts",
+    "busybox rm apps/api/src/server.ts",
+  ])("sees the program behind wrappers: %s", (command) => {
+    expect(call("Bash", { command }).allowed).toBe(false);
+  });
+
+  it("does not take files that are only read for destinations (B14)", () => {
+    expect(call("Bash", { command: "tee apps/web/out.txt < apps/api/src/server.ts" }).allowed).toBe(
+      true,
+    );
+    expect(
+      call("Bash", { command: "touch -r apps/api/src/server.ts apps/web/app/page.tsx" }).allowed,
+    ).toBe(true);
+    expect(call("Bash", { command: "touch -r apps/web/app/page.tsx apps/api/x.ts" }).allowed).toBe(
+      false,
+    );
+  });
+});

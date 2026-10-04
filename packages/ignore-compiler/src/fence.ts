@@ -6,8 +6,10 @@ import { permissionPaths } from "./compiler";
 import type { GuardDecision, ToolCall } from "./guard";
 import {
   DirectoryTracker,
+  commandStart,
   isGitMetadata,
   pathWithin,
+  programName,
   separateLines,
   withoutKeywords,
 } from "./shell";
@@ -58,7 +60,12 @@ const ALL_ARGUMENT_WRITERS = new Set([
 const MODE_FIRST_WRITERS = new Set(["chmod", "chown", "chgrp"]);
 const DESTINATION_WRITERS = new Set(["cp", "rsync", "install", "ln", "scp"]);
 const GIT_WRITERS = new Set(["checkout", "restore", "rm", "mv", "clean"]);
-const WRAPPERS = new Set(["sudo", "env", "nice", "time", "command", "exec", "xargs"]);
+const VALUE_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  touch: ["-r", "--reference", "-d", "--date", "-t"],
+  install: ["-m", "--mode", "-o", "--owner", "-g", "--group", "-t", "--target-directory"],
+  truncate: ["-s", "--size", "-r", "--reference"],
+  shred: ["-n", "--iterations", "-s", "--size"],
+};
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const DEFAULT_MAX_RULES = 1_500;
 const PROBE = "__onyx_fence_probe__";
@@ -171,6 +178,7 @@ export class WriteFence {
     let segment: string[] = [];
     let redirects: string[] = [];
     let pendingRedirect = false;
+    let pendingInput = false;
     const flush = (): GuardDecision => {
       const words = withoutKeywords(segment);
       const directories = [...tracker.candidates()];
@@ -196,6 +204,10 @@ export class WriteFence {
           pendingRedirect = false;
           continue;
         }
+        if (pendingInput) {
+          pendingInput = false;
+          continue;
+        }
         segment.push(entry);
       } else if ("op" in entry) {
         if (entry.op === "glob") {
@@ -209,6 +221,7 @@ export class WriteFence {
           entry.op === "<&"
         ) {
           pendingRedirect = false;
+          pendingInput = true;
         } else {
           const decision = flush();
           if (!decision.allowed) return decision;
@@ -221,16 +234,13 @@ export class WriteFence {
   }
 
   private writeTargets(words: readonly string[]): string[] {
-    let index = 0;
-    while (
-      index < words.length &&
-      (WRAPPERS.has(words[index] ?? "") || /^\w+=/.test(words[index] ?? ""))
-    ) {
-      index += 1;
-    }
-    const program = (words[index] ?? "").split("/").pop() ?? "";
+    const index = commandStart(words);
+    const program = programName(words[index] ?? "");
     const rest = words.slice(index + 1);
-    const args = rest.filter((word) => !word.startsWith("-"));
+    const valued = VALUE_FLAGS[program] ?? [];
+    const args = rest.filter(
+      (word, position) => !word.startsWith("-") && !valued.includes(rest[position - 1] ?? ""),
+    );
     if (ALL_ARGUMENT_WRITERS.has(program)) return args;
     if (MODE_FIRST_WRITERS.has(program)) return args.slice(1);
     if (DESTINATION_WRITERS.has(program)) return args.slice(-1);
