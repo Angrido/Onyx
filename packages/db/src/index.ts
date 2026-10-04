@@ -12,6 +12,7 @@ export type {
   ModelProfile,
   Orchestration,
   Project,
+  ProjectFact,
   RoadmapGeneration,
   RoadmapItem,
   RoutingDecision,

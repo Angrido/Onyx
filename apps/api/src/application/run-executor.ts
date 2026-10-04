@@ -10,6 +10,7 @@ import {
 import {
   PermissionModeSchema,
   type ContextArm,
+  type MemoryArm,
   type ContextExperimentSettings,
   type ContextItem,
   type GuardItem,
@@ -22,7 +23,12 @@ import {
   type SessionItem,
   type TaskStatus,
 } from "@onyx/contracts";
-import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "@onyx/db";
+import {
+  DEFAULT_AGENT_CONFIG_NAME,
+  type AgentConfig,
+  type Prisma,
+  type PrismaClient,
+} from "@onyx/db";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config";
 import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
@@ -30,6 +36,7 @@ import { captureFence, reviewFence, type FenceSnapshot } from "../infrastructure
 import type { WorkTreeActivity } from "../infrastructure/work-tree-activity";
 import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
+import { drawMemoryArm } from "../domain/memory";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { classifyCacheLoss, DEFAULT_PROMPT_CACHE_TTL_MS, prefixHash } from "../domain/prompt-cache";
 import { lostSession, resolveRunOutcome } from "../domain/run-outcome";
@@ -57,6 +64,7 @@ import type { WsHub } from "../infrastructure/ws-hub";
 import type { CompartmentService } from "./compartment-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
+import { storedMemory, type MemoryService } from "./memory-service";
 import { toStringArray } from "./mappers";
 import { priceUsage, type RouterService } from "./router-service";
 import type { SurgeonService } from "./surgeon-service";
@@ -109,6 +117,7 @@ export interface RunExecutorDeps {
   cliVersion: () => string | null;
   experiment: () => Promise<ContextExperimentSettings>;
   estimator: TokenEstimator;
+  memory?: Pick<MemoryService, "compose" | "settings">;
   random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
   onRateLimit?: (item: RunItemOf<"rate_limit">) => void;
@@ -692,6 +701,11 @@ export class RunExecutor {
       contextEnabled: config.context.enabled,
       random: this.deps.random ?? Math.random,
     });
+    const memory = await this.sessionMemory(
+      task.projectId,
+      session,
+      plan.decision.action === "start",
+    );
 
     const { run, startedAt } = await prisma.$transaction(async (tx) => {
       const routingDecisionId = await router.record(tx, task.id, evaluation);
@@ -706,6 +720,7 @@ export class RunExecutor {
           args: [],
           cliVersion: cliVersion(),
           contextArm: arm,
+          memoryArm: memory.arm,
           quotaDeferred: request.quotaDeferred === true,
         },
       });
@@ -774,6 +789,7 @@ export class RunExecutor {
       agentPrompt: agentConfig.appendSystemPrompt,
       projectName: task.project.name,
       map: context.primerMap,
+      memory: memory.text,
       mcpEnabled: context.mcpEnabled,
     });
     const prefix = prefixHash({ modelId, primer, agents, mcpEnabled: context.mcpEnabled });
@@ -895,6 +911,34 @@ export class RunExecutor {
       fence,
       workspaceName: workspace.name,
     };
+  }
+
+  private async sessionMemory(
+    projectId: string,
+    session: { id: string; memory: Prisma.JsonValue | null; memoryArm: MemoryArm | null },
+    fresh: boolean,
+  ): Promise<{ text: string | null; arm: MemoryArm | null }> {
+    const service = this.deps.memory;
+    if (!service) return { text: null, arm: null };
+    if (!fresh) return { text: storedMemory(session.memory)?.text ?? null, arm: null };
+    const settings = await service.settings();
+    const arm = drawMemoryArm({
+      enabled: settings.enabled,
+      experiment: settings.experiment,
+      freshSession: true,
+      random: this.deps.random ?? Math.random,
+    });
+    const composed = arm === "NO_MEMORY" ? null : await service.compose(projectId);
+    await this.deps.prisma.session.update({
+      where: { id: session.id },
+      data: {
+        memoryArm: arm,
+        ...(composed
+          ? { memory: { text: composed.text, tokens: composed.tokens, factIds: composed.factIds } }
+          : {}),
+      },
+    });
+    return { text: composed?.text ?? null, arm };
   }
 
   private async prepareContext(

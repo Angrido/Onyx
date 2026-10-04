@@ -4,6 +4,7 @@ import type {
   ClaudeAccountDto,
   GitHubAccountDto,
   GitIdentityDto,
+  MemorySettings,
   NotificationSettingsDto,
   ProjectListResponse,
   QueueDto,
@@ -14,6 +15,7 @@ import { BudgetsCard } from "@/components/settings/budgets-card";
 import { ClaudeAccountCard } from "@/components/settings/claude-account-card";
 import { GitHubAccountCard } from "@/components/settings/github-account-card";
 import { GitIdentityCard } from "@/components/settings/git-identity-card";
+import { MemoryCard } from "@/components/settings/memory-card";
 import { NotificationsCard } from "@/components/settings/notifications-card";
 import { QueueCard } from "@/components/settings/queue-card";
 import { serverFetch } from "@/lib/api/server";
@@ -21,7 +23,7 @@ import { serverFetch } from "@/lib/api/server";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [claude, github, identity, budgets, projects, backups, queue, notifications] =
+  const [claude, github, identity, budgets, projects, backups, queue, notifications, memory] =
     await Promise.all([
       serverFetch<ClaudeAccountDto>("/api/settings/claude"),
       serverFetch<GitHubAccountDto>("/api/github/account"),
@@ -31,6 +33,7 @@ export default async function SettingsPage() {
       serverFetch<BackupListResponse>("/api/backups"),
       serverFetch<QueueDto>("/api/queue"),
       serverFetch<NotificationSettingsDto>("/api/settings/notifications"),
+      serverFetch<MemorySettings>("/api/settings/memory"),
     ]);
   return (
     <>
@@ -53,6 +56,7 @@ export default async function SettingsPage() {
         </div>
         <div className="space-y-6">
           <QueueCard initial={queue} />
+          <MemoryCard initial={memory} />
           <BackupsCard initial={backups} />
         </div>
       </div>

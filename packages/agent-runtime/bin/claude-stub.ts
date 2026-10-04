@@ -639,6 +639,7 @@ interface HttpHookSettings {
 interface ToolAttempt {
   tool: string;
   input: Record<string, unknown>;
+  fails?: boolean;
 }
 
 function readSettings(): Record<string, unknown> | null {
@@ -700,7 +701,7 @@ function stubNotes(prompt: string): string[] {
 function parseAttempts(prompt: string): ToolAttempt[] {
   const attempts: ToolAttempt[] = [];
   for (const match of taskSection(prompt).matchAll(
-    /\b(read|grep|glob|bash|edit|write):(\{[^}]*\}|\S+)/g,
+    /\b(read|grep|glob|bash|fail|edit|write):(\{[^}]*\}|\S+)/g,
   )) {
     const kind = match[1];
     const raw = match[2] ?? "";
@@ -714,6 +715,7 @@ function parseAttempts(prompt: string): ToolAttempt[] {
       });
     if (kind === "glob") attempts.push({ tool: "Glob", input: { pattern: value } });
     if (kind === "bash") attempts.push({ tool: "Bash", input: { command: value } });
+    if (kind === "fail") attempts.push({ tool: "Bash", input: { command: value }, fails: true });
     if (kind === "edit")
       attempts.push({
         tool: "Edit",
@@ -763,6 +765,8 @@ async function askHook(
 }
 
 function simulateTool(attempt: ToolAttempt): string {
+  if (attempt.fails)
+    return `Exit code 1\n> ${String(attempt.input.command)}\nError: Cannot find module './generated/client' from src/db.ts`;
   if (attempt.tool === "Read") {
     try {
       return readFileSync(String(attempt.input.file_path), "utf8").slice(0, 400);
@@ -856,7 +860,7 @@ async function runGuardScenario(prompt: string, enforceAllowlist = false): Promi
                 denial === null
                   ? simulateTool(attempt)
                   : `PreToolUse hook denied this tool call: ${denial}`,
-              is_error: denial !== null,
+              is_error: denial !== null || attempt.fails === true,
             },
           ],
         },

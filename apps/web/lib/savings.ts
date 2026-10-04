@@ -111,6 +111,7 @@ export const SOURCE_LABELS: Record<SavingsSource, string> = {
   routing: "Model routing",
   "stack-commands": "Commands allowed for the stack",
   quota: "Tasks held near the Claude limit",
+  "project-memory": "Project memory in new sessions",
 };
 
 export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {

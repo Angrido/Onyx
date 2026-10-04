@@ -46,6 +46,7 @@ import { ptyOutputMessage, ptyStateMessage, type WsHub } from "../infrastructure
 import type { CompartmentService } from "./compartment-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
+import { storedMemory, type MemoryService } from "./memory-service";
 import { toStringArray } from "./mappers";
 import type { SlotReservation } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
@@ -87,6 +88,7 @@ export interface TerminalServiceDeps {
   runTokens: RunTokenRegistry;
   credentials: Pick<CredentialService, "childEnv">;
   reserve: (workspaceId: string) => SlotReservation;
+  memory?: Pick<MemoryService, "compose">;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
 }
@@ -309,6 +311,10 @@ export class TerminalService {
         config.context.mcpServerPath !== null &&
         isReadableFile(config.context.mcpServerPath);
       const statusLinePath = config.terminal.statusLinePath;
+      const memory =
+        plan.decision.action === "resume"
+          ? (storedMemory(plan.session.memory)?.text ?? null)
+          : await this.freshMemory(workspace.projectId, plan.session.id);
       const map =
         config.context.enabled && indexed
           ? indexed.projectMap(config.context.mapBudgetTokens, scope.policy)
@@ -329,6 +335,7 @@ export class TerminalService {
           agentPrompt: agentConfig.appendSystemPrompt,
           projectName: workspace.project.name,
           map,
+          memory,
           mcpEnabled,
         }),
         mcpConfig:
@@ -890,6 +897,16 @@ export class TerminalService {
       if (value !== undefined) env[name] = value;
     }
     return env;
+  }
+
+  private async freshMemory(projectId: string, sessionId: string): Promise<string | null> {
+    const composed = await this.deps.memory?.compose(projectId).catch(() => null);
+    if (!composed) return null;
+    await this.deps.prisma.session.update({
+      where: { id: sessionId },
+      data: { memory: { text: composed.text, tokens: composed.tokens, factIds: composed.factIds } },
+    });
+    return composed.text;
   }
 
   private async audit(

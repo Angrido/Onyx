@@ -48,6 +48,16 @@ export const NOTIFICATION_EVENTS = [
 ] as const;
 export const NOTIFICATION_CHANNELS = ["webpush", "ntfy", "telegram"] as const;
 export const SEARCH_KINDS = ["TASK", "RUN", "FILE"] as const;
+export const MEMORY_FACT_KINDS = ["TEST", "COMMAND", "FILE", "PITFALL", "NOTE"] as const;
+export const MEMORY_FACT_STATUSES = ["CANDIDATE", "ACTIVE", "SUGGESTED", "DISMISSED"] as const;
+export const MEMORY_ARMS = ["MEMORY", "NO_MEMORY"] as const;
+export const EXPERIMENT_STATES = [
+  "OFF",
+  "COLLECTING",
+  "SAVING",
+  "NO_DIFFERENCE",
+  "COSTS_MORE",
+] as const;
 export const SEARCH_MARK_START = "\u0001";
 export const SEARCH_MARK_END = "\u0002";
 export const SAVINGS_SOURCES = [
@@ -58,6 +68,7 @@ export const SAVINGS_SOURCES = [
   "routing",
   "stack-commands",
   "quota",
+  "project-memory",
 ] as const;
 export const CACHE_LOSSES = [
   "NEW_SESSION",

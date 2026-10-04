@@ -26,4 +26,5 @@ export * from "./api/queue";
 export * from "./api/mission";
 export * from "./api/notifications";
 export * from "./api/search";
+export * from "./api/memory";
 export * from "./ws";

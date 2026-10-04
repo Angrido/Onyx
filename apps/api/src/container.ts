@@ -15,6 +15,7 @@ import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
+import { MemoryService } from "./application/memory-service";
 import { MissionService } from "./application/mission-service";
 import { NotificationService } from "./application/notification-service";
 import { QueueService } from "./application/queue-service";
@@ -106,6 +107,7 @@ export interface Container {
   quota: QuotaService;
   queue: QueueService;
   mission: MissionService;
+  memory: MemoryService;
   notifications: NotificationService;
   search: SearchService;
   orchestrator: OrchestratorService;
@@ -192,6 +194,12 @@ export async function createContainer(
   );
 
   const estimator = new AdjustableTokenEstimator();
+  const memory = new MemoryService({
+    prisma,
+    logger,
+    count: (text) => estimator.estimate(text, "markdown"),
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
   const offlineTokenizer = new O200kTokenizer();
   const auxModel =
     config.credentials.kind === "api-key"
@@ -262,6 +270,7 @@ export async function createContainer(
     prisma,
     router,
     contextEnabled: config.context.enabled,
+    memory,
   });
   const activity = new WorkTreeActivity();
   const executor = new RunExecutor({
@@ -280,6 +289,7 @@ export async function createContainer(
     cliVersion: () => cliVersion,
     experiment: () => savings.experimentSettings(),
     estimator,
+    memory,
     ...(overrides.armRandom ? { random: overrides.armRandom } : {}),
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     onRateLimit: (item) => quota.observe(item),
@@ -361,6 +371,11 @@ export async function createContainer(
     afterRun: (taskId, outcome) => {
       router.forgetTelemetry();
       savings.forget();
+      void memory
+        .learnFromRun(outcome.runId)
+        .catch((error: unknown) =>
+          logger.warn({ err: error, taskId }, "Could not learn from the run"),
+        );
       void notifyRun(outcome).catch((error: unknown) =>
         logger.warn({ err: error, taskId }, "Could not prepare the run notification"),
       );
@@ -389,6 +404,7 @@ export async function createContainer(
   });
   spending.budgets = budgets;
   const terminals = new TerminalService({
+    memory,
     prisma,
     hub,
     logger,
@@ -469,6 +485,13 @@ export async function createContainer(
     router,
     config,
     estimate: (text) => estimator.estimate(text, "markdown"),
+    onGreen: (loop) => {
+      void memory
+        .learnFromLoop(loop)
+        .catch((error: unknown) =>
+          logger.warn({ err: error }, "Could not remember the test command"),
+        );
+    },
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
       ? {}
@@ -553,6 +576,7 @@ export async function createContainer(
     quota,
     queue,
     mission,
+    memory,
     notifications,
     search: new SearchService(prisma),
     orchestrator,

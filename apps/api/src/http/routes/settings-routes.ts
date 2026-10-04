@@ -1,5 +1,7 @@
 import {
+  MemorySettingsSchema,
   PushSubscriptionRequestSchema,
+  type MemorySettings,
   PushUnsubscribeRequestSchema,
   SaveClaudeTokenRequestSchema,
   TestNotificationRequestSchema,
@@ -59,7 +61,13 @@ export function registerSettingsRoutes(app: FastifyInstance, container: Containe
     credentials.cancelLogin(),
   );
 
-  const { notifications } = container;
+  const { notifications, memory } = container;
+
+  app.get("/api/settings/memory", async (): Promise<MemorySettings> => memory.settings());
+
+  app.put("/api/settings/memory", async (request): Promise<MemorySettings> =>
+    memory.updateSettings(MemorySettingsSchema.parse(request.body ?? {})),
+  );
 
   app.get("/api/settings/notifications", async (): Promise<NotificationSettingsDto> =>
     notifications.settings(),

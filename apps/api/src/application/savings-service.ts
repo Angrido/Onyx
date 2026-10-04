@@ -9,7 +9,16 @@ import {
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
 import { CONTINUE_PROMPT_PREFIX } from "../domain/command-rules";
-import { experimentRuns } from "../infrastructure/run-totals";
+import { compareMemoryArms } from "../domain/memory";
+import { experimentRuns, sqlDate } from "../infrastructure/run-totals";
+import type { MemoryService } from "./memory-service";
+
+const EMPTY_MEMORY_EXPERIMENT = compareMemoryArms({
+  enabled: false,
+  withMemory: [],
+  without: [],
+  windowDays: 90,
+});
 import { summarizeCache } from "../domain/prompt-cache";
 import {
   compareArms,
@@ -37,6 +46,7 @@ export interface SavingsServiceDeps {
   prisma: PrismaClient;
   router: Pick<RouterService, "telemetry">;
   contextEnabled: boolean;
+  memory?: Pick<MemoryService, "experiment">;
 }
 
 function round(value: number, digits = 6): number {
@@ -88,7 +98,7 @@ export class SavingsService {
   }
 
   private async compute(now: Date): Promise<SavingsReport> {
-    const [settings, pack, experimentRuns, other, sessions, current, previous, quota] =
+    const [settings, pack, experimentRuns, other, sessions, current, previous, quota, memory] =
       await Promise.all([
         this.experimentSettings(),
         this.accounting(now),
@@ -98,6 +108,7 @@ export class SavingsService {
         this.continuations(now, 0),
         this.continuations(now, 1),
         this.quotaRuns(now),
+        this.memoryUse(now),
       ]);
     const experiment = compareArms({
       settings,
@@ -122,8 +133,10 @@ export class SavingsService {
         prefix: sessions.prefix,
         continuations: { current, previous, windowDays: ACCOUNTING_DAYS },
         quota,
+        memory,
       }),
       cache: sessions.cache,
+      memory: memory.experiment,
     };
   }
 
@@ -286,6 +299,22 @@ export class SavingsService {
         )
         .slice(0, TOP_REREADS)
         .map(([relPath, count]) => ({ relPath, runs: count })),
+    };
+  }
+
+  private async memoryUse(now: Date) {
+    const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const [rows, experiment] = await Promise.all([
+      this.deps.prisma.$queryRaw<{ sessions: unknown; tokens: unknown }[]>`
+        SELECT COUNT(*) AS sessions, COALESCE(SUM(json_extract(memory, '$.tokens')), 0) AS tokens
+        FROM Session WHERE memory IS NOT NULL AND startedAt >= ${sqlDate(since)}`,
+      this.deps.memory?.experiment() ?? Promise.resolve(EMPTY_MEMORY_EXPERIMENT),
+    ]);
+    return {
+      experiment,
+      sessions: Number(rows[0]?.sessions ?? 0),
+      tokens: Number(rows[0]?.tokens ?? 0),
+      windowDays: ACCOUNTING_DAYS,
     };
   }
 

@@ -5,6 +5,8 @@ import type {
   CacheReport,
   ContextExperimentSettings,
   ExperimentResult,
+  MemoryArmStats,
+  MemoryExperiment,
   OtherSavings,
   PackAccounting,
   SavingsCheck,
@@ -373,6 +375,117 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
   );
 }
 
+const MEMORY_STATE_TEXT: Record<MemoryExperiment["state"], string> = {
+  OFF: "Off: turn it on in Settings → Project memory.",
+  COLLECTING: "Collecting runs.",
+  SAVING: "New sessions with the memory use fewer input tokens.",
+  NO_DIFFERENCE: "No measurable difference yet: the memory costs its tokens without a clear gain.",
+  COSTS_MORE: "New sessions with the memory use more input tokens: consider turning it off.",
+};
+
+function memoryValue(stats: MemoryArmStats, pick: (stats: MemoryArmStats) => string): string {
+  return stats.runs === 0 ? "—" : pick(stats);
+}
+
+function MemoryExperimentCard({ experiment }: { experiment: MemoryExperiment }) {
+  const { withMemory, without } = experiment;
+  const rows = [
+    {
+      label: "Finished runs",
+      with: String(withMemory.runs),
+      without: String(without.runs),
+      change: "",
+    },
+    {
+      label: "Succeeded",
+      with: memoryValue(withMemory, (stats) => formatPercent(stats.successRate ?? 0)),
+      without: memoryValue(without, (stats) => formatPercent(stats.successRate ?? 0)),
+      change: "",
+    },
+    {
+      label: "Input tokens per run",
+      with: memoryValue(withMemory, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
+      without: memoryValue(without, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
+      change: formatChange(experiment.tokenChange),
+    },
+    {
+      label: "Files read per run",
+      with: memoryValue(withMemory, (stats) => String(stats.medianReadFiles ?? "—")),
+      without: memoryValue(without, (stats) => String(stats.medianReadFiles ?? "—")),
+      change: formatChange(experiment.readFilesChange),
+    },
+    {
+      label: "Turns per run",
+      with: memoryValue(withMemory, (stats) => String(stats.medianTurns ?? "—")),
+      without: memoryValue(without, (stats) => String(stats.medianTurns ?? "—")),
+      change: formatChange(experiment.turnsChange),
+    },
+  ];
+  return (
+    <Card id="memory-experiment" data-testid="memory-experiment" data-state={experiment.state}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FlaskConical className="size-4 text-primary" />
+          Project memory experiment
+          <EvidenceBadge evidence="measured" />
+        </CardTitle>
+        <CardDescription>
+          {MEMORY_STATE_TEXT[experiment.state]} Half of the new sessions start without the project
+          memory; resumed sessions are left out.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ArmProgress label="With memory" runs={withMemory.runs} min={experiment.minRunsPerArm} />
+          <ArmProgress label="Without" runs={without.runs} min={experiment.minRunsPerArm} />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <caption className="sr-only">
+              Median per run, with and without the project memory
+            </caption>
+            <thead className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th scope="col" className="pb-2 font-medium">
+                  Median
+                </th>
+                <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                  With
+                </th>
+                <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                  Without
+                </th>
+                <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                  Change
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((row) => (
+                <tr key={row.label} className="tabular">
+                  <th
+                    scope="row"
+                    className="py-1.5 pr-2 text-left font-normal text-muted-foreground"
+                  >
+                    {row.label}
+                  </th>
+                  <td className="py-1.5 pl-3 text-right">{row.with}</td>
+                  <td className="py-1.5 pl-3 text-right">{row.without}</td>
+                  <td className="py-1.5 pl-3 text-right font-medium">{row.change}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Mann–Whitney test on input tokens per run: {formatPValue(experiment.pValue)} ·{" "}
+          {experiment.minRunsPerArm} runs per group needed · last {experiment.windowDays} days
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ChecksCard({ checks }: { checks: SavingsCheck[] }) {
   return (
     <Card data-testid="savings-checks">
@@ -719,6 +832,7 @@ export function SavingsDashboard({ initial }: { initial: SavingsReport }) {
         <ExperimentCard experiment={data.experiment} />
         <ChecksCard checks={data.checks} />
       </div>
+      <MemoryExperimentCard experiment={data.memory} />
       <PackCard pack={data.pack} />
       <CacheCard cache={data.cache} />
       <OtherCard other={data.other} />

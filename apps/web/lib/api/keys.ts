@@ -48,6 +48,8 @@ export const queryKeys = {
   quota: ["quota"] as const,
   queue: ["queue"] as const,
   notifications: ["settings", "notifications"] as const,
+  memory: (projectId: string) => ["memory", projectId] as const,
+  memorySettings: ["settings", "memory"] as const,
   mission: ["mission"] as const,
   backups: ["backups"] as const,
 };

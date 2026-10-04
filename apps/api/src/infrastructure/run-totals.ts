@@ -8,6 +8,7 @@ export interface RunTotalRow {
   costUsd: number | null;
   tier: string | null;
   contextArm: string | null;
+  memoryArm: string | null;
   numTurns: number | null;
   ctxReadFiles: number | null;
   startedAt: string;
@@ -35,7 +36,7 @@ function textOrNull(value: unknown): string | null {
 
 const COLUMNS = Prisma.sql`
   r.id AS runId, r.taskId AS taskId, r.status AS status, r.modelId AS modelId,
-  r.costUsd AS costUsd, d.tier AS tier, r.contextArm AS contextArm, r.numTurns AS numTurns,
+  r.costUsd AS costUsd, d.tier AS tier, r.contextArm AS contextArm, r.memoryArm AS memoryArm, r.numTurns AS numTurns,
   r.ctxReadFiles AS ctxReadFiles, r.startedAt AS startedAt,
   l.costUsd AS logCost, l.counterfactualUsd AS counterfactual,
   l.inputTokens AS inputTokens, l.outputTokens AS outputTokens,
@@ -56,6 +57,7 @@ function toRow(raw: Record<string, unknown>): RunTotalRow {
     costUsd: numberOrNull(raw["costUsd"]),
     tier: textOrNull(raw["tier"]),
     contextArm: textOrNull(raw["contextArm"]),
+    memoryArm: textOrNull(raw["memoryArm"]),
     numTurns: numberOrNull(raw["numTurns"]),
     ctxReadFiles: numberOrNull(raw["ctxReadFiles"]),
     startedAt: String(raw["startedAt"]),
@@ -88,12 +90,13 @@ export async function experimentRuns(
   prisma: PrismaClient,
   since: Date,
   statuses: readonly string[],
+  arm: "contextArm" | "memoryArm" = "contextArm",
 ): Promise<RunTotalRow[]> {
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
     SELECT ${COLUMNS}
     FROM AgentRun r
     ${JOINS}
-    WHERE r.contextArm IS NOT NULL AND r.startedAt >= ${sqlDate(since)}
+    WHERE ${Prisma.raw(arm === "memoryArm" ? "r.memoryArm" : "r.contextArm")} IS NOT NULL AND r.startedAt >= ${sqlDate(since)}
       AND r.status IN (${Prisma.join([...statuses])})
     ORDER BY r.startedAt`;
   return rows.map(toRow);

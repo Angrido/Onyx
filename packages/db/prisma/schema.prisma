@@ -144,6 +144,26 @@ enum TestRunner {
   JEST
 }
 
+enum MemoryArm {
+  MEMORY
+  NO_MEMORY
+}
+
+enum FactKind {
+  TEST
+  COMMAND
+  FILE
+  PITFALL
+  NOTE
+}
+
+enum FactStatus {
+  CANDIDATE
+  ACTIVE
+  SUGGESTED
+  DISMISSED
+}
+
 enum TddStatus {
   PENDING
   RUNNING
@@ -235,6 +255,7 @@ model Project {
   routingRules   RoutingRule[]
   budgets        Budget[]
   commandGrants  CommandGrant[]
+  facts          ProjectFact[]
   roadmapRuns    RoadmapGeneration[]
   roadmapItems   RoadmapItem[]
   orchestrations Orchestration[]
@@ -425,6 +446,8 @@ model Session {
   primerHash      String?
   contextMap      Json?
   deliveredPack   Json?
+  memory          Json?
+  memoryArm       MemoryArm?
   turns           Int               @default(0)
   contextTokens   Int               @default(0)
   startedAt       DateTime          @default(now())
@@ -467,6 +490,7 @@ model AgentRun {
   ctxDeliveredTokens Int?
   ctxExpansions      Int         @default(0)
   contextArm         ContextArm?
+  memoryArm          MemoryArm?
   ctxReadFiles       Int?
   ctxRereadFiles     Int?
   ctxRereadTokens    Int?
@@ -902,4 +926,26 @@ model PushSubscription {
   failures   Int       @default(0)
   createdAt  DateTime  @default(now())
   lastSentAt DateTime?
+}
+
+model ProjectFact {
+  id          String     @id @default(cuid())
+  projectId   String
+  kind        FactKind
+  key         String
+  subject     String
+  detail      String?
+  text        String?
+  status      FactStatus @default(CANDIDATE)
+  pinned      Boolean    @default(false)
+  evidence    Int        @default(1)
+  sourceRunId String?
+  sourcePath  String?
+  firstSeenAt DateTime   @default(now())
+  lastSeenAt  DateTime   @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, kind, key])
+  @@index([projectId, status])
 }

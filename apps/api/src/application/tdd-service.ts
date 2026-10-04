@@ -74,6 +74,7 @@ export interface TddServiceDeps {
   router: Pick<RouterService, "autoEscalate">;
   config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "agentSandbox">;
   estimate: (text: string) => number;
+  onGreen?: (loop: { projectId: string; fullCommand: string; runId: string | null }) => void;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
 }
@@ -1234,7 +1235,7 @@ export class TddService {
     await rm(this.reportPath(loop.id), { force: true }).catch(() => undefined);
     this.active.delete(loop.id);
     loop.release();
-    await prisma.$transaction([
+    const [finished] = await prisma.$transaction([
       prisma.tddLoop.update({
         where: { id: loop.id },
         data: {
@@ -1262,6 +1263,18 @@ export class TddService {
       status: taskStatus,
       runId: null,
     });
+    if (status === "GREEN" && this.deps.onGreen) {
+      const lastRun = await prisma.agentRun.findFirst({
+        where: { taskId: loop.taskId },
+        orderBy: { startedAt: "desc" },
+        select: { id: true },
+      });
+      this.deps.onGreen({
+        projectId: loop.projectId,
+        fullCommand: finished.fullCommand,
+        runId: lastRun?.id ?? null,
+      });
+    }
     await this.publish(loop);
     this.states.delete(loop.id);
     logger.info({ loopId: loop.id, status, attempts: loop.iterationCount }, "TDD loop finished");

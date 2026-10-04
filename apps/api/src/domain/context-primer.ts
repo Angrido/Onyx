@@ -3,6 +3,7 @@ export interface PrimerInput {
   agentPrompt: string | null;
   projectName: string;
   map: { text: string; includedFiles: number; omittedFiles: number } | null;
+  memory?: string | null;
   mcpEnabled: boolean;
 }
 
@@ -34,6 +35,7 @@ export function composePrimer(input: PrimerInput): string {
       ].join("\n"),
     );
   }
+  if (input.memory && present(input.memory)) sections.push(input.memory.trim());
   if (input.mcpEnabled) sections.push(TOOL_GUIDE);
   return sections.join("\n\n");
 }

@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { MemoryExperimentSchema } from "./memory";
 import {
   SAVINGS_CHECK_STATES,
   SAVINGS_EVIDENCE,
   SAVINGS_SOURCES,
   SAVINGS_VERDICTS,
+  EXPERIMENT_STATES,
 } from "../client";
 import { CacheLossSchema, ContextArmSchema } from "../domain";
 
@@ -30,13 +32,7 @@ export const ArmStatsSchema = z.object({
 });
 export type ArmStats = z.infer<typeof ArmStatsSchema>;
 
-export const ExperimentStateSchema = z.enum([
-  "OFF",
-  "COLLECTING",
-  "SAVING",
-  "NO_DIFFERENCE",
-  "COSTS_MORE",
-]);
+export const ExperimentStateSchema = z.enum(EXPERIMENT_STATES);
 export type ExperimentState = z.infer<typeof ExperimentStateSchema>;
 
 export const ExperimentResultSchema = z.object({
@@ -153,5 +149,6 @@ export const SavingsReportSchema = z.object({
   other: OtherSavingsSchema,
   ledger: z.array(SavingsLedgerRowSchema),
   cache: CacheReportSchema,
+  memory: MemoryExperimentSchema,
 });
 export type SavingsReport = z.infer<typeof SavingsReportSchema>;

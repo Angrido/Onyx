@@ -5,6 +5,7 @@ import type {
   ContextRole,
   ExperimentResult,
   ExperimentState,
+  MemoryExperiment,
   OtherSavings,
   PackAccounting,
   SavingsCheck,
@@ -439,6 +440,7 @@ export interface LedgerInput {
   prefix: { runs: number; readTokens: number };
   continuations: { current: RunTokens; previous: RunTokens; windowDays: number };
   quota: { deferredRuns: number; limitedRuns: number; windowDays: number };
+  memory: { experiment: MemoryExperiment; sessions: number; tokens: number; windowDays: number };
 }
 
 export interface RunTokens {
@@ -507,6 +509,34 @@ function contextPackRow(pack: PackAccounting, experiment: ExperimentResult): Sav
   };
 }
 
+export function memoryRow(input: LedgerInput["memory"]): SavingsLedgerRow {
+  const { experiment, sessions, tokens, windowDays } = input;
+  const cost =
+    sessions > 0
+      ? ` In the last ${windowDays} days ${plural(sessions, "new session")} started with it, adding ${compactTokens(tokens)} tokens in all.`
+      : ` No new session has started with it in the last ${windowDays} days.`;
+  if (MEASURED_STATES.has(experiment.state) && experiment.tokenChange !== null) {
+    const signed = (ratio: number | null) =>
+      ratio === null ? "n/a" : `${ratio > 0 ? "+" : ""}${Math.round(ratio * 100)}%`;
+    return {
+      source: "project-memory",
+      evidence: "MEASURED",
+      tokens: null,
+      usd: null,
+      runs: experiment.withMemory.runs + experiment.without.runs,
+      detail: `A/B on new sessions: ${signed(experiment.tokenChange)} input tokens, ${signed(experiment.readFilesChange)} files read and ${signed(experiment.turnsChange)} turns per run with the project memory than without (medians over ${experiment.withMemory.runs} and ${experiment.without.runs} runs, ${pText(experiment.pValue)}).${cost}`,
+    };
+  }
+  return {
+    source: "project-memory",
+    evidence: "ESTIMATED",
+    tokens: null,
+    usd: null,
+    runs: sessions,
+    detail: `Expected 10–30% fewer files read and turns in new sessions that start with the project memory; not measured yet. Turn on the memory experiment in Settings to measure it.${cost}`,
+  };
+}
+
 export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
   return [
     contextPackRow(input.pack, input.experiment),
@@ -554,5 +584,6 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
     },
     stackCommandsRow(input.continuations),
     quotaRow(input.quota),
+    memoryRow(input.memory),
   ];
 }
