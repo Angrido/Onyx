@@ -1,5 +1,7 @@
 import {
   ContextExperimentSettingsSchema,
+  QuotaSettingsSchema,
+  type QuotaDto,
   type CatalogResponse,
   type ContextExperimentSettings,
   type HealthResponse,
@@ -33,6 +35,14 @@ export function registerSystemRoutes(app: FastifyInstance, container: Container)
   app.get("/api/telemetry/summary", async (): Promise<TelemetrySummary> =>
     container.telemetry.summary(),
   );
+
+  app.get("/api/quota", async (): Promise<QuotaDto> => container.quota.dto());
+
+  app.put("/api/quota/settings", async (request): Promise<QuotaDto> =>
+    container.quota.updateSettings(QuotaSettingsSchema.parse(request.body ?? {})),
+  );
+
+  app.post("/api/quota/resume", async (): Promise<QuotaDto> => container.quota.resume());
 
   app.get("/api/telemetry/savings", async (): Promise<SavingsReport> => container.savings.report());
 

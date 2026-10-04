@@ -78,6 +78,7 @@ export function CreateTaskDialog({
   const [workspaceId, setWorkspaceId] = useState("");
   const [model, setModel] = useState("");
   const [runNow, setRunNow] = useState(true);
+  const [canWait, setCanWait] = useState(false);
   const [targetPaths, setTargetPaths] = useState<string[]>([]);
   const [targetDraft, setTargetDraft] = useState("");
 
@@ -124,6 +125,7 @@ export function CreateTaskDialog({
         prompt,
         kind,
         targetPaths,
+        canWait,
         ...(model ? { modelOverride: model } : {}),
       });
       if (runNow) await api.post(`/api/tasks/${task.id}/run`);
@@ -135,6 +137,7 @@ export function CreateTaskDialog({
       setTitle("");
       setPrompt("");
       setTargetPaths([]);
+      setCanWait(false);
       router.push(`/tasks/${task.id}`);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -281,6 +284,21 @@ export function CreateTaskDialog({
               onChange={(event) => setRunNow(event.target.checked)}
             />
             Run immediately
+          </label>
+          <label className="flex items-start gap-3 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-[var(--primary)]"
+              checked={canWait}
+              onChange={(event) => setCanWait(event.target.checked)}
+              data-testid="task-can-wait"
+            />
+            <span>
+              Can wait
+              <span className="block text-xs">
+                Near the Claude subscription limit it waits for the window to reset.
+              </span>
+            </span>
           </label>
           <DialogFooter>
             <Button type="submit" disabled={mutation.isPending}>

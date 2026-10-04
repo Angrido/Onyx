@@ -11,8 +11,14 @@ export const CreateTaskRequestSchema = z.object({
   priority: z.number().int().min(-100).max(100).default(0),
   modelOverride: z.string().min(1).max(128).optional(),
   targetPaths: z.array(z.string().trim().min(1).max(1024)).max(32).default([]),
+  canWait: z.boolean().default(false),
 });
 export type CreateTaskRequest = z.input<typeof CreateTaskRequestSchema>;
+
+export const UpdateTaskRequestSchema = z.object({
+  canWait: z.boolean(),
+});
+export type UpdateTaskRequest = z.input<typeof UpdateTaskRequestSchema>;
 
 export const RunTaskRequestSchema = z.object({
   modelId: z.string().min(1).max(128).optional(),
@@ -35,6 +41,7 @@ export const TaskDtoSchema = z.object({
   modelOverride: z.string().nullable(),
   targetPaths: z.array(z.string()),
   branchName: z.string().nullable(),
+  canWait: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
   startedAt: z.string().nullable(),

@@ -31,12 +31,15 @@ export const TASK_KINDS = [
 export const TEST_RUNNERS = ["VITEST", "JEST"] as const;
 export const CONTEXT_ARMS = ["PACK", "CONTROL"] as const;
 export const SAVINGS_EVIDENCE = ["MEASURED", "ESTIMATED"] as const;
+export const QUOTA_LEVELS = ["UNKNOWN", "OK", "WARNING", "HOLDING", "LIMITED"] as const;
 export const SAVINGS_SOURCES = [
   "context-pack",
   "stable-prefix",
   "pack-reuse",
   "prompt-cache",
   "routing",
+  "stack-commands",
+  "quota",
 ] as const;
 export const CACHE_LOSSES = [
   "NEW_SESSION",

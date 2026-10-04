@@ -109,6 +109,8 @@ export const SOURCE_LABELS: Record<SavingsSource, string> = {
   "pack-reuse": "Pack not sent again on resume",
   "prompt-cache": "Claude prompt cache",
   routing: "Model routing",
+  "stack-commands": "Commands allowed for the stack",
+  quota: "Tasks held near the Claude limit",
 };
 
 export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {

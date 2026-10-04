@@ -8,6 +8,7 @@ import {
   type SavingsReport,
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
+import { CONTINUE_PROMPT_PREFIX } from "../domain/command-rules";
 import { summarizeCache } from "../domain/prompt-cache";
 import {
   compareArms,
@@ -17,6 +18,7 @@ import {
   savingsLedger,
   savingsVerdict,
   type ArmSample,
+  type RunTokens,
 } from "../domain/savings";
 import { toStringArray } from "./mappers";
 import type { RouterService } from "./router-service";
@@ -69,13 +71,17 @@ export class SavingsService {
   }
 
   async report(now = new Date()): Promise<SavingsReport> {
-    const [settings, pack, experimentRuns, other, sessions] = await Promise.all([
-      this.experimentSettings(),
-      this.accounting(now),
-      this.experimentSamples(now),
-      this.otherSavings(now),
-      this.sessionReuse(now),
-    ]);
+    const [settings, pack, experimentRuns, other, sessions, current, previous, quota] =
+      await Promise.all([
+        this.experimentSettings(),
+        this.accounting(now),
+        this.experimentSamples(now),
+        this.otherSavings(now),
+        this.sessionReuse(now),
+        this.continuations(now, 0),
+        this.continuations(now, 1),
+        this.quotaRuns(now),
+      ]);
     const experiment = compareArms({
       settings,
       pack: experimentRuns.pack,
@@ -97,9 +103,54 @@ export class SavingsService {
         other,
         reuse: sessions.reuse,
         prefix: sessions.prefix,
+        continuations: { current, previous, windowDays: ACCOUNTING_DAYS },
+        quota,
       }),
       cache: sessions.cache,
     };
+  }
+
+  private async continuations(now: Date, windowsBack: number): Promise<RunTokens> {
+    const until = new Date(now.getTime() - windowsBack * ACCOUNTING_DAYS * DAY_MS);
+    const since = new Date(until.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const runs = await this.deps.prisma.agentRun.findMany({
+      where: {
+        startedAt: { gte: since, lt: until },
+        prompt: { startsWith: CONTINUE_PROMPT_PREFIX },
+      },
+      select: { id: true },
+    });
+    if (runs.length === 0) return { runs: 0, tokens: 0 };
+    const usage = await this.deps.prisma.tokenLog.aggregate({
+      where: { runId: { in: runs.map((run) => run.id) } },
+      _sum: {
+        inputTokens: true,
+        outputTokens: true,
+        cacheCreationTokens: true,
+        cacheReadTokens: true,
+      },
+    });
+    return {
+      runs: runs.length,
+      tokens:
+        (usage._sum.inputTokens ?? 0) +
+        (usage._sum.outputTokens ?? 0) +
+        (usage._sum.cacheCreationTokens ?? 0) +
+        (usage._sum.cacheReadTokens ?? 0),
+    };
+  }
+
+  private async quotaRuns(
+    now: Date,
+  ): Promise<{ deferredRuns: number; limitedRuns: number; windowDays: number }> {
+    const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const [deferredRuns, limitedRuns] = await Promise.all([
+      this.deps.prisma.agentRun.count({
+        where: { startedAt: { gte: since }, quotaDeferred: true },
+      }),
+      this.deps.prisma.agentRun.count({ where: { startedAt: { gte: since }, quotaLimited: true } }),
+    ]);
+    return { deferredRuns, limitedRuns, windowDays: ACCOUNTING_DAYS };
   }
 
   private async sessionReuse(now: Date): Promise<{

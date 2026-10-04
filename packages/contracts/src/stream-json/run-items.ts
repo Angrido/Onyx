@@ -187,6 +187,17 @@ export const SessionItemSchema = z.object({
 });
 export type SessionItem = z.infer<typeof SessionItemSchema>;
 
+export const RateLimitItemSchema = z.object({
+  kind: z.literal("rate_limit"),
+  status: z.string(),
+  limitType: z.string().nullable(),
+  resetsAt: z.string().nullable(),
+  utilization: z.number().nullable(),
+  overageStatus: z.string().nullable(),
+  usingOverage: z.boolean(),
+});
+export type RateLimitItem = z.infer<typeof RateLimitItemSchema>;
+
 export const UnknownItemSchema = z.object({
   kind: z.literal("unknown"),
   type: z.string(),
@@ -209,6 +220,7 @@ export const RunItemSchema = z.discriminatedUnion("kind", [
   GuardItemSchema,
   RoutingItemSchema,
   SessionItemSchema,
+  RateLimitItemSchema,
   UnknownItemSchema,
 ]);
 export type RunItem = z.infer<typeof RunItemSchema>;

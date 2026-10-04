@@ -58,6 +58,7 @@ export class RunRecorder {
   private lastTurn: TokenUsage | null = null;
   private firstTurn: TokenUsage | null = null;
   private compactions = 0;
+  private limited = false;
   private resultItem: RunItemOf<"result"> | null = null;
   private initItem: RunItemOf<"init"> | null = null;
   private guards = 0;
@@ -72,6 +73,7 @@ export class RunRecorder {
     private readonly writer: EventWriter,
     private readonly publisher: RunEventPublisher,
     private readonly onInit: (init: RunItemOf<"init">) => void = () => undefined,
+    private readonly onRateLimit: (item: RunItemOf<"rate_limit">) => void = () => undefined,
   ) {}
 
   get lastSeq(): number {
@@ -88,6 +90,10 @@ export class RunRecorder {
 
   get usage(): TokenUsage {
     return this.resultItem?.usage ?? this.ledger.total();
+  }
+
+  get rateLimited(): boolean {
+    return this.limited;
   }
 
   get compacted(): boolean {
@@ -156,6 +162,9 @@ export class RunRecorder {
         this.resultItem = item;
       } else if (item.kind === "system" && item.subtype === "compact_boundary") {
         this.compactions += 1;
+      } else if (item.kind === "rate_limit") {
+        if (item.status === "rejected") this.limited = true;
+        this.onRateLimit(item);
       } else if (item.kind === "init") {
         this.initItem = item;
         this.onInit(item);

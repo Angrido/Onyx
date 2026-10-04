@@ -1,5 +1,6 @@
 import type {
   CatalogResponse,
+  QuotaDto,
   RoutingTelemetry,
   TelemetrySummary,
   UsageWindow,
@@ -8,6 +9,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { RoutingSavings } from "@/components/router/routing-savings";
 import { ModelBadge } from "@/components/tasks/status-badge";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
+import { QuotaCard } from "@/components/telemetry/quota-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverFetch } from "@/lib/api/server";
@@ -46,10 +48,11 @@ function WindowCard({ title, window }: { title: string; window: UsageWindow }) {
 }
 
 export default async function TelemetryPage() {
-  const [summary, catalog, routing] = await Promise.all([
+  const [summary, catalog, routing, quota] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
     serverFetch<CatalogResponse>("/api/catalog"),
     serverFetch<RoutingTelemetry>("/api/telemetry/routing"),
+    serverFetch<QuotaDto>("/api/quota"),
   ]);
   return (
     <>
@@ -59,6 +62,7 @@ export default async function TelemetryPage() {
         description="Usage reported by Claude Code for every run. Costs come from the CLI result; with a subscription token they are notional."
       />
       <KpiTiles initial={summary} />
+      <QuotaCard initial={quota} />
       <RoutingSavings telemetry={routing} />
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <WindowCard title="Today" window={summary.today} />

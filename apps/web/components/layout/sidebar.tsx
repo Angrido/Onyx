@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   FolderGit2,
+  Gauge,
   Inbox,
   LayoutDashboard,
   LogOut,
@@ -21,7 +22,10 @@ import { useCallback } from "react";
 import { Wordmark } from "@/components/layout/brand";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { formatPercent } from "@/lib/format";
 import { openCommandPalette } from "@/lib/palette";
+import { useQuota } from "@/lib/live";
+import { QUOTA_LEVEL_STYLES, isQuotaAlert, peakUtilization } from "@/lib/quota";
 import { cn } from "@/lib/utils";
 import { useChannel, useConnectionState } from "@/lib/ws/context";
 
@@ -85,6 +89,51 @@ function PendingDot({ count, compact }: { count: number; compact: boolean }) {
   );
 }
 
+const QUOTA_TEXT = {
+  neutral: "text-muted-foreground",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-destructive",
+} as const;
+
+function QuotaIndicator({ compact }: { compact: boolean }) {
+  const { data: quota } = useQuota();
+  if (!quota || !isQuotaAlert(quota.level)) return null;
+  const style = QUOTA_LEVEL_STYLES[quota.level];
+  const peak = peakUtilization(quota);
+  const label = `Claude limit: ${style.label}${peak === null ? "" : ` (${formatPercent(peak)} used)`}`;
+  if (compact)
+    return (
+      <Link
+        href="/telemetry#quota"
+        aria-label={label}
+        title={label}
+        data-testid="quota-indicator"
+        className={cn("rounded-md p-1.5 min-[400px]:p-2", QUOTA_TEXT[style.tone])}
+      >
+        <Gauge className="size-4" />
+      </Link>
+    );
+  return (
+    <Link
+      href="/telemetry#quota"
+      data-testid="quota-indicator"
+      className={cn(
+        "flex items-center gap-2 rounded-md border border-border bg-surface-1/60 px-2.5 py-2 text-xs transition-colors hover:bg-surface-2",
+        QUOTA_TEXT[style.tone],
+      )}
+    >
+      <Gauge className="size-4 shrink-0" />
+      <span className="min-w-0">
+        <span className="block font-medium">{style.label}</span>
+        <span className="block text-muted-foreground">
+          Claude limit{peak === null ? "" : ` · ${formatPercent(peak)} used`}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 export function Sidebar({ user }: { user: UserDto }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -119,6 +168,7 @@ export function Sidebar({ user }: { user: UserDto }) {
             </Link>
           ))}
         </nav>
+        <QuotaIndicator compact />
         <span
           className={cn("size-2 shrink-0 rounded-full", connection.dot)}
           title={connection.label}
@@ -175,6 +225,7 @@ export function Sidebar({ user }: { user: UserDto }) {
           })}
         </nav>
         <div className="mt-auto space-y-3 px-2">
+          <QuotaIndicator compact={false} />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className={cn("size-2 rounded-full", connection.dot)} />
             {connection.label}

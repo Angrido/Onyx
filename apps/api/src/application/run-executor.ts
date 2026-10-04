@@ -17,6 +17,7 @@ import {
   type OnyxRunItem,
   type RoutingItem,
   type RoutingStrategy,
+  type RunItemOf,
   type RunStatus,
   type SessionItem,
   type TaskStatus,
@@ -74,6 +75,7 @@ export interface RunRequest {
   newSession: boolean;
   tdd?: TddRunScope;
   tierHint?: RoutingEscalation | null;
+  quotaDeferred?: boolean;
 }
 
 export interface RunLifecycleHooks {
@@ -107,6 +109,7 @@ export interface RunExecutorDeps {
   estimator: TokenEstimator;
   random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
+  onRateLimit?: (item: RunItemOf<"rate_limit">) => void;
   sourceEnv?: NodeJS.ProcessEnv;
 }
 
@@ -244,17 +247,23 @@ export class RunExecutor {
     const pendingWrites: Promise<unknown>[] = [];
     let established = !prepared.sessionIsNew;
 
-    const recorder = new RunRecorder(prepared.runId, writer, hub, (init) => {
-      established = true;
-      pendingWrites.push(
-        prisma.session
-          .update({
-            where: { id: prepared.sessionId },
-            data: { claudeSessionId: init.sessionId, lastActivityAt: new Date() },
-          })
-          .then(() => undefined),
-      );
-    });
+    const recorder = new RunRecorder(
+      prepared.runId,
+      writer,
+      hub,
+      (init) => {
+        established = true;
+        pendingWrites.push(
+          prisma.session
+            .update({
+              where: { id: prepared.sessionId },
+              data: { claudeSessionId: init.sessionId, lastActivityAt: new Date() },
+            })
+            .then(() => undefined),
+        );
+      },
+      (item) => this.deps.onRateLimit?.(item),
+    );
     this.activeRecorders.set(prepared.runId, recorder);
     recorder.recordOnyx({ kind: "prompt", text: prepared.displayPrompt });
     recorder.recordOnyx(prepared.routing);
@@ -403,6 +412,7 @@ export class RunExecutor {
             cacheWriteTokens: cache.writeTokens,
             cacheLostTokens: cache.lostTokens,
             guardDenials: recorder.guardDenials,
+            quotaLimited: recorder.rateLimited,
             changedFiles,
             errorMessage: outcome.errorMessage,
             endedAt,
@@ -625,6 +635,7 @@ export class RunExecutor {
           args: [],
           cliVersion: cliVersion(),
           contextArm: arm,
+          quotaDeferred: request.quotaDeferred === true,
         },
       });
       await tx.task.update({

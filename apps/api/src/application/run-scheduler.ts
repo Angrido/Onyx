@@ -10,6 +10,7 @@ export interface QueuedRun {
   projectId?: string;
   lockKey?: string;
   priority: number;
+  canWait?: boolean;
   enqueuedAt: number;
   holdId?: string;
   onFinished?: (result: ExecutionResult | null) => void;
@@ -42,7 +43,7 @@ export interface RunSchedulerDeps {
   hub: WsHub;
   logger: Logger;
   maxConcurrent: number;
-  admit?: (projectId: string | null) => Admission;
+  admit?: (item: QueuedRun) => Admission;
   reject?: (item: QueuedRun, reason: string) => Promise<void>;
   afterRun?: (taskId: string) => void;
 }
@@ -68,6 +69,10 @@ export class RunScheduler {
 
   get activeCount(): number {
     return this.inFlight;
+  }
+
+  queuedRuns(): readonly QueuedRun[] {
+    return this.queue;
   }
 
   isQueued(taskId: string): boolean {
@@ -146,6 +151,11 @@ export class RunScheduler {
     return position === -1 ? 0 : position + 1;
   }
 
+  setCanWait(taskId: string, canWait: boolean): void {
+    for (const item of this.queue) if (item.request.taskId === taskId) item.canWait = canWait;
+    this.dispatch();
+  }
+
   removeQueued(taskId: string): boolean {
     const index = this.queue.findIndex((item) => item.request.taskId === taskId);
     if (index === -1) return false;
@@ -211,7 +221,7 @@ export class RunScheduler {
     let index = 0;
     while (index < this.queue.length && this.inFlight + this.reserved < this.deps.maxConcurrent) {
       const item = this.queue[index];
-      const admission = item && this.deps.admit ? this.deps.admit(item.projectId ?? null) : null;
+      const admission = item && this.deps.admit ? this.deps.admit(item) : null;
       if (item && admission?.decision === "hold") {
         index += 1;
         continue;
@@ -266,6 +276,7 @@ export class RunScheduler {
             ...(item.projectId ? { projectId: item.projectId } : {}),
             ...(item.lockKey ? { lockKey: item.lockKey } : {}),
             ...(item.onFinished ? { onFinished: item.onFinished } : {}),
+            ...(item.canWait ? { canWait: true } : {}),
             priority: item.priority,
             enqueuedAt: Date.now(),
           });

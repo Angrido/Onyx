@@ -16,6 +16,7 @@ function task(id: string, status: TaskDto["status"], priority = 0): TaskDto {
     modelOverride: null,
     targetPaths: [],
     branchName: null,
+    canWait: false,
     createdAt: `2026-10-0${id.length}T00:00:00Z`,
     updatedAt: "2026-10-01T00:00:00Z",
     startedAt: null,

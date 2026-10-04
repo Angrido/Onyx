@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RunStatusSchema, TaskStatusSchema } from "./domain";
 import { IndexProgressEventSchema } from "./api/context";
 import { OrchestrationDtoSchema } from "./api/orchestration";
+import { QuotaDtoSchema } from "./api/quota";
 import { TddLoopDtoSchema } from "./api/tdd";
 import { TerminalDtoSchema } from "./api/terminals";
 import { RunItemSchema } from "./stream-json/run-items";
@@ -157,6 +158,13 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     ch: ChannelSchema,
     ts: z.string(),
     data: z.object({ pending: z.number().int() }),
+  }),
+  z.object({
+    v: z.literal(WS_PROTOCOL_VERSION),
+    type: z.literal("quota.changed"),
+    ch: ChannelSchema,
+    ts: z.string(),
+    data: z.object({ quota: QuotaDtoSchema }),
   }),
   z.object({
     v: z.literal(WS_PROTOCOL_VERSION),

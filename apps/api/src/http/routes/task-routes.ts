@@ -4,6 +4,7 @@ import {
   ListTasksQuerySchema,
   RunEventsQuerySchema,
   RunTaskRequestSchema,
+  UpdateTaskRequestSchema,
   type BlockedCommandsResponse,
   type RunDto,
   type RunEventsResponse,
@@ -32,6 +33,10 @@ export function registerTaskRoutes(app: FastifyInstance, container: Container): 
 
   app.get("/api/tasks/:id", async (request): Promise<TaskDetailDto> =>
     tasks.get(idParam(request.params)),
+  );
+
+  app.patch("/api/tasks/:id", async (request): Promise<TaskDto> =>
+    tasks.update(idParam(request.params), UpdateTaskRequestSchema.parse(request.body ?? {})),
   );
 
   app.delete("/api/tasks/:id", async (request, reply) => {

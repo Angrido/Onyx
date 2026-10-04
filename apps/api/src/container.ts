@@ -15,6 +15,7 @@ import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
+import { QuotaService } from "./application/quota-service";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
@@ -53,6 +54,7 @@ import { WsHub } from "./infrastructure/ws-hub";
 
 export interface ContainerOverrides {
   binary?: ClaudeBinary;
+  now?: () => Date;
   sourceEnv?: NodeJS.ProcessEnv;
   closeGraceMs?: number;
   indexRefreshDelayMs?: number;
@@ -87,6 +89,7 @@ export interface Container {
   tdd: TddService;
   approvals: ApprovalService;
   budgets: BudgetService;
+  quota: QuotaService;
   orchestrator: OrchestratorService;
   backups: BackupService;
   vault: SecretVault;
@@ -258,17 +261,35 @@ export async function createContainer(
     estimator,
     ...(overrides.armRandom ? { random: overrides.armRandom } : {}),
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
+    onRateLimit: (item) => quota.observe(item),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
   const approvals = new ApprovalService({ prisma, logger, hub });
   const spending: { budgets: BudgetService | null } = { budgets: null };
+  const quota = new QuotaService({
+    prisma,
+    logger,
+    publish: (dto) => hub.publishQuota(dto),
+    onChange: () => scheduling.scheduler?.poke(),
+    waitingTasks: () =>
+      (scheduling.scheduler?.queuedRuns() ?? []).map((item) => ({
+        canWait: item.canWait === true,
+      })),
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
   const scheduler = new RunScheduler({
     executor,
     pool,
     hub,
     logger,
     maxConcurrent: config.maxConcurrentAgents,
-    admit: (projectId) => spending.budgets?.admit(projectId) ?? { decision: "go" },
+    admit: (item) => {
+      const budget = spending.budgets?.admit(item.projectId ?? null) ?? { decision: "go" };
+      if (budget.decision !== "go") return budget;
+      const admission = quota.admit(item);
+      if (admission.decision === "hold") item.request.quotaDeferred = true;
+      return admission;
+    },
     reject: async (item, reason) => {
       const task = await prisma.task.update({
         where: { id: item.request.taskId },
@@ -432,6 +453,7 @@ export async function createContainer(
     tdd,
     approvals,
     budgets,
+    quota,
     orchestrator,
     backups,
     vault,
@@ -512,6 +534,7 @@ export async function createContainer(
       await tdd.recover();
       await orchestrator.recover();
       await budgets.refresh();
+      await quota.load();
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,
         autoResumeQueued: config.autoResumeQueued,
@@ -530,6 +553,8 @@ export async function createContainer(
       await terminals.shutdown();
       await credentials.shutdown();
       await scheduler.shutdown();
+      quota.stop();
+      await quota.idle();
       await writer.close();
       await prisma.$disconnect();
     },

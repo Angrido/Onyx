@@ -7,6 +7,7 @@ import type {
   TaskDto,
   TaskKind,
   TaskStatus,
+  UpdateTaskRequestSchema,
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
 import type { z } from "zod";
@@ -19,6 +20,7 @@ import { runLockKey, type RunScheduler } from "./run-scheduler";
 type CreateTaskInput = z.output<typeof CreateTaskRequestSchema>;
 type ListTasksInput = z.output<typeof ListTasksQuerySchema>;
 type RunTaskInput = z.output<typeof RunTaskRequestSchema>;
+type UpdateTaskInput = z.output<typeof UpdateTaskRequestSchema>;
 
 export class TaskService {
   constructor(
@@ -85,9 +87,22 @@ export class TaskService {
         priority: input.priority,
         modelOverride: input.modelOverride ?? null,
         targetPaths: [...new Set(input.targetPaths)],
+        canWait: input.canWait,
       },
       include: taskIncludeLastRun(),
     });
+    return toTaskDto(task);
+  }
+
+  async update(id: string, input: UpdateTaskInput): Promise<TaskDto> {
+    const existing = await this.prisma.task.findUnique({ where: { id } });
+    if (!existing) throw notFound("Task");
+    const task = await this.prisma.task.update({
+      where: { id },
+      data: { canWait: input.canWait },
+      include: taskIncludeLastRun(),
+    });
+    this.scheduler.setCanWait(id, input.canWait);
     return toTaskDto(task);
   }
 
@@ -122,6 +137,7 @@ export class TaskService {
       projectId: task.projectId,
       lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
       priority: task.priority,
+      canWait: task.canWait,
       enqueuedAt: Date.now(),
     });
     return { task: toTaskDto(updated), queuePosition };

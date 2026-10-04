@@ -365,6 +365,7 @@ model Task {
   mergeState    String?
   mergeCommit   String?
   mergedAt      DateTime?
+  canWait       Boolean    @default(false)
   createdAt     DateTime   @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
@@ -464,6 +465,8 @@ model AgentRun {
   cacheLostTokens    Int?
   cacheLoss          CacheLoss?
   ctxMapDrift        Boolean     @default(false)
+  quotaDeferred      Boolean     @default(false)
+  quotaLimited       Boolean     @default(false)
   guardDenials       Int         @default(0)
   changedFiles       Json?
   errorMessage       String?

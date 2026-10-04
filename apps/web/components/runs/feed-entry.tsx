@@ -5,6 +5,7 @@ import type {
   ContextItem,
   ContextRole,
   RoutingItem,
+  RunItemOf,
   SessionItem,
 } from "@onyx/contracts";
 import {
@@ -17,6 +18,7 @@ import {
   FileSearch,
   FileText,
   FolderSearch,
+  Gauge,
   GitBranch,
   Layers3,
   Loader2,
@@ -32,6 +34,7 @@ import {
 import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { RunStatusBadge } from "@/components/tasks/status-badge";
+import { formatReset, quotaStatusLabel, quotaWindowLabel } from "@/lib/quota";
 import { contextSavings, type FeedEntry, type ToolResultView } from "@/lib/run-feed";
 import {
   formatDuration,
@@ -387,6 +390,35 @@ function RoutingEntry({ item }: { item: RoutingItem }) {
   );
 }
 
+function RateLimitEntry({ item }: { item: RunItemOf<"rate_limit"> }) {
+  const tone =
+    item.status === "rejected"
+      ? "text-destructive"
+      : item.status === "allowed_warning"
+        ? "text-warning"
+        : "text-muted-foreground";
+  const detail = [
+    quotaStatusLabel(item.status),
+    item.utilization === null ? null : `${formatPercent(item.utilization)} used`,
+    item.resetsAt ? `resets ${formatReset(item.resetsAt)}` : null,
+    item.usingOverage ? "using extra usage" : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border border-border bg-surface-1/70 px-3 py-2 text-xs"
+      data-testid="rate-limit-entry"
+    >
+      <Gauge className={cn("size-3.5", tone)} />
+      <span className="font-medium">
+        Claude {quotaWindowLabel(item.limitType ?? "subscription").toLowerCase()}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{detail}</span>
+    </div>
+  );
+}
+
 function SessionEntry({ item }: { item: SessionItem }) {
   const title =
     item.action === "resumed"
@@ -562,5 +594,7 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
       return <RoutingEntry item={entry.item} />;
     case "session":
       return <SessionEntry item={entry.item} />;
+    case "rate_limit":
+      return <RateLimitEntry item={entry.item} />;
   }
 }

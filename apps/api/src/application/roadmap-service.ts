@@ -243,6 +243,7 @@ export class RoadmapService {
       kind: item.kind,
       priority: PRIORITY_WEIGHT[item.priority],
       targetPaths,
+      canWait: false,
     };
     const task = await this.deps.tasks.create({
       ...base,

@@ -93,6 +93,7 @@ export async function recoverInterruptedWork(
         projectId: task.projectId,
         lockKey: task.worktreePath ? `task:${task.id}` : task.workspaceId,
         priority: task.priority,
+        canWait: task.canWait,
         enqueuedAt: task.updatedAt.getTime(),
       });
     } else {

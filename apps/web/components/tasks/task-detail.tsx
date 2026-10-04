@@ -35,7 +35,8 @@ import { queryKeys } from "@/lib/api/keys";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { formatDuration, formatUsd, shortId } from "@/lib/format";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
-import { useLiveTask } from "@/lib/live";
+import { useLiveTask, useQuota } from "@/lib/live";
+import { formatReset } from "@/lib/quota";
 import { isLoopActive } from "@/lib/tdd";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +77,17 @@ function RunControls({ task, catalog }: { task: TaskDetailDto; catalog: CatalogR
     onSuccess: invalidate,
     onError: (error) => toast.error(errorMessage(error)),
   });
+
+  const wait = useMutation({
+    mutationFn: (canWait: boolean) => api.patch<TaskDto>(`/api/tasks/${task.id}`, { canWait }),
+    onSuccess: invalidate,
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const { data: quota } = useQuota();
+  const heldByQuota =
+    task.status === "QUEUED" &&
+    (quota?.level === "LIMITED" ||
+      (quota?.level === "HOLDING" && task.canWait && quota.settings.deferEnabled));
 
   return (
     <Card>
@@ -129,6 +141,34 @@ function RunControls({ task, catalog }: { task: TaskDetailDto; catalog: CatalogR
           />
           Start with a clean context
         </label>
+        <label className="flex items-start gap-3 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 accent-[var(--primary)]"
+            checked={wait.isPending ? (wait.variables ?? task.canWait) : task.canWait}
+            disabled={wait.isPending}
+            onChange={(event) => wait.mutate(event.target.checked)}
+            data-testid="task-can-wait"
+          />
+          <span>
+            Can wait
+            <span className="block text-xs">
+              Near the Claude subscription limit it waits for the window to reset.
+            </span>
+          </span>
+        </label>
+        {heldByQuota && quota ? (
+          <p
+            className="rounded-lg border border-warning/40 bg-warning/8 p-3 text-xs text-warning"
+            data-testid="quota-held"
+          >
+            Waiting for the Claude subscription limit
+            {quota.nextResetAt ? ` to reset ${formatReset(quota.nextResetAt)}` : ""}.{" "}
+            <Link href="/telemetry#quota" className="underline underline-offset-2">
+              Limits
+            </Link>
+          </p>
+        ) : null}
         <div className="flex gap-2">
           <Button
             className="flex-1"

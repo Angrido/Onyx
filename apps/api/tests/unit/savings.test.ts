@@ -12,6 +12,8 @@ import {
   savingRatio,
   savingsChecks,
   savingsVerdict,
+  quotaRow,
+  stackCommandsRow,
   type ArmSample,
 } from "../../src/domain/savings";
 
@@ -288,5 +290,40 @@ describe("health checks", () => {
       "rereads",
       "net",
     ]);
+  });
+});
+
+describe("ledger rows of milestone 2", () => {
+  it("counts the drop in continuation runs as an estimated saving", () => {
+    expect(
+      stackCommandsRow({
+        current: { runs: 1, tokens: 12_000 },
+        previous: { runs: 4, tokens: 60_000 },
+        windowDays: 30,
+      }),
+    ).toMatchObject({ source: "stack-commands", evidence: "ESTIMATED", tokens: 48_000, runs: 1 });
+    expect(
+      stackCommandsRow({
+        current: { runs: 3, tokens: 50_000 },
+        previous: { runs: 0, tokens: 0 },
+        windowDays: 30,
+      }).tokens,
+    ).toBeNull();
+    expect(
+      stackCommandsRow({
+        current: { runs: 0, tokens: 0 },
+        previous: { runs: 0, tokens: 0 },
+        windowDays: 30,
+      }).detail,
+    ).toBe("No run had to continue after a refused command in the last 60 days.");
+  });
+
+  it("measures held runs without claiming tokens", () => {
+    expect(quotaRow({ deferredRuns: 2, limitedRuns: 1, windowDays: 30 })).toMatchObject({
+      source: "quota",
+      evidence: "MEASURED",
+      tokens: null,
+      runs: 2,
+    });
   });
 });

@@ -245,3 +245,51 @@ describe("permission denials", () => {
     });
   });
 });
+
+describe("rate limit events", () => {
+  it("reads the subscription window, tolerating the units and spellings seen in the wild", () => {
+    expect(
+      normalizeClaudeEvent({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "allowed_warning",
+          resetsAt: 1_791_120_000_000,
+          utilization: 0.85,
+          rateLimitType: "five_hour",
+          overageStatus: null,
+          isUsingOverage: false,
+        },
+        uuid: "u",
+        session_id: "s",
+      }),
+    ).toEqual([
+      {
+        kind: "rate_limit",
+        status: "allowed_warning",
+        limitType: "five_hour",
+        resetsAt: new Date(1_791_120_000_000).toISOString(),
+        utilization: 0.85,
+        overageStatus: null,
+        usingOverage: false,
+      },
+    ]);
+    const [seconds] = normalizeClaudeEvent({
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "rejected",
+        resets_at: 1_791_120_000,
+        rate_limit_type: "seven_day",
+        utilization: 100,
+      },
+    });
+    expect(seconds).toMatchObject({
+      status: "rejected",
+      limitType: "seven_day",
+      resetsAt: new Date(1_791_120_000_000).toISOString(),
+      utilization: 1,
+    });
+    expect(normalizeClaudeEvent({ type: "rate_limit_event" })).toEqual([
+      { kind: "unknown", type: "rate_limit_event" },
+    ]);
+  });
+});

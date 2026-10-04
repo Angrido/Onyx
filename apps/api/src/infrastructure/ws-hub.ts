@@ -7,6 +7,7 @@ import {
   type ServerMessage,
   type ServerMessageOf,
   type OrchestrationDto,
+  type QuotaDto,
   type TddLoopDto,
   type TerminalDto,
 } from "@onyx/contracts";
@@ -251,6 +252,16 @@ export class WsHub implements RunEventPublisher {
       ch: channelNames.system,
       ts: now(),
       data: { pending },
+    });
+  }
+
+  publishQuota(quota: QuotaDto): void {
+    this.publishTransient({
+      v: WS_PROTOCOL_VERSION,
+      type: "quota.changed",
+      ch: channelNames.system,
+      ts: now(),
+      data: { quota },
     });
   }
 

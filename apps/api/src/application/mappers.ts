@@ -197,6 +197,7 @@ export function toTaskDto(task: TaskWithLastRun): TaskDto {
     modelOverride: task.modelOverride,
     targetPaths: toStringArray(task.targetPaths),
     branchName: task.branchName,
+    canWait: task.canWait,
     createdAt: iso(task.createdAt),
     updatedAt: iso(task.updatedAt),
     startedAt: isoOrNull(task.startedAt),

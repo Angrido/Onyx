@@ -437,6 +437,50 @@ export interface LedgerInput {
   other: OtherSavings;
   reuse: { runs: number; tokens: number };
   prefix: { runs: number; readTokens: number };
+  continuations: { current: RunTokens; previous: RunTokens; windowDays: number };
+  quota: { deferredRuns: number; limitedRuns: number; windowDays: number };
+}
+
+export interface RunTokens {
+  runs: number;
+  tokens: number;
+}
+
+export function stackCommandsRow(input: LedgerInput["continuations"]): SavingsLedgerRow {
+  const { current, previous, windowDays } = input;
+  if (current.runs === 0 && previous.runs === 0)
+    return {
+      source: "stack-commands",
+      evidence: "ESTIMATED",
+      tokens: null,
+      usd: null,
+      runs: 0,
+      detail: `No run had to continue after a refused command in the last ${windowDays * 2} days.`,
+    };
+  const saved = previous.tokens - current.tokens;
+  return {
+    source: "stack-commands",
+    evidence: "ESTIMATED",
+    tokens: previous.runs > 0 && saved > 0 ? saved : null,
+    usd: null,
+    runs: current.runs,
+    detail: `Runs that continued after a refused command: ${current.runs} (${compactTokens(current.tokens)} tokens, measured) in the last ${windowDays} days, ${previous.runs} (${compactTokens(previous.tokens)}) in the ${windowDays} days before. Allowing the stack's commands in advance avoids them; the drop is counted as saved.`,
+  };
+}
+
+export function quotaRow(input: LedgerInput["quota"]): SavingsLedgerRow {
+  const { deferredRuns, limitedRuns, windowDays } = input;
+  return {
+    source: "quota",
+    evidence: "MEASURED",
+    tokens: null,
+    usd: null,
+    runs: deferredRuns,
+    detail:
+      deferredRuns === 0 && limitedRuns === 0
+        ? `No task has waited for the subscription window and no run has hit the limit in the last ${windowDays} days.`
+        : `In the last ${windowDays} days ${deferredRuns} ${deferredRuns === 1 ? "run" : "runs"} waited for the subscription window to reset and ${limitedRuns} ${limitedRuns === 1 ? "run" : "runs"} hit the limit while working. Holding moves the spend after the reset instead of reducing it.`,
+  };
 }
 
 function contextPackRow(pack: PackAccounting, experiment: ExperimentResult): SavingsLedgerRow {
@@ -508,5 +552,7 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
           ? "Appears after the first completed task."
           : `${Math.round(input.other.routingSavingRatio * 100)}% less than running every completed task on the reference model with the same tokens.`,
     },
+    stackCommandsRow(input.continuations),
+    quotaRow(input.quota),
   ];
 }

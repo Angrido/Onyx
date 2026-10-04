@@ -343,13 +343,53 @@ class UsageModel {
 }
 
 let usageModel: UsageModel | null = null;
+let rateLimitSent = false;
 
-function writeLine(raw: string): Promise<void> {
-  const line = usageModel ? usageModel.transform(raw) : raw;
+function rateLimitSpec(): string | null {
+  const value = process.env.CLAUDE_STUB_RATE_LIMIT?.trim();
+  if (!value) return null;
+  if (!value.startsWith("@")) return value;
+  try {
+    return readFileSync(value.slice(1), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function rateLimitLine(): string | null {
+  const spec = rateLimitSpec();
+  if (spec === null) return null;
+  const [status = "allowed", utilization, type = "five_hour", resetsIn = "3600"] = spec.split(":");
+  return JSON.stringify({
+    type: "rate_limit_event",
+    rate_limit_info: {
+      status,
+      resetsAt: Date.now() + Number(resetsIn) * 1_000,
+      utilization: utilization ? Number(utilization) : null,
+      rateLimitType: type,
+      overageStatus: null,
+      overageResetsAt: null,
+      overageDisabledReason: null,
+      isUsingOverage: false,
+    },
+    uuid: randomUUID(),
+    session_id: sessionId,
+  });
+}
+
+function emit(line: string): Promise<void> {
   return new Promise((resolve) => {
     if (process.stdout.write(`${line}\n`)) resolve();
     else process.stdout.once("drain", () => resolve());
   });
+}
+
+async function writeLine(raw: string): Promise<void> {
+  await emit(usageModel ? usageModel.transform(raw) : raw);
+  if (rateLimitSent || !raw.includes('"subtype":"init"')) return;
+  rateLimitSent = true;
+  const limit = rateLimitLine();
+  if (limit !== null) await emit(limit);
 }
 
 async function replay(lines: readonly string[]): Promise<void> {
