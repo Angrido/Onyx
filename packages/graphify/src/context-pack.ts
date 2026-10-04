@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   describeEntry,
   PLACEHOLDER_LEGEND,
@@ -31,6 +32,8 @@ export interface PackEntry {
   level: ContextLevel;
   tokens: number;
   symbols: string[] | null;
+  fingerprint: string;
+  reused: boolean;
 }
 
 export interface ContextPack {
@@ -39,6 +42,7 @@ export interface ContextPack {
   omitted: string[];
   baselineTokens: number;
   deliveredTokens: number;
+  reusedTokens: number;
   budgetTokens: number;
 }
 
@@ -51,6 +55,11 @@ export interface ContextPackInput {
   estimator: TokenEstimator;
   budgetTokens?: number;
   excerpt?: (relPath: string, level: SkeletonLevel, names: readonly string[]) => Excerpt | null;
+  delivered?: ReadonlyMap<string, string>;
+}
+
+export function packFingerprint(level: ContextLevel, content: string): string {
+  return createHash("sha256").update(`${level}\0${content}`).digest("hex").slice(0, 16);
 }
 
 export const DEFAULT_PACK_BUDGET = 24_000;
@@ -291,8 +300,9 @@ function render(
     if (isFraming) framing.push(line);
   };
 
+  const reused = [...sections.values()].flat().filter(({ entry }) => entry.reused);
   for (const role of ["target", "dependency", "dependent"] as const) {
-    const items = sections.get(role) ?? [];
+    const items = (sections.get(role) ?? []).filter(({ entry }) => !entry.reused);
     if (items.length === 0) continue;
     push("", true);
     push(`## ${SECTION_TITLES[role]}`, true);
@@ -312,11 +322,20 @@ function render(
       push(ticks, true);
     }
   }
-  const nearby = sections.get("nearby") ?? [];
+  const nearby = (sections.get("nearby") ?? []).filter(({ entry }) => !entry.reused);
   if (nearby.length > 0) {
     push("", true);
     push("## Nearby files (two hops away)", true);
     for (const { entry, content } of nearby) push(`- ${dirPrefix(entry.relPath)}${content}`, false);
+  }
+  if (reused.length > 0) {
+    push("", true);
+    push("## Already sent earlier in this conversation, unchanged", true);
+    for (const { entry } of reused)
+      push(
+        `- ${entry.relPath} (${entry.role === "dependent" ? "usages" : LEVEL_LABELS[entry.level]})`,
+        true,
+      );
   }
   return { text: lines.join("\n"), framing: framing.join("\n") };
 }
@@ -342,6 +361,7 @@ export function buildContextPack(input: ContextPackInput): ContextPack | null {
       const content = resolved.content;
       const tokens = input.estimator.estimate(content, level === 0 ? "text" : file.language);
       if (spent + tokens > budget && candidate.role !== "target") continue;
+      const fingerprint = packFingerprint(level, content);
       const entry: PackEntry = {
         relPath: candidate.relPath,
         role: candidate.role,
@@ -349,6 +369,8 @@ export function buildContextPack(input: ContextPackInput): ContextPack | null {
         level,
         tokens,
         symbols: resolved.symbols,
+        fingerprint,
+        reused: input.delivered?.get(candidate.relPath) === fingerprint,
       };
       entries.push(entry);
       const section = sections.get(candidate.role) ?? [];
@@ -366,8 +388,17 @@ export function buildContextPack(input: ContextPackInput): ContextPack | null {
     .filter((candidate) => candidate.role === "target" || candidate.role === "dependency")
     .reduce((sum, candidate) => sum + (input.files.get(candidate.relPath)?.rawTokens ?? 0), 0);
   const deliveredTokens =
-    entries.reduce((sum, entry) => sum + entry.tokens, 0) +
+    entries.reduce((sum, entry) => sum + (entry.reused ? 0 : entry.tokens), 0) +
     input.estimator.estimate(framing, "text");
+  const reusedTokens = entries.reduce((sum, entry) => sum + (entry.reused ? entry.tokens : 0), 0);
 
-  return { text, entries, omitted, baselineTokens, deliveredTokens, budgetTokens: budget };
+  return {
+    text,
+    entries,
+    omitted,
+    baselineTokens,
+    deliveredTokens,
+    reusedTokens,
+    budgetTokens: budget,
+  };
 }

@@ -2,11 +2,13 @@
 
 import type {
   ArmStats,
+  CacheReport,
   ContextExperimentSettings,
   ExperimentResult,
   OtherSavings,
   PackAccounting,
   SavingsCheck,
+  SavingsLedgerRow,
   SavingsReport,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +16,7 @@ import {
   Calculator,
   CheckCircle2,
   CircleDashed,
+  DatabaseZap,
   FlaskConical,
   Gauge,
   Loader2,
@@ -40,11 +43,14 @@ import { useLiveSystem } from "@/lib/live";
 import {
   accountingBars,
   armProgress,
+  CACHE_LOSS_HINTS,
+  CACHE_LOSS_LABELS,
   CHECK_TONES,
   CONTROL_SHARES,
   formatChange,
   formatPValue,
   savingText,
+  SOURCE_LABELS,
   VERDICT_STYLES,
   type Evidence,
   type SavingsTone,
@@ -586,6 +592,117 @@ function OtherCard({ other }: { other: OtherSavings }) {
   );
 }
 
+function ledgerValue(row: SavingsLedgerRow): string {
+  if (row.tokens !== null) {
+    const tokens = `${row.tokens < 0 ? "−" : ""}${formatTokens(Math.abs(row.tokens))} tokens`;
+    return row.usd !== null ? `${tokens} · ${formatUsd(row.usd)}` : tokens;
+  }
+  if (row.usd !== null) return formatUsd(row.usd);
+  return "—";
+}
+
+function LedgerCard({ ledger }: { ledger: SavingsLedgerRow[] }) {
+  return (
+    <Card data-testid="savings-ledger">
+      <CardHeader>
+        <CardTitle>Savings ledger</CardTitle>
+        <CardDescription>
+          Every way Onyx saves tokens, with how it is known: measured from Claude&apos;s own token
+          counts, or estimated. Tokens are input-equivalent over the last 30 days; they are not
+          added up because the methods differ.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="divide-y divide-border">
+          {ledger.map((row) => (
+            <li
+              key={row.source}
+              data-testid={`ledger-${row.source}`}
+              className="grid grid-cols-1 gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-4"
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">{SOURCE_LABELS[row.source]}</p>
+                <EvidenceBadge evidence={row.evidence === "MEASURED" ? "measured" : "estimate"} />
+                {row.runs > 0 ? (
+                  <span className="text-[11px] text-muted-foreground">
+                    {row.runs} {row.runs === 1 ? "run" : "runs"}
+                  </span>
+                ) : null}
+              </div>
+              <p
+                className={cn(
+                  "tabular text-sm font-semibold sm:text-right",
+                  row.tokens !== null && row.tokens < 0 ? "text-warning" : undefined,
+                )}
+              >
+                {ledgerValue(row)}
+              </p>
+              <p className="text-xs text-muted-foreground sm:col-span-2">{row.detail}</p>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CacheCard({ cache }: { cache: CacheReport }) {
+  const lossShare = cache.resumedRuns > 0 ? cache.runsWithLoss / cache.resumedRuns : null;
+  return (
+    <Card data-testid="savings-cache">
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>Prompt cache on resumed runs</CardTitle>
+          <EvidenceBadge evidence="measured" />
+        </div>
+        <CardDescription>
+          A run that resumes a session should read the conversation back from Claude&apos;s cache.
+          When it has to write it again, Onyx says why. Last {cache.windowDays} days.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Stat label="Resumed runs" value={String(cache.resumedRuns)} />
+          <Stat
+            label="Cache lost"
+            value={lossShare === null ? "—" : formatPercent(lossShare)}
+            hint={`${cache.runsWithLoss} of ${cache.resumedRuns} runs`}
+            tone={lossShare !== null && lossShare > 0.25 ? "warning" : "neutral"}
+          />
+          <Stat label="Written again" value={formatTokens(cache.lostTokens)} />
+          <Stat label="Read back" value={formatTokens(cache.readTokens)} tone="success" />
+        </div>
+        {cache.byReason.length === 0 ? (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <DatabaseZap className="size-3.5 text-success" />
+            {cache.resumedRuns === 0
+              ? "No resumed runs yet."
+              : "Every resumed run read its conversation back from the cache."}
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {cache.byReason.map((row) => (
+              <li
+                key={row.reason}
+                className="rounded-lg border border-border bg-surface-0/60 px-3 py-2 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{CACHE_LOSS_LABELS[row.reason]}</span>
+                  <span className="tabular text-muted-foreground">
+                    {row.runs} {row.runs === 1 ? "run" : "runs"} · {formatTokens(row.lostTokens)}{" "}
+                    tokens
+                  </span>
+                </div>
+                <p className="mt-1 text-muted-foreground">{CACHE_LOSS_HINTS[row.reason]}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SavingsDashboard({ initial }: { initial: SavingsReport }) {
   useLiveSystem();
   const { data } = useQuery({
@@ -597,11 +714,13 @@ export function SavingsDashboard({ initial }: { initial: SavingsReport }) {
   return (
     <div className="space-y-6">
       <VerdictCard verdict={data.verdict} />
+      <LedgerCard ledger={data.ledger} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <ExperimentCard experiment={data.experiment} />
         <ChecksCard checks={data.checks} />
       </div>
       <PackCard pack={data.pack} />
+      <CacheCard cache={data.cache} />
       <OtherCard other={data.other} />
     </div>
   );

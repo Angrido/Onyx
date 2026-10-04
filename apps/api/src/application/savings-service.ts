@@ -1,5 +1,6 @@
 import {
   ContextExperimentSettingsSchema,
+  type CacheReport,
   type ContextExperimentSettings,
   type OtherSavings,
   type PackAccounting,
@@ -7,11 +8,13 @@ import {
   type SavingsReport,
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
+import { summarizeCache } from "../domain/prompt-cache";
 import {
   compareArms,
   DEFAULT_EXPERIMENT,
   savingRatio,
   savingsChecks,
+  savingsLedger,
   savingsVerdict,
   type ArmSample,
 } from "../domain/savings";
@@ -66,11 +69,12 @@ export class SavingsService {
   }
 
   async report(now = new Date()): Promise<SavingsReport> {
-    const [settings, pack, experimentRuns, other] = await Promise.all([
+    const [settings, pack, experimentRuns, other, sessions] = await Promise.all([
       this.experimentSettings(),
       this.accounting(now),
       this.experimentSamples(now),
       this.otherSavings(now),
+      this.sessionReuse(now),
     ]);
     const experiment = compareArms({
       settings,
@@ -87,6 +91,62 @@ export class SavingsService {
       pack,
       checks: savingsChecks({ contextEnabled: this.deps.contextEnabled, pack, experiment }),
       other,
+      ledger: savingsLedger({
+        pack,
+        experiment,
+        other,
+        reuse: sessions.reuse,
+        prefix: sessions.prefix,
+      }),
+      cache: sessions.cache,
+    };
+  }
+
+  private async sessionReuse(now: Date): Promise<{
+    cache: CacheReport;
+    reuse: { runs: number; tokens: number };
+    prefix: { runs: number; readTokens: number };
+  }> {
+    const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const { prisma } = this.deps;
+    const [runs, reuse, prefix] = await Promise.all([
+      prisma.agentRun.groupBy({
+        by: ["cacheLoss"],
+        where: { startedAt: { gte: since }, cacheLoss: { not: null } },
+        _count: { _all: true },
+        _sum: { cacheLostTokens: true, cacheReadTokens: true },
+      }),
+      prisma.agentRun.aggregate({
+        where: { startedAt: { gte: since }, ctxReusedTokens: { gt: 0 } },
+        _count: { _all: true },
+        _sum: { ctxReusedTokens: true },
+      }),
+      prisma.agentRun.aggregate({
+        where: { startedAt: { gte: since }, ctxMapDrift: true, cacheLoss: "NONE" },
+        _count: { _all: true },
+        _sum: { cacheReadTokens: true },
+      }),
+    ]);
+    return {
+      cache: {
+        windowDays: ACCOUNTING_DAYS,
+        ...summarizeCache(
+          runs.flatMap((group) =>
+            group.cacheLoss === null
+              ? []
+              : [
+                  {
+                    reason: group.cacheLoss,
+                    runs: group._count._all,
+                    lostTokens: group._sum.cacheLostTokens ?? 0,
+                    readTokens: group._sum.cacheReadTokens ?? 0,
+                  },
+                ],
+          ),
+        ),
+      },
+      reuse: { runs: reuse._count._all, tokens: reuse._sum.ctxReusedTokens ?? 0 },
+      prefix: { runs: prefix._count._all, readTokens: prefix._sum.cacheReadTokens ?? 0 },
     };
   }
 

@@ -5,8 +5,10 @@ import type {
   ContextRole,
   ExperimentResult,
   ExperimentState,
+  OtherSavings,
   PackAccounting,
   SavingsCheck,
+  SavingsLedgerRow,
   SavingsVerdict,
 } from "@onyx/contracts";
 
@@ -419,4 +421,87 @@ export function savingsChecks(input: {
   };
   checks.push(experimentCheck[experiment.state]);
   return checks;
+}
+
+export const CACHE_REWRITE_PREMIUM = 1.25 - 0.1;
+export const CACHE_READ_DISCOUNT = 1 - 0.1;
+const MEASURED_STATES: ReadonlySet<ExperimentState> = new Set([
+  "SAVING",
+  "NO_DIFFERENCE",
+  "COSTS_MORE",
+]);
+
+export interface LedgerInput {
+  pack: PackAccounting;
+  experiment: ExperimentResult;
+  other: OtherSavings;
+  reuse: { runs: number; tokens: number };
+  prefix: { runs: number; readTokens: number };
+}
+
+function contextPackRow(pack: PackAccounting, experiment: ExperimentResult): SavingsLedgerRow {
+  if (MEASURED_STATES.has(experiment.state) && experiment.tokenChange !== null) {
+    const change = Math.round(experiment.tokenChange * 100);
+    return {
+      source: "context-pack",
+      evidence: "MEASURED",
+      tokens: null,
+      usd: null,
+      runs: experiment.pack.runs + experiment.control.runs,
+      detail: `A/B experiment: ${change > 0 ? "+" : ""}${change}% input tokens per run with the Onyx context than without (median over ${experiment.pack.runs} and ${experiment.control.runs} runs, p ${experiment.pValue === null ? "n/a" : experiment.pValue.toFixed(3)}).`,
+    };
+  }
+  return {
+    source: "context-pack",
+    evidence: "ESTIMATED",
+    tokens:
+      pack.runsWithPack > 0 ? pack.baselineTokens - pack.deliveredTokens - pack.rereadTokens : null,
+    usd: null,
+    runs: pack.runsWithPack,
+    detail:
+      "Reading every target and direct dependency in full, minus what Onyx delivered and the files the agent read again anyway. Turn on the experiment to measure it.",
+  };
+}
+
+export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
+  return [
+    contextPackRow(input.pack, input.experiment),
+    {
+      source: "stable-prefix",
+      evidence: "ESTIMATED",
+      tokens:
+        input.prefix.runs > 0 ? Math.round(input.prefix.readTokens * CACHE_REWRITE_PREMIUM) : null,
+      usd: null,
+      runs: input.prefix.runs,
+      detail: `Resumed runs whose project map had changed but kept the one their session started with. They read ${compactTokens(input.prefix.readTokens)} tokens from Claude's cache (measured); with a new map Claude would have written them again at 1.25× instead of 0.1×.`,
+    },
+    {
+      source: "pack-reuse",
+      evidence: "ESTIMATED",
+      tokens: input.reuse.runs > 0 ? input.reuse.tokens : null,
+      usd: null,
+      runs: input.reuse.runs,
+      detail:
+        "Context pack entries the conversation already had, unchanged: listed by name instead of being sent again in resumed runs.",
+    },
+    {
+      source: "prompt-cache",
+      evidence: "MEASURED",
+      tokens: Math.round(input.other.cacheReadTokens * CACHE_READ_DISCOUNT),
+      usd: input.other.cacheSavedUsd,
+      runs: 0,
+      detail: `${compactTokens(input.other.cacheReadTokens)} tokens Claude read from its cache in the last ${input.other.windowDays} days instead of at the full input rate.`,
+    },
+    {
+      source: "routing",
+      evidence: "ESTIMATED",
+      tokens: null,
+      usd: input.other.routingSavedUsd,
+      runs: 0,
+      detail:
+        input.other.routingSavingRatio === null
+          ? "Appears after the first completed task."
+          : `${Math.round(input.other.routingSavingRatio * 100)}% less than running every completed task on the reference model with the same tokens.`,
+    },
+  ];
 }

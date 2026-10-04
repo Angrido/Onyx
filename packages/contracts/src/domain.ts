@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  CACHE_LOSSES,
   CONTEXT_ARMS,
   DOMAINS,
   MODEL_TIERS,
@@ -9,6 +10,7 @@ import {
 } from "./client";
 
 export {
+  CACHE_LOSSES,
   CONTEXT_ARMS,
   DOMAINS,
   EMPTY_USAGE,
@@ -25,6 +27,9 @@ export {
 
 export const ContextArmSchema = z.enum(CONTEXT_ARMS);
 export type ContextArm = z.infer<typeof ContextArmSchema>;
+
+export const CacheLossSchema = z.enum(CACHE_LOSSES);
+export type CacheLoss = z.infer<typeof CacheLossSchema>;
 
 export const DomainSchema = z.enum(DOMAINS);
 export type Domain = z.infer<typeof DomainSchema>;

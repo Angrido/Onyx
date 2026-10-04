@@ -28,6 +28,7 @@ import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
 import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
+import { classifyCacheLoss, DEFAULT_PROMPT_CACHE_TTL_MS, prefixHash } from "../domain/prompt-cache";
 import { lostSession, resolveRunOutcome } from "../domain/run-outcome";
 import { shouldEscalate, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import {
@@ -133,14 +134,55 @@ interface PreparedRun {
   session: SessionItem;
   context: ContextItem;
   spec: RunSpec;
+  messageTokens: number;
+  prefixHash: string;
+  delivered: ReadonlyMap<string, string>;
+  packFingerprints: readonly (readonly [string, string])[];
+}
+
+interface PrimerMap {
+  text: string;
+  tokens: number;
+  includedFiles: number;
+  omittedFiles: number;
 }
 
 interface PreparedContext {
   item: ContextItem;
-  primerMap: { text: string; includedFiles: number; omittedFiles: number } | null;
+  primerMap: PrimerMap | null;
   packText: string | null;
+  packFingerprints: readonly (readonly [string, string])[];
+  mapDrift: boolean;
   mcpConfig: McpConfigFile;
   mcpEnabled: boolean;
+}
+
+interface SessionContext {
+  frozenMap: PrimerMap | null;
+  delivered: ReadonlyMap<string, string>;
+}
+
+function storedMap(value: unknown): PrimerMap | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const text = record["text"];
+  const tokens = record["tokens"];
+  const includedFiles = record["includedFiles"];
+  const omittedFiles = record["omittedFiles"];
+  return typeof text === "string" &&
+    typeof tokens === "number" &&
+    typeof includedFiles === "number" &&
+    typeof omittedFiles === "number"
+    ? { text, tokens, includedFiles, omittedFiles }
+    : null;
+}
+
+function storedDelivered(value: unknown): Map<string, string> {
+  const delivered = new Map<string, string>();
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return delivered;
+  for (const [path, fingerprint] of Object.entries(value))
+    if (typeof fingerprint === "string") delivered.set(path, fingerprint);
+  return delivered;
 }
 
 function subagentsOf(value: unknown): Record<string, unknown> | null {
@@ -294,6 +336,38 @@ export class RunExecutor {
     const changedFiles = this.normalizeChanged(prepared.projectRoot, recorder.changedFiles);
     const reference = await this.deps.router.referenceProfile().catch(() => null);
     const audit = await this.readAudit(prepared, recorder.reads);
+    const previous = prepared.sessionIsNew
+      ? null
+      : await prisma.agentRun
+          .findFirst({
+            where: {
+              sessionId: prepared.sessionId,
+              id: { not: prepared.runId },
+              endedAt: { not: null },
+            },
+            orderBy: { endedAt: "desc" },
+            select: { modelId: true, cachePrefixHash: true, endedAt: true },
+          })
+          .catch(() => null);
+    const cache = classifyCacheLoss({
+      sessionIsNew: prepared.sessionIsNew,
+      firstTurn: recorder.firstMainTurn,
+      messageTokens: prepared.messageTokens,
+      modelId: prepared.modelId,
+      prefixHash: prepared.prefixHash,
+      startedAt: new Date(prepared.startedAt),
+      previous: previous?.endedAt
+        ? {
+            modelId: previous.modelId,
+            prefixHash: previous.cachePrefixHash,
+            endedAt: previous.endedAt,
+          }
+        : null,
+      ttlMs: this.deps.config.context.promptCacheTtlMs ?? DEFAULT_PROMPT_CACHE_TTL_MS,
+    });
+    const deliveredPack = recorder.compacted
+      ? {}
+      : Object.fromEntries([...prepared.delivered, ...prepared.packFingerprints]);
 
     const endedAt = new Date();
     const usage = recorder.usage;
@@ -322,6 +396,12 @@ export class RunExecutor {
             ctxRereadTokens: audit.rereadTokens,
             ctxMissedFiles: audit.missedFiles,
             ctxRereadPaths: audit.rereadPaths,
+            ctxReusedTokens:
+              prepared.context.reusedTokens > 0 ? prepared.context.reusedTokens : null,
+            cacheLoss: cache.reason,
+            cacheReadTokens: cache.readTokens,
+            cacheWriteTokens: cache.writeTokens,
+            cacheLostTokens: cache.lostTokens,
             guardDenials: recorder.guardDenials,
             changedFiles,
             errorMessage: outcome.errorMessage,
@@ -364,7 +444,7 @@ export class RunExecutor {
               ? { contextTokens: recorder.lastContextTokens }
               : {}),
             ...(sessionAlive
-              ? { status: "IDLE" as const }
+              ? { status: "IDLE" as const, deliveredPack }
               : { status: "CLOSED" as const, endReason: "ERROR" as const, endedAt }),
           },
         });
@@ -580,11 +660,47 @@ export class RunExecutor {
       fence,
       tests: request.tdd?.guard ?? null,
     });
-    const context = await this.prepareContext(run.id, task, prompt, scope.policy, runToken, arm);
+    const resuming = plan.decision.action === "resume";
+    const sessionContext: SessionContext = {
+      frozenMap: resuming ? storedMap(session.contextMap) : null,
+      delivered: resuming ? storedDelivered(session.deliveredPack) : new Map(),
+    };
+    const context = await this.prepareContext(
+      run.id,
+      task,
+      prompt,
+      scope.policy,
+      runToken,
+      arm,
+      sessionContext,
+    );
+    if (context.primerMap && sessionContext.frozenMap === null)
+      await prisma.session.update({
+        where: { id: session.id },
+        data: {
+          contextMap: {
+            text: context.primerMap.text,
+            tokens: context.primerMap.tokens,
+            includedFiles: context.primerMap.includedFiles,
+            omittedFiles: context.primerMap.omittedFiles,
+          },
+        },
+      });
+    const agents = subagentsOf(agentConfig.subagents);
+    const primer = composePrimer({
+      workspacePrimer: workspace.primer,
+      agentPrompt: agentConfig.appendSystemPrompt,
+      projectName: task.project.name,
+      map: context.primerMap,
+      mcpEnabled: context.mcpEnabled,
+    });
+    const prefix = prefixHash({ modelId, primer, agents, mcpEnabled: context.mcpEnabled });
     await prisma.agentRun.update({
       where: { id: run.id },
       data: {
         ignoreHash: scope.hash,
+        cachePrefixHash: prefix,
+        ctxMapDrift: context.mapDrift,
         ctxBaselineTokens: context.item.baselineTokens > 0 ? context.item.baselineTokens : null,
         ctxDeliveredTokens: context.item.deliveredTokens,
       },
@@ -602,16 +718,10 @@ export class RunExecutor {
         protectedPaths,
         hooks: guardHooks(config.internalApiUrl),
       }),
-      primer: composePrimer({
-        workspacePrimer: workspace.primer,
-        agentPrompt: agentConfig.appendSystemPrompt,
-        projectName: task.project.name,
-        map: context.primerMap,
-        mcpEnabled: context.mcpEnabled,
-      }),
+      primer,
       mcpConfig: context.mcpConfig,
       contextPack: context.packText,
-      agents: subagentsOf(agentConfig.subagents),
+      agents,
     });
     const allowedTools = [
       ...new Set([
@@ -620,11 +730,12 @@ export class RunExecutor {
       ]),
     ];
     const handoffText = plan.item.handoff?.text ?? null;
+    const message = composeUserMessage(context.packText, prompt, handoffText);
 
     const spec: RunSpec = {
       runId: run.id,
       cwd: root,
-      prompt: composeUserMessage(context.packText, prompt, handoffText),
+      prompt: message,
       model: modelId,
       fallbackModels: toStringArray(agentConfig.fallbackModelIds).filter((id) => id !== modelId),
       permissionMode,
@@ -686,6 +797,10 @@ export class RunExecutor {
       session: plan.item,
       context: context.item,
       spec,
+      messageTokens: this.deps.estimator.estimate(message, "text"),
+      prefixHash: prefix,
+      delivered: sessionContext.delivered,
+      packFingerprints: context.packFingerprints,
     };
   }
 
@@ -696,6 +811,7 @@ export class RunExecutor {
     policy: ContextPolicy,
     runToken: string,
     arm: ContextArm | null,
+    session: SessionContext,
   ): Promise<PreparedContext> {
     const { indexes, config, logger } = this.deps;
     const targetPaths = toStringArray(task.targetPaths);
@@ -709,6 +825,8 @@ export class RunExecutor {
         packTokens: 0,
         baselineTokens: 0,
         deliveredTokens: 0,
+        reusedTokens: 0,
+        mapFrozen: false,
         indexedAt: null,
         mcpEnabled: false,
         note,
@@ -716,6 +834,8 @@ export class RunExecutor {
       },
       primerMap: null,
       packText: null,
+      packFingerprints: [],
+      mapDrift: false,
       mcpConfig: emptyMcpConfig(),
       mcpEnabled: false,
     });
@@ -731,12 +851,15 @@ export class RunExecutor {
       });
     if (!project) return empty("The project is not indexed yet: this run has no Onyx context");
 
-    const map = project.projectMap(config.context.mapBudgetTokens, policy);
+    const current = project.projectMap(config.context.mapBudgetTokens, policy);
+    const map = session.frozenMap ?? current;
+    const mapDrift = session.frozenMap !== null && session.frozenMap.text !== current.text;
     const { pack, targets, inferredTargets, excludedTargets } = project.buildPack({
       targetPaths,
       prompt,
       budgetTokens: config.context.packBudgetTokens,
       policy,
+      delivered: session.delivered,
     });
     const mcpEnabled =
       config.context.mcpServerPath !== null && isReadableFile(config.context.mcpServerPath);
@@ -760,11 +883,14 @@ export class RunExecutor {
           level: entry.level,
           tokens: entry.tokens,
           symbols: entry.symbols,
+          reused: entry.reused,
         })),
         mapTokens: map.tokens,
         packTokens,
         baselineTokens: pack?.baselineTokens ?? 0,
         deliveredTokens: map.tokens + packTokens,
+        reusedTokens: pack?.reusedTokens ?? 0,
+        mapFrozen: session.frozenMap !== null,
         indexedAt: project.indexedAt?.toISOString() ?? null,
         mcpEnabled,
         note:
@@ -777,6 +903,10 @@ export class RunExecutor {
       },
       primerMap: map,
       packText: pack?.text ?? null,
+      packFingerprints: (pack?.entries ?? []).map(
+        (entry) => [entry.relPath, entry.fingerprint] as const,
+      ),
+      mapDrift,
       mcpConfig,
       mcpEnabled,
     };

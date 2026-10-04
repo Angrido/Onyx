@@ -1,12 +1,15 @@
 import type {
+  CacheLoss,
   ContextItem,
   ExperimentResult,
   PackAccounting,
+  RunCacheDto,
   RunContextDto,
   SavingsCheckState,
+  SavingsSource,
   SavingsVerdictState,
 } from "@onyx/contracts";
-import { formatPercent } from "./format";
+import { formatPercent, formatTokens } from "./format";
 
 export type Evidence = "measured" | "estimate" | "none";
 export type SavingsTone = "success" | "warning" | "danger" | "primary" | "neutral";
@@ -97,5 +100,52 @@ export function runSaving(item: ContextItem | null, context: RunContextDto | nul
     net: rereadTokens === null ? null : 1 - (delivered + rereadTokens) / baseline,
     rereadFiles: context?.rereadFiles ?? 0,
     rereadTokens: rereadTokens ?? 0,
+  };
+}
+
+export const SOURCE_LABELS: Record<SavingsSource, string> = {
+  "context-pack": "Onyx context (pack, map, MCP)",
+  "stable-prefix": "Project map kept for the session",
+  "pack-reuse": "Pack not sent again on resume",
+  "prompt-cache": "Claude prompt cache",
+  routing: "Model routing",
+};
+
+export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {
+  NEW_SESSION: "New session",
+  NONE: "Read from the cache",
+  PREFIX_CHANGED: "System prompt changed",
+  MODEL_CHANGED: "Model changed",
+  EXPIRED: "Cache expired during the pause",
+  UNKNOWN: "Unexplained",
+};
+
+export const CACHE_LOSS_HINTS: Record<CacheLoss, string> = {
+  NEW_SESSION: "A new session always writes its prompt into the cache.",
+  NONE: "The conversation was read back from the cache.",
+  PREFIX_CHANGED:
+    "The workspace primer, the agent's instructions or its sub-agents changed between the runs of this session.",
+  MODEL_CHANGED: "The cache belongs to one model: switching model mid-session writes it again.",
+  EXPIRED:
+    "The session was resumed after the cache lifetime: follow-ups sent sooner reuse it (ONYX_PROMPT_CACHE_TTL_MINUTES).",
+  UNKNOWN:
+    "Claude Code wrote the conversation again for a reason Onyx cannot see, for example its own system prompt changed.",
+};
+
+export interface CacheNote {
+  tone: SavingsTone;
+  text: string;
+}
+
+export function cacheNote(cache: RunCacheDto): CacheNote | null {
+  if (cache.loss === null || cache.loss === "NEW_SESSION") return null;
+  if (cache.loss === "NONE")
+    return {
+      tone: "success",
+      text: `Resumed from Claude's prompt cache: ${formatTokens(cache.readTokens ?? 0)} tokens read back instead of written again.`,
+    };
+  return {
+    tone: "warning",
+    text: `Prompt cache lost: ${formatTokens(cache.lostTokens ?? 0)} tokens written again (${CACHE_LOSS_LABELS[cache.loss].toLowerCase()}). ${CACHE_LOSS_HINTS[cache.loss]}`,
   };
 }

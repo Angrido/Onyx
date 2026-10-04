@@ -93,6 +93,15 @@ enum RoutingStrategy {
   DEESCALATION
 }
 
+enum CacheLoss {
+  NEW_SESSION
+  NONE
+  PREFIX_CHANGED
+  MODEL_CHANGED
+  EXPIRED
+  UNKNOWN
+}
+
 enum ContextArm {
   PACK
   CONTROL
@@ -399,6 +408,8 @@ model Session {
   handoffNote     String?
   handoffTokens   Int?
   primerHash      String?
+  contextMap      Json?
+  deliveredPack   Json?
   turns           Int               @default(0)
   contextTokens   Int               @default(0)
   startedAt       DateTime          @default(now())
@@ -446,6 +457,13 @@ model AgentRun {
   ctxRereadTokens    Int?
   ctxMissedFiles     Int?
   ctxRereadPaths     Json?
+  ctxReusedTokens    Int?
+  cachePrefixHash    String?
+  cacheReadTokens    Int?
+  cacheWriteTokens   Int?
+  cacheLostTokens    Int?
+  cacheLoss          CacheLoss?
+  ctxMapDrift        Boolean     @default(false)
   guardDenials       Int         @default(0)
   changedFiles       Json?
   errorMessage       String?
@@ -464,6 +482,8 @@ model AgentRun {
   @@index([sessionId])
   @@index([status])
   @@index([contextArm, startedAt])
+  @@index([sessionId, endedAt])
+  @@index([cacheLoss, startedAt])
 }
 
 model AgentEvent {

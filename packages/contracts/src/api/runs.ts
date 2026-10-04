@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  CacheLossSchema,
   ContextArmSchema,
   ModelTierSchema,
   RoutingStrategySchema,
@@ -19,8 +20,17 @@ export const RunContextDtoSchema = z.object({
   rereadTokens: z.number().int().nullable(),
   missedFiles: z.number().int().nullable(),
   rereadPaths: z.array(z.string()),
+  reusedTokens: z.number().int().nullable(),
 });
 export type RunContextDto = z.infer<typeof RunContextDtoSchema>;
+
+export const RunCacheDtoSchema = z.object({
+  loss: CacheLossSchema.nullable(),
+  readTokens: z.number().int().nullable(),
+  writeTokens: z.number().int().nullable(),
+  lostTokens: z.number().int().nullable(),
+});
+export type RunCacheDto = z.infer<typeof RunCacheDtoSchema>;
 
 export const RunRoutingDtoSchema = z.object({
   strategy: RoutingStrategySchema,
@@ -49,6 +59,7 @@ export const RunDtoSchema = z.object({
   cliVersion: z.string().nullable(),
   usage: TokenUsageSchema,
   context: RunContextDtoSchema,
+  cache: RunCacheDtoSchema,
   guardDenials: z.number().int(),
   changedFiles: z.array(z.string()),
   routing: RunRoutingDtoSchema.nullable(),

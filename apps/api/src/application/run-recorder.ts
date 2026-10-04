@@ -56,6 +56,8 @@ export class RunRecorder {
   private readonly ledger = new TurnUsageLedger();
   private readonly turns = new Map<string, TurnUsageRecord>();
   private lastTurn: TokenUsage | null = null;
+  private firstTurn: TokenUsage | null = null;
+  private compactions = 0;
   private resultItem: RunItemOf<"result"> | null = null;
   private initItem: RunItemOf<"init"> | null = null;
   private guards = 0;
@@ -86,6 +88,14 @@ export class RunRecorder {
 
   get usage(): TokenUsage {
     return this.resultItem?.usage ?? this.ledger.total();
+  }
+
+  get compacted(): boolean {
+    return this.compactions > 0;
+  }
+
+  get firstMainTurn(): TokenUsage | null {
+    return this.firstTurn;
   }
 
   get lastContextTokens(): number {
@@ -138,9 +148,14 @@ export class RunRecorder {
           model: item.model,
           usage: item.usage,
         });
-        this.lastTurn = item.usage;
+        if (item.parentToolUseId === null) {
+          this.firstTurn ??= item.usage;
+          this.lastTurn = item.usage;
+        }
       } else if (item.kind === "result") {
         this.resultItem = item;
+      } else if (item.kind === "system" && item.subtype === "compact_boundary") {
+        this.compactions += 1;
       } else if (item.kind === "init") {
         this.initItem = item;
         this.onInit(item);

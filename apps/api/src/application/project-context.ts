@@ -47,6 +47,7 @@ export interface PackRequest {
   prompt: string;
   budgetTokens: number;
   policy?: ContextPolicy;
+  delivered?: ReadonlyMap<string, string>;
 }
 
 export interface PackResult {
@@ -271,6 +272,7 @@ export class ProjectContext {
       rank: this.rank,
       estimator: this.analyzer.estimator,
       budgetTokens: request.budgetTokens,
+      ...(request.delivered ? { delivered: request.delivered } : {}),
       excerpt: (relPath, level, names) => {
         const content = this.readSource(relPath);
         return content === null ? null : this.analyzer.excerpt(relPath, content, level, names);

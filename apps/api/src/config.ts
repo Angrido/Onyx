@@ -44,6 +44,7 @@ const EnvSchema = z.object({
   ONYX_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().min(1_000).max(200_000).default(24_000),
   ONYX_MAP_BUDGET_TOKENS: z.coerce.number().int().min(200).max(50_000).default(4_000),
   ONYX_INDEX_WAIT_MS: z.coerce.number().int().min(0).max(600_000).default(30_000),
+  ONYX_PROMPT_CACHE_TTL_MINUTES: z.coerce.number().int().min(1).max(120).default(5),
   ONYX_MCP_SERVER: z.string().optional(),
   ONYX_STATUSLINE: z.string().optional(),
   ONYX_TERMINAL_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
@@ -73,6 +74,7 @@ export interface ContextConfig {
   mapBudgetTokens: number;
   indexWaitMs: number;
   mcpServerPath: string | null;
+  promptCacheTtlMs: number;
 }
 
 export interface GitHubConfig {
@@ -216,6 +218,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       mapBudgetTokens: env.ONYX_MAP_BUDGET_TOKENS,
       indexWaitMs: env.ONYX_INDEX_WAIT_MS,
       mcpServerPath,
+      promptCacheTtlMs: env.ONYX_PROMPT_CACHE_TTL_MINUTES * 60_000,
     },
     terminal: { statusLinePath, idleMs: env.ONYX_TERMINAL_IDLE_MS },
     github: {

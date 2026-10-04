@@ -154,6 +154,13 @@ export function toRunDto(run: RunWithRelations): RunDto {
       rereadTokens: run.ctxRereadTokens,
       missedFiles: run.ctxMissedFiles,
       rereadPaths: toStringArray(run.ctxRereadPaths),
+      reusedTokens: run.ctxReusedTokens,
+    },
+    cache: {
+      loss: run.cacheLoss,
+      readTokens: run.cacheReadTokens,
+      writeTokens: run.cacheWriteTokens,
+      lostTokens: run.cacheLostTokens,
     },
     guardDenials: run.guardDenials,
     changedFiles: toStringArray(run.changedFiles),

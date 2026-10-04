@@ -204,7 +204,7 @@ function ContextView({ item }: { item: ContextItem }) {
           <span className="font-medium">Onyx context</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {item.entries.length > 0
-              ? `${item.entries.length} files · ${formatTokens(item.packTokens)} pack + ${formatTokens(item.mapTokens)} map`
+              ? `${item.entries.length} files · ${formatTokens(item.packTokens)} pack + ${formatTokens(item.mapTokens)} map${item.reusedTokens > 0 ? ` · ${formatTokens(item.reusedTokens)} already sent` : ""}`
               : (item.note ?? `${formatTokens(item.mapTokens)} map`)}
           </span>
           {savings !== null ? (
@@ -231,7 +231,7 @@ function ContextView({ item }: { item: ContextItem }) {
             ["Delivered", formatTokens(item.deliveredTokens)],
             ["Full reads", item.baselineTokens > 0 ? formatTokens(item.baselineTokens) : "—"],
             ["Context pack", formatTokens(item.packTokens)],
-            ["Project map", formatTokens(item.mapTokens)],
+            ["Project map", `${formatTokens(item.mapTokens)}${item.mapFrozen ? " · kept" : ""}`],
           ].map(([label, value]) => (
             <div key={label} className="rounded-md bg-surface-0/70 px-2 py-1.5">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -240,6 +240,16 @@ function ContextView({ item }: { item: ContextItem }) {
           ))}
         </div>
         {item.note ? <p className="text-muted-foreground">{item.note}</p> : null}
+        {item.reusedTokens > 0 || item.mapFrozen ? (
+          <p className="text-muted-foreground" data-testid="context-reuse">
+            {item.reusedTokens > 0
+              ? `${formatTokens(item.reusedTokens)} tokens of files this conversation already has were listed instead of sent again. `
+              : ""}
+            {item.mapFrozen
+              ? "The project map is the one this session started with, so Claude's prompt cache stays valid."
+              : ""}
+          </p>
+        ) : null}
         {roles.map((role) => (
           <div key={role} className="space-y-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -258,6 +268,9 @@ function ContextView({ item }: { item: ContextItem }) {
                       ) : null}
                       {item.inferredTargets.includes(entry.relPath) ? (
                         <span className="text-muted-foreground"> · from prompt</span>
+                      ) : null}
+                      {entry.reused ? (
+                        <span className="text-muted-foreground"> · already sent</span>
                       ) : null}
                     </span>
                     <span className="font-mono text-muted-foreground">

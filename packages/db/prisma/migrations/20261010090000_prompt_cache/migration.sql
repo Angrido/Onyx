@@ -1,0 +1,11 @@
+ALTER TABLE "AgentRun" ADD COLUMN "cacheLoss" TEXT;
+ALTER TABLE "AgentRun" ADD COLUMN "cacheLostTokens" INTEGER;
+ALTER TABLE "AgentRun" ADD COLUMN "cachePrefixHash" TEXT;
+ALTER TABLE "AgentRun" ADD COLUMN "cacheReadTokens" INTEGER;
+ALTER TABLE "AgentRun" ADD COLUMN "cacheWriteTokens" INTEGER;
+ALTER TABLE "AgentRun" ADD COLUMN "ctxReusedTokens" INTEGER;
+ALTER TABLE "AgentRun" ADD COLUMN "ctxMapDrift" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Session" ADD COLUMN "contextMap" JSONB;
+ALTER TABLE "Session" ADD COLUMN "deliveredPack" JSONB;
+CREATE INDEX "AgentRun_sessionId_endedAt_idx" ON "AgentRun"("sessionId", "endedAt");
+CREATE INDEX "AgentRun_cacheLoss_startedAt_idx" ON "AgentRun"("cacheLoss", "startedAt");

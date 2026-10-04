@@ -166,6 +166,7 @@ function normalizeAssistant(raw: unknown): RunItem[] {
       messageId,
       model: message.model ?? null,
       usage: toTokenUsage(message.usage),
+      parentToolUseId,
     });
   }
   return items;

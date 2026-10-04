@@ -66,6 +66,7 @@ describe("normalizeClaudeEvent", () => {
       messageId: "msg_1",
       model: "claude-opus-5-5",
       usage: { inputTokens: 10, outputTokens: 20, cacheCreationTokens: 30, cacheReadTokens: 40 },
+      parentToolUseId: null,
     });
   });
 

@@ -79,6 +79,7 @@ export const TurnUsageItemSchema = z.object({
   messageId: z.string(),
   model: z.string().nullable(),
   usage: TokenUsageSchema,
+  parentToolUseId: ParentToolUseIdSchema.default(null),
 });
 
 export const ResultItemSchema = z.object({
@@ -122,6 +123,7 @@ export const ContextEntrySchema = z.object({
   level: ContextLevelSchema,
   tokens: z.number().int(),
   symbols: z.array(z.string()).nullable(),
+  reused: z.boolean().default(false),
 });
 export type ContextEntry = z.infer<typeof ContextEntrySchema>;
 
@@ -134,6 +136,8 @@ export const ContextItemSchema = z.object({
   packTokens: z.number().int(),
   baselineTokens: z.number().int(),
   deliveredTokens: z.number().int(),
+  reusedTokens: z.number().int().default(0),
+  mapFrozen: z.boolean().default(false),
   indexedAt: z.string().nullable(),
   mcpEnabled: z.boolean(),
   note: z.string().nullable(),

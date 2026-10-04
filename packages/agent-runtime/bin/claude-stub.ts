@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -133,7 +134,218 @@ function initLine(): string {
   return line;
 }
 
-function writeLine(line: string): Promise<void> {
+interface StubSessionState {
+  historyTokens: number;
+  prefixKey: string;
+  lastAt: number;
+}
+
+interface StubUsage {
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+  service_tier: string;
+}
+
+const MODEL_INPUT_PRICE: readonly [RegExp, number][] = [
+  [/opus/, 4],
+  [/haiku/, 1],
+  [/./, 2],
+];
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function readOptionalFile(path: string | null): string {
+  if (path === null) return "";
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+class UsageModel {
+  private readonly stateDir =
+    process.env.CLAUDE_STUB_STATE_DIR ?? join(tmpdir(), "onyx-claude-stub");
+  private readonly ttlMs = Number(process.env.CLAUDE_STUB_CACHE_TTL_MS ?? "300000");
+  private readonly systemTokens: number;
+  private readonly prefixKey: string;
+  private readonly resumed = flagValue("--resume") !== null;
+  private context = 0;
+  private pending = 0;
+  private turns = 0;
+  private readonly userTokens: number;
+  private readonly totals: StubUsage = {
+    input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    output_tokens: 0,
+    service_tier: "standard",
+  };
+
+  constructor(userTokens: number) {
+    this.userTokens = userTokens;
+    const appended = readOptionalFile(flagValue("--append-system-prompt-file"));
+    const agents = readOptionalFile(flagValue("--agents"));
+    this.systemTokens =
+      Number(process.env.CLAUDE_STUB_SYSTEM_TOKENS ?? "14000") +
+      estimateTokens(appended) +
+      estimateTokens(agents);
+    this.prefixKey = createHash("sha256").update(`${model}\0${appended}\0${agents}`).digest("hex");
+  }
+
+  transform(line: string): string {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return line;
+    }
+    if (!isRecord(parsed)) return line;
+    if (parsed.type === "user" && !parsed.parent_tool_use_id) {
+      this.pending += estimateTokens(JSON.stringify(parsed.message ?? ""));
+      return line;
+    }
+    if (parsed.type === "assistant" && !parsed.parent_tool_use_id && isRecord(parsed.message)) {
+      parsed.message.usage = this.turn(
+        estimateTokens(JSON.stringify(parsed.message.content ?? "")),
+      );
+      return JSON.stringify(parsed);
+    }
+    if (parsed.type === "result") {
+      this.save();
+      const cost = this.cost(this.totals);
+      parsed.usage = { ...this.totals };
+      parsed.total_cost_usd = cost;
+      parsed.modelUsage = {
+        [model]: {
+          inputTokens: this.totals.input_tokens,
+          outputTokens: this.totals.output_tokens,
+          cacheReadInputTokens: this.totals.cache_read_input_tokens,
+          cacheCreationInputTokens: this.totals.cache_creation_input_tokens,
+          webSearchRequests: 0,
+          costUSD: cost,
+          contextWindow: 1_000_000,
+        },
+      };
+      return JSON.stringify(parsed);
+    }
+    return line;
+  }
+
+  private turn(outputTokens: number): StubUsage {
+    const output = Math.max(8, outputTokens);
+    let read: number;
+    let created: number;
+    if (this.turns === 0) {
+      const previous = this.resumed ? this.load() : null;
+      const history = previous?.historyTokens ?? 0;
+      const warmPrefix = this.resumed
+        ? previous !== null &&
+          previous.prefixKey === this.prefixKey &&
+          Date.now() - previous.lastAt <= this.ttlMs
+        : this.prefixWarm();
+      const cached = this.systemTokens + history;
+      read = warmPrefix ? cached : 0;
+      created = warmPrefix ? this.userTokens : cached + this.userTokens;
+    } else {
+      read = this.context;
+      created = this.pending;
+    }
+    this.turns += 1;
+    this.pending = output;
+    this.context = read + created;
+    const usage: StubUsage = {
+      input_tokens: 3,
+      cache_creation_input_tokens: created,
+      cache_read_input_tokens: read,
+      output_tokens: output,
+      service_tier: "standard",
+    };
+    this.totals.input_tokens += usage.input_tokens;
+    this.totals.cache_creation_input_tokens += created;
+    this.totals.cache_read_input_tokens += read;
+    this.totals.output_tokens += output;
+    return usage;
+  }
+
+  private cost(usage: StubUsage): number {
+    const price = MODEL_INPUT_PRICE.find(([pattern]) => pattern.test(model))?.[1] ?? 2;
+    const units =
+      usage.input_tokens +
+      usage.cache_creation_input_tokens * 1.25 +
+      usage.cache_read_input_tokens * 0.1 +
+      usage.output_tokens * 5;
+    return Math.round(((units * price) / 1_000_000) * 1_000_000) / 1_000_000;
+  }
+
+  private sessionFile(): string {
+    return join(this.stateDir, `${sessionId}.json`);
+  }
+
+  private prefixFile(): string {
+    return join(this.stateDir, `prefix-${this.prefixKey}.json`);
+  }
+
+  private load(): StubSessionState | null {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.sessionFile(), "utf8"));
+      return isRecord(parsed) &&
+        typeof parsed.historyTokens === "number" &&
+        typeof parsed.prefixKey === "string" &&
+        typeof parsed.lastAt === "number"
+        ? {
+            historyTokens: parsed.historyTokens,
+            prefixKey: parsed.prefixKey,
+            lastAt: parsed.lastAt,
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private prefixWarm(): boolean {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.prefixFile(), "utf8"));
+      return isRecord(parsed) && typeof parsed.lastAt === "number"
+        ? Date.now() - parsed.lastAt <= this.ttlMs
+        : false;
+    } catch {
+      return false;
+    }
+  }
+
+  private save(): void {
+    const now = Date.now();
+    const state: StubSessionState = {
+      historyTokens: Math.max(0, this.context + this.pending - this.systemTokens),
+      prefixKey: this.prefixKey,
+      lastAt: now,
+    };
+    try {
+      mkdirSync(this.stateDir, { recursive: true });
+      for (const [file, content] of [
+        [this.sessionFile(), state],
+        [this.prefixFile(), { lastAt: now }],
+      ] as const) {
+        const partial = `${file}.${process.pid}.partial`;
+        writeFileSync(partial, JSON.stringify(content));
+        renameSync(partial, file);
+      }
+    } catch {
+      return;
+    }
+  }
+}
+
+let usageModel: UsageModel | null = null;
+
+function writeLine(raw: string): Promise<void> {
+  const line = usageModel ? usageModel.transform(raw) : raw;
   return new Promise((resolve) => {
     if (process.stdout.write(`${line}\n`)) resolve();
     else process.stdout.once("drain", () => resolve());
@@ -1261,6 +1473,8 @@ async function main(): Promise<void> {
   if (!argv.includes("-p")) return runInteractive();
   const prompt = await readPrompt();
   if (flagValue("--input-format") === "stream-json" && prompt.length === 0) return;
+  if (process.env.CLAUDE_STUB_USAGE === "model")
+    usageModel = new UsageModel(estimateTokens(prompt));
   if (missingCredentials()) {
     await writeLine(initLine());
     await writeLine(
@@ -1336,6 +1550,17 @@ async function main(): Promise<void> {
       }
       await replay(renderFixture("quick", prompt));
       return;
+    case "compact": {
+      const lines = renderFixture("quick", prompt);
+      const boundary = JSON.stringify({
+        type: "system",
+        subtype: "compact_boundary",
+        session_id: sessionId,
+        compact_metadata: { trigger: "auto", pre_tokens: 150_000 },
+      });
+      await replay([...lines.slice(0, -1), boundary, ...lines.slice(-1)]);
+      return;
+    }
     case "crash":
       await replay([initLine()]);
       process.stderr.write("fatal: simulated crash\n");

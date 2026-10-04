@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   accountingBars,
   armProgress,
+  cacheNote,
   formatChange,
   formatPValue,
   runSaving,
@@ -19,6 +20,8 @@ const item: ContextItem = {
   packTokens: 800,
   baselineTokens: 4_000,
   deliveredTokens: 1_000,
+  reusedTokens: 0,
+  mapFrozen: false,
   indexedAt: null,
   mcpEnabled: true,
   note: null,
@@ -35,6 +38,7 @@ const finished: RunContextDto = {
   rereadTokens: 1_000,
   missedFiles: 1,
   rereadPaths: ["src/a.ts"],
+  reusedTokens: null,
 };
 
 function arm(runs: number) {
@@ -127,5 +131,25 @@ describe("savings formatting", () => {
       rereadTokens: 500,
     } as PackAccounting;
     expect(accountingBars(costly).baseline).toBeCloseTo(0.5);
+  });
+});
+
+describe("prompt cache note", () => {
+  it("says nothing for a new session and explains a lost cache", () => {
+    expect(
+      cacheNote({ loss: "NEW_SESSION", readTokens: 0, writeTokens: 20_000, lostTokens: null }),
+    ).toBeNull();
+    expect(
+      cacheNote({ loss: "NONE", readTokens: 42_000, writeTokens: 300, lostTokens: 0 }),
+    ).toMatchObject({ tone: "success" });
+    const lost = cacheNote({
+      loss: "EXPIRED",
+      readTokens: 0,
+      writeTokens: 42_000,
+      lostTokens: 41_800,
+    });
+    expect(lost?.tone).toBe("warning");
+    expect(lost?.text).toContain("cache expired during the pause");
+    expect(lost?.text).toContain("ONYX_PROMPT_CACHE_TTL_MINUTES");
   });
 });

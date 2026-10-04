@@ -3,7 +3,7 @@
 import type { RunDto, RunEventsResponse, ServerMessage } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Loader2, Repeat2, ShieldX, Square } from "lucide-react";
+import { DatabaseZap, FlaskConical, Loader2, Repeat2, ShieldX, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -27,7 +27,7 @@ import {
   isTerminal,
   type FeedState,
 } from "@/lib/run-feed";
-import { runSaving } from "@/lib/savings";
+import { cacheNote, runSaving } from "@/lib/savings";
 import { tierOfModel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
@@ -155,6 +155,7 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
       entry.kind === "guard" && entry.item.source === "permission" && entry.item.tool === "Bash",
   );
   const savingRatio = saving.kind === "estimate" ? (saving.net ?? saving.gross) : null;
+  const cache = terminal ? cacheNote(latest.cache) : null;
   const model = feed.model ?? run.modelId;
 
   return (
@@ -234,6 +235,23 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             already covered (~{formatTokens(saving.rereadTokens)} tokens). Context vs full reads:{" "}
             {formatSaving(saving.net)} after re-reads, {formatSaving(saving.gross)} before
             (estimate).
+          </p>
+        ) : null}
+        {terminal && cache ? (
+          <p
+            className={cn(
+              "flex items-start gap-2 text-xs",
+              cache.tone === "success" ? "text-muted-foreground" : "text-warning",
+            )}
+            data-testid="run-cache-note"
+          >
+            <DatabaseZap
+              className={cn(
+                "mt-0.5 size-3.5 shrink-0",
+                cache.tone === "success" ? "text-success" : "text-warning",
+              )}
+            />
+            {cache.text}
           </p>
         ) : null}
         {terminal && commandsBlocked ? (

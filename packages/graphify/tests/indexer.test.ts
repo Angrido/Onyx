@@ -215,6 +215,44 @@ describe("buildContextPack", () => {
     expect(pack?.entries.reduce((sum, entry) => sum + entry.tokens, 0)).toBeLessThanOrEqual(1_000);
   });
 
+  it("lists the entries the conversation already has instead of sending them again", () => {
+    const input = {
+      targets: ["src/main.ts"],
+      graph: index.graph,
+      files: packFiles(index),
+      readSource,
+      rank: rank(),
+      estimator: analyzer.estimator,
+    };
+    const first = buildContextPack(input);
+    expect(first?.reusedTokens).toBe(0);
+    const delivered = new Map(
+      (first?.entries ?? [])
+        .filter((entry) => entry.relPath !== "src/types.ts")
+        .map((entry) => [entry.relPath, entry.fingerprint]),
+    );
+    const again = buildContextPack({ ...input, delivered });
+    expect(again?.entries.map((entry) => [entry.relPath, entry.reused])).toEqual(
+      (first?.entries ?? []).map((entry) => [entry.relPath, entry.relPath !== "src/types.ts"]),
+    );
+    expect(again?.text).toContain("## Already sent earlier in this conversation, unchanged");
+    expect(again?.text).toContain("- src/main.ts (full source)");
+    expect(again?.text).not.toContain("export function main");
+    expect(again?.text).toContain("### src/types.ts");
+    expect(again?.reusedTokens ?? 0).toBeGreaterThan(0);
+    expect(again?.deliveredTokens ?? Infinity).toBeLessThan(first?.deliveredTokens ?? 0);
+
+    const changed = buildContextPack({
+      ...input,
+      readSource: (relPath: string) =>
+        relPath === "src/main.ts"
+          ? `${readSource(relPath) ?? ""}\nexport const extra = 1;\n`
+          : readSource(relPath),
+      delivered,
+    });
+    expect(changed?.entries.find((entry) => entry.relPath === "src/main.ts")?.reused).toBe(false);
+  });
+
   it("returns null without known targets", () => {
     expect(
       buildContextPack({
