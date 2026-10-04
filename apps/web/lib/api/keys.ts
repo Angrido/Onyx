@@ -29,6 +29,11 @@ export const queryKeys = {
   gitIdentity: ["settings", "git"] as const,
   githubRepos: (owner: string) => ["github", "repos", owner] as const,
   githubImport: (jobId: string) => ["github", "import", jobId] as const,
+  githubIssues: (projectId: string, page: number) => ["github", "issues", projectId, page] as const,
+  githubPulls: (projectId: string) => ["github", "pulls", projectId] as const,
+  pullDraft: (projectId: string, branch: string) =>
+    ["github", "pulls", projectId, "draft", branch] as const,
+  changelog: (projectId: string) => ["changelog", projectId] as const,
   index: (projectId: string) => ["index", projectId] as const,
   graph: (projectId: string, focus: string | null, depth: number) =>
     ["graph", projectId, focus, depth] as const,

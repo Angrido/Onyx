@@ -6,6 +6,7 @@ export const EVENT_LABELS: Record<NotificationEvent, { label: string; hint: stri
   APPROVAL: { label: "An approval is needed", hint: "plans, merges and other decisions" },
   BUDGET: { label: "A budget is reached", hint: "runs stopped or waiting for approval" },
   QUOTA: { label: "Claude limits change", hint: "getting close, held, reached and reset" },
+  CHECKS: { label: "Pull request checks", hint: "failed, or green again after running" },
   RUN_FINISHED: { label: "A run finishes", hint: "every successful run" },
 };
 
@@ -15,6 +16,7 @@ export const EVENT_ORDER: NotificationEvent[] = [
   "APPROVAL",
   "BUDGET",
   "QUOTA",
+  "CHECKS",
   "RUN_FINISHED",
 ];
 

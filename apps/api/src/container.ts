@@ -33,7 +33,10 @@ import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
 import { CredentialService } from "./application/credential-service";
+import { ChangelogService } from "./application/changelog-service";
 import { GitService } from "./application/git-service";
+import { IssueService } from "./application/issue-service";
+import { PullRequestService } from "./application/pull-request-service";
 import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
 import { OrchestratorService } from "./application/orchestrator-service";
@@ -80,6 +83,7 @@ export interface ContainerOverrides {
   armRandom?: () => number;
   fetcher?: typeof fetch;
   telegramApiUrl?: string;
+  pullRequestPollMs?: number;
 }
 
 export interface Container {
@@ -101,6 +105,9 @@ export interface Container {
   terminals: TerminalService;
   github: GitHubService;
   git: GitService;
+  issues: IssueService;
+  pulls: PullRequestService;
+  changelog: ChangelogService;
   roadmap: RoadmapService;
   tdd: TddService;
   approvals: ApprovalService;
@@ -462,10 +469,11 @@ export async function createContainer(
         );
     },
   );
+  const githubClient = new GitHubClient({ baseUrl: config.github.apiUrl });
   const github = new GitHubService({
     prisma,
     logger,
-    client: new GitHubClient({ baseUrl: config.github.apiUrl }),
+    client: githubClient,
     projects,
     config,
     vault,
@@ -519,6 +527,32 @@ export async function createContainer(
     logger,
     github,
     isWorkspaceBusy: (workspaceId) => scheduler.isWorkspaceBusy(workspaceId),
+  });
+  const issues = new IssueService({
+    prisma,
+    logger,
+    client: githubClient,
+    github,
+    git,
+    indexes,
+    tasks,
+  });
+  const pulls = new PullRequestService({
+    prisma,
+    logger,
+    client: githubClient,
+    github,
+    git,
+    notify: (message) => notifications.notify(message),
+    ...(overrides.now ? { now: overrides.now } : {}),
+    ...(overrides.pullRequestPollMs === undefined ? {} : { tickMs: overrides.pullRequestPollMs }),
+  });
+  tasks.pullRequestOf = (task) => pulls.forTask(task);
+  const changelog = new ChangelogService({
+    prisma,
+    logger,
+    git,
+    ...(overrides.now ? { now: overrides.now } : {}),
   });
   const mission = new MissionService({
     prisma,
@@ -576,6 +610,9 @@ export async function createContainer(
     projects,
     github,
     git,
+    issues,
+    pulls,
+    changelog,
     workspaces: new WorkspaceService(prisma),
     tasks,
     roadmap,
@@ -691,10 +728,12 @@ export async function createContainer(
       });
       for (const item of recovery.requeued) scheduler.enqueue(item);
       backups.start();
+      pulls.start();
     },
 
     async stop(): Promise<void> {
       await checking?.catch(() => undefined);
+      await pulls.stop();
       await backups.stop();
       await indexes.shutdown();
       await roadmap.shutdown();

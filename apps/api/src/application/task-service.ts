@@ -1,6 +1,7 @@
 import type {
   CreateTaskRequestSchema,
   ListTasksQuerySchema,
+  PullRequestDto,
   RunTaskRequestSchema,
   RunTaskResponse,
   TaskDetailDto,
@@ -23,7 +24,22 @@ type ListTasksInput = z.output<typeof ListTasksQuerySchema>;
 type RunTaskInput = z.output<typeof RunTaskRequestSchema>;
 type UpdateTaskInput = z.output<typeof UpdateTaskRequestSchema>;
 
+export interface TaskIssueOrigin {
+  repo: string;
+  number: number;
+  url: string;
+  labels: readonly string[];
+}
+
+export type PullRequestLookup = (task: {
+  id: string;
+  projectId: string;
+  branchName: string | null;
+}) => Promise<PullRequestDto | null>;
+
 export class TaskService {
+  pullRequestOf: PullRequestLookup | null = null;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly scheduler: RunScheduler,
@@ -58,10 +74,11 @@ export class TaskService {
       include: { runs: { orderBy: { startedAt: "desc" }, include: RUN_INCLUDE } },
     });
     if (!task) throw notFound("Task");
-    return { ...toTaskDto(task), runs: task.runs.map(toRunDto) };
+    const pullRequest = this.pullRequestOf ? await this.pullRequestOf(task) : null;
+    return { ...toTaskDto(task), runs: task.runs.map(toRunDto), pullRequest };
   }
 
-  async create(input: CreateTaskInput): Promise<TaskDto> {
+  async create(input: CreateTaskInput, issue?: TaskIssueOrigin): Promise<TaskDto> {
     const workspaceId =
       input.workspaceId ??
       (await this.inferWorkspace(
@@ -89,6 +106,14 @@ export class TaskService {
         modelOverride: input.modelOverride ?? null,
         targetPaths: [...new Set(input.targetPaths)],
         canWait: input.canWait,
+        ...(issue
+          ? {
+              issueRepo: issue.repo,
+              issueNumber: issue.number,
+              issueUrl: issue.url,
+              issueLabels: [...issue.labels],
+            }
+          : {}),
       },
       include: taskIncludeLastRun(),
     });

@@ -22,6 +22,7 @@ function task(id: string, status: TaskDto["status"], priority = 0): TaskDto {
     startedAt: null,
     completedAt: status === "COMPLETED" ? "2026-10-02T00:00:00Z" : null,
     lastRun: null,
+    issue: null,
   };
 }
 

@@ -39,6 +39,19 @@ export const QUEUE_WAIT_REASONS = ["SLOTS", "PROJECT", "WORKSPACE", "QUOTA"] as 
 export const QUEUE_ITEM_KINDS = ["TASK", "TDD", "PLAN"] as const;
 export const QUEUE_MOVES = ["top", "up", "down", "bottom"] as const;
 export const PROJECT_HEALTH = ["OK", "ATTENTION", "ERROR"] as const;
+export const PULL_REQUEST_STATES = ["OPEN", "CLOSED", "MERGED"] as const;
+export const CHECKS_STATES = ["NONE", "PENDING", "SUCCESS", "FAILURE"] as const;
+export const CHECK_RESULTS = ["PENDING", "SUCCESS", "FAILURE", "NEUTRAL"] as const;
+export const CHANGELOG_SECTIONS = [
+  "BREAKING",
+  "FEATURES",
+  "FIXES",
+  "PERFORMANCE",
+  "REFACTORING",
+  "DOCS",
+  "OTHER",
+] as const;
+export const CHANGELOG_SOURCES = ["COMMIT", "TASK"] as const;
 export const NOTIFICATION_EVENTS = [
   "RUN_FINISHED",
   "RUN_FAILED",
@@ -46,6 +59,7 @@ export const NOTIFICATION_EVENTS = [
   "APPROVAL",
   "BUDGET",
   "QUOTA",
+  "CHECKS",
 ] as const;
 export const NOTIFICATION_CHANNELS = ["webpush", "ntfy", "telegram"] as const;
 export const SEARCH_KINDS = ["TASK", "RUN", "FILE"] as const;

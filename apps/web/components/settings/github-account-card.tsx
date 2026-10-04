@@ -87,7 +87,7 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
             <Field
               label={data.connected ? "Replace the token" : "Personal access token"}
               htmlFor="settings-github-token"
-              hint="Fine-grained token with Contents read and write on the repositories Onyx works on (read-only is enough to clone, write is needed to push branches)."
+              hint="Fine-grained token with Contents read and write on the repositories Onyx works on (read-only is enough to clone, write is needed to push branches), plus Pull requests read and write to open pull requests and Issues, Checks and Commit statuses read to import issues and follow the checks."
             >
               <div className="flex gap-2">
                 <Input

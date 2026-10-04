@@ -14,6 +14,7 @@ export const NotificationEventsSchema = z.object({
   APPROVAL: z.boolean(),
   BUDGET: z.boolean(),
   QUOTA: z.boolean(),
+  CHECKS: z.boolean().default(true),
 });
 export type NotificationEvents = z.infer<typeof NotificationEventsSchema>;
 

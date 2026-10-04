@@ -80,6 +80,7 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     checkCli: options.checkCli ?? false,
     ...(options.armRandom ? { armRandom: options.armRandom } : {}),
     ...(options.fetcher ? { fetcher: options.fetcher } : {}),
+    pullRequestPollMs: 0,
     ...(options.telegramApiUrl ? { telegramApiUrl: options.telegramApiUrl } : {}),
   });
   await container.start();

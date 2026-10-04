@@ -27,4 +27,7 @@ export * from "./api/mission";
 export * from "./api/notifications";
 export * from "./api/search";
 export * from "./api/memory";
+export * from "./api/pulls";
+export * from "./api/issues";
+export * from "./api/changelog";
 export * from "./ws";

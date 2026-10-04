@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RunStatusSchema, TaskKindSchema, TaskStatusSchema } from "../domain";
+import { PullRequestDtoSchema } from "./pulls";
 import { RunDtoSchema } from "./runs";
 
 export const RunSummaryDtoSchema = z.object({
@@ -44,6 +45,14 @@ export const RunTaskRequestSchema = z.object({
 });
 export type RunTaskRequest = z.input<typeof RunTaskRequestSchema>;
 
+export const TaskIssueSchema = z.object({
+  repo: z.string(),
+  number: z.number().int(),
+  url: z.string(),
+  labels: z.array(z.string()),
+});
+export type TaskIssue = z.infer<typeof TaskIssueSchema>;
+
 export const TaskDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -63,11 +72,13 @@ export const TaskDtoSchema = z.object({
   startedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
   lastRun: RunSummaryDtoSchema.nullable(),
+  issue: TaskIssueSchema.nullable(),
 });
 export type TaskDto = z.infer<typeof TaskDtoSchema>;
 
 export const TaskDetailDtoSchema = TaskDtoSchema.extend({
   runs: z.array(RunDtoSchema),
+  pullRequest: PullRequestDtoSchema.nullable(),
 });
 export type TaskDetailDto = z.infer<typeof TaskDetailDtoSchema>;
 

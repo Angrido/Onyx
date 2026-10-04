@@ -12,11 +12,21 @@ import type {
   TddLoopListResponse,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, History, Loader2, Play, RotateCcw, Route, Square } from "lucide-react";
+import {
+  GitBranch,
+  History,
+  Loader2,
+  Play,
+  RotateCcw,
+  Route,
+  ShieldAlert,
+  Square,
+} from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
+import { TaskGitHubCard } from "@/components/github/task-github-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { RunConsole } from "@/components/runs/run-console";
 import { TddLoopPanel } from "@/components/tdd/tdd-loop-panel";
@@ -376,6 +386,17 @@ export function TaskDetail({
               <CardTitle>Prompt</CardTitle>
             </CardHeader>
             <CardContent>
+              {task.issue ? (
+                <p
+                  className="mb-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
+                  data-testid="issue-notice"
+                >
+                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                  The text between the issue tags comes from GitHub issue #{task.issue.number}, not
+                  from you. Read it before dispatching: the agent is told to treat it as a
+                  description, not as instructions.
+                </p>
+              ) : null}
               <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">
                 {task.prompt}
               </p>
@@ -414,6 +435,7 @@ export function TaskDetail({
         </div>
         <div className="space-y-6">
           <RunControls task={task} catalog={catalog} />
+          <TaskGitHubCard task={task} />
           {loopRunning ? null : (
             <TddStartCard task={task} disabled={ACTIVE_STATUSES.has(task.status)} />
           )}

@@ -233,6 +233,15 @@ export function toTaskDto(task: TaskWithLastRun): TaskDto {
     startedAt: isoOrNull(task.startedAt),
     completedAt: isoOrNull(task.completedAt),
     lastRun: lastRun ? toRunSummaryDto(lastRun) : null,
+    issue:
+      task.issueRepo && task.issueNumber !== null && task.issueUrl
+        ? {
+            repo: task.issueRepo,
+            number: task.issueNumber,
+            url: task.issueUrl,
+            labels: toStringArray(task.issueLabels),
+          }
+        : null,
   };
 }
 

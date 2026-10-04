@@ -261,6 +261,8 @@ model Project {
   roadmapItems   RoadmapItem[]
   orchestrations Orchestration[]
   approvals      Approval[]
+  pullRequests   PullRequest[]
+  releases       ChangelogRelease[]
 }
 
 model Workspace {
@@ -403,6 +405,10 @@ model Task {
   startedAt     DateTime?
   completedAt   DateTime?
   updatedAt     DateTime   @updatedAt
+  issueRepo     String?
+  issueNumber   Int?
+  issueUrl      String?
+  issueLabels   Json?
 
   project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workspace     Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
@@ -423,6 +429,7 @@ model Task {
   @@index([projectId, updatedAt])
   @@index([updatedAt])
   @@index([workspaceId])
+  @@index([projectId, issueNumber])
 }
 
 model TaskDependency {
@@ -955,4 +962,59 @@ model ProjectFact {
 
   @@unique([projectId, kind, key])
   @@index([projectId, status])
+}
+
+enum PullRequestState {
+  OPEN
+  CLOSED
+  MERGED
+}
+
+enum ChecksState {
+  NONE
+  PENDING
+  SUCCESS
+  FAILURE
+}
+
+model PullRequest {
+  id          String           @id @default(cuid())
+  projectId   String
+  repo        String
+  number      Int
+  url         String
+  title       String
+  branch      String
+  baseBranch  String
+  state       PullRequestState @default(OPEN)
+  draft       Boolean          @default(false)
+  headSha     String?
+  checksState ChecksState      @default(NONE)
+  checks      Json?
+  etags       Json?
+  intervalSec Int              @default(60)
+  checkedAt   DateTime?
+  nextCheckAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([repo, number])
+  @@index([projectId, branch])
+  @@index([state, nextCheckAt])
+}
+
+model ChangelogRelease {
+  id        String   @id @default(cuid())
+  projectId String
+  version   String
+  fromRef   String?
+  toRef     String
+  markdown  String
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }

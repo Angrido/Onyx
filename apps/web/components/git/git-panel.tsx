@@ -8,6 +8,7 @@ import {
   ExternalLink,
   GitBranch,
   GitCommitHorizontal,
+  GitPullRequest,
   Loader2,
   Upload,
   XCircle,
@@ -246,11 +247,22 @@ export function GitPanel({
         ) : null}
 
         <div className="flex flex-wrap gap-2">
+          {data.githubRepo && data.branch && !data.onDefaultBranch && data.upstream ? (
+            <Button asChild size="sm">
+              <Link
+                href={`/projects/${projectId}/github?branch=${encodeURIComponent(data.branch)}#pull-requests`}
+                data-testid="git-pull-request"
+              >
+                <GitPullRequest />
+                Open a pull request
+              </Link>
+            </Button>
+          ) : null}
           {compareUrl && data.upstream ? (
             <Button asChild size="sm" variant="secondary">
               <a href={compareUrl} target="_blank" rel="noreferrer" data-testid="git-compare">
                 <ExternalLink />
-                Open a pull request on GitHub
+                Compare on GitHub
               </a>
             </Button>
           ) : null}

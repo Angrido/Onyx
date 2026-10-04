@@ -16,6 +16,7 @@ export const DEFAULT_NOTIFICATION_EVENTS: NotificationEvents = {
   APPROVAL: true,
   BUDGET: true,
   QUOTA: true,
+  CHECKS: true,
 };
 
 const MAX_TITLE = 120;
@@ -70,6 +71,34 @@ export function runMessage(input: {
       urgent: true,
     };
   return null;
+}
+
+export function checksMessage(input: {
+  projectId: string;
+  projectName: string;
+  number: number;
+  title: string;
+  passed: boolean;
+  failed: readonly string[];
+}): NotificationMessage {
+  const where = `${input.projectName} #${input.number}`;
+  return input.passed
+    ? {
+        event: "CHECKS",
+        title: clip(`Checks passed · ${input.title}`, MAX_TITLE),
+        body: clip(`${where}: every check is green.`, MAX_BODY),
+        path: `/projects/${input.projectId}/github`,
+        tag: `checks-${input.projectId}-${input.number}`,
+        urgent: false,
+      }
+    : {
+        event: "CHECKS",
+        title: clip(`Checks failed · ${input.title}`, MAX_TITLE),
+        body: clip(`${where}: ${input.failed.join(", ") || "a check"} failed.`, MAX_BODY),
+        path: `/projects/${input.projectId}/github`,
+        tag: `checks-${input.projectId}-${input.number}`,
+        urgent: true,
+      };
 }
 
 export function approvalMessage(input: {

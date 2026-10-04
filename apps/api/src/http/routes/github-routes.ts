@@ -1,12 +1,25 @@
 import {
   ConnectGitHubRequestSchema,
+  CreatePullRequestRequestSchema,
+  GitHubIssueListQuerySchema,
   GitHubRepoListQuerySchema,
+  ImportIssuesRequestSchema,
   ImportRepoRequestSchema,
+  PullRequestDraftQuerySchema,
+  SaveChangelogRequestSchema,
+  type ChangelogPreviewDto,
   type CloneJobDto,
   type CloneJobListResponse,
   type GitHubAccountDto,
+  type GitHubIssueListResponse,
   type GitHubRepoListResponse,
+  type ImportIssuesResponse,
+  type PullRequestDraftDto,
+  type PullRequestDto,
+  type PullRequestListResponse,
+  type SaveChangelogResponse,
 } from "@onyx/contracts";
+import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Container } from "../../container";
 import { idParam } from "../params";
@@ -48,5 +61,66 @@ export function registerGitHubRoutes(app: FastifyInstance, container: Container)
 
   app.get("/api/github/imports/:id", async (request): Promise<CloneJobDto> =>
     github.job(idParam(request.params)),
+  );
+
+  const { issues, pulls, changelog } = container;
+
+  app.get("/api/projects/:id/github/issues", async (request): Promise<GitHubIssueListResponse> => {
+    const query = GitHubIssueListQuerySchema.parse(request.query);
+    return issues.list(idParam(request.params), query.page, query.label);
+  });
+
+  app.post(
+    "/api/projects/:id/github/issues/import",
+    async (request, reply): Promise<ImportIssuesResponse> => {
+      const result = await issues.import(
+        idParam(request.params),
+        ImportIssuesRequestSchema.parse(request.body),
+      );
+      reply.status(result.items.length > 0 ? 201 : 200);
+      return result;
+    },
+  );
+
+  app.get("/api/projects/:id/github/pulls", async (request): Promise<PullRequestListResponse> =>
+    pulls.list(idParam(request.params)),
+  );
+
+  app.get("/api/projects/:id/github/pulls/draft", async (request): Promise<PullRequestDraftDto> =>
+    pulls.draft(idParam(request.params), PullRequestDraftQuerySchema.parse(request.query).branch),
+  );
+
+  app.post("/api/projects/:id/github/pulls", async (request, reply): Promise<PullRequestDto> => {
+    const pull = await pulls.create(
+      idParam(request.params),
+      CreatePullRequestRequestSchema.parse(request.body),
+      actorOf(request),
+    );
+    reply.status(201);
+    return pull;
+  });
+
+  app.post("/api/pull-requests/:id/refresh", async (request): Promise<PullRequestDto> =>
+    pulls.refresh(idParam(request.params)),
+  );
+
+  app.get("/api/projects/:id/changelog", async (request): Promise<ChangelogPreviewDto> => {
+    const query = z
+      .object({ from: z.string().trim().min(1).max(200).optional() })
+      .parse(request.query);
+    return changelog.preview(idParam(request.params), query.from);
+  });
+
+  app.post(
+    "/api/projects/:id/changelog",
+    async (request, reply): Promise<SaveChangelogResponse> => {
+      const saved = await changelog.save(
+        idParam(request.params),
+        SaveChangelogRequestSchema.parse(request.body),
+        actorOf(request),
+      );
+      reply.status(201);
+      return saved;
+    },
   );
 }

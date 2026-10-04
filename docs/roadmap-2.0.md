@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–6 | **Fatte** (vedi sotto) |
-| 7–11 | Da fare, nell'ordine concordato |
+| 1–7 | **Fatte** (vedi sotto) |
+| 8–11 | Da fare, nell'ordine concordato |
 
 ### Milestone 1 — esito
 
@@ -256,3 +256,17 @@ Da verificare con Claude reale: accendere l'esperimento (Settings → Project me
 Effetto sui token: tutte le righe sono stimate finché non arrivano run vere. Con lo stub i meccanismi funzionano (esploratore registrato per modello, gruppo con esiti per task, firme consegnate), ma i numeri dello stub non dicono nulla sul risparmio reale.
 
 Da verificare con Claude reale: con quale nome Claude Code espone la delega ai sotto-agenti (Onyx consente sia `Task` sia `Agent`) e se `modelUsage` riporta Haiku a parte; che un gruppo di task risponda con le righe `TASK n:`; i verdetti della variante e delle opzioni dopo abbastanza run.
+
+### Milestone 7 — esito
+
+| Voce | Stato | Note |
+|---|---|---|
+| 7.1 Issue come task | Fatta (ADR-074) | Task in bozza, testo recintato e segnalato; target dai file citati che esistono nell'indice |
+| 7.2 PR dal branch | Fatta (ADR-075) | Descrizione deterministica. **Deviazione**: niente versione scritta da un modello economico: la descrizione ha già i dati e sarebbe solo un costo. Il QA entra nella descrizione con la milestone 8 |
+| 7.3 Stato dei controlli | Fatta (ADR-075) | Polling con ETag e backoff (1–15 minuti), notifica facoltativa su rosso e ritorno al verde |
+| 7.4 Changelog | Fatta (ADR-076) | Deterministico, modificabile, scritto in `CHANGELOG.md` senza commit né tag. **Deviazione**: niente ritocco con Haiku, per lo stesso motivo della 7.2 |
+| GitLab, Linear | Non fatti | Come concordato: solo GitHub |
+
+Effetto sui token: nessuno, come previsto; niente righe nuove in Savings.
+
+Da verificare su GitHub vero: permessi del token, apertura di una PR e lettura dei controlli di un repository con CI.

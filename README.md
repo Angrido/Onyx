@@ -23,6 +23,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 4 | Mission control con una scheda per progetto, coda globale con priorità e limite per progetto, griglia degli agenti, notifiche (browser, ntfy, Telegram), ricerca globale, prestazioni con molti progetti | **Completata** (manca la prova delle notifiche push via HTTPS su un telefono vero, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 5 | Memoria di progetto: fatti stabili raccolti dalle run, curati da una pagina, sotto un limite di token, nel prompt delle sessioni nuove e misurabili con un A/B | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 6 | Esperimenti sul contesto: A/B con una variante (file da modificare come firme), riassunti finali brevi, esplorazione su un modello economico, task piccoli raggruppati, ognuno con la sua riga in Savings | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 7 | GitHub: issue importate come task, pull request aperte da Onyx con descrizione dai task, stato dei controlli nel task e nelle notifiche, changelog dai commit e dai task | **Completata** (manca la prova su un repository GitHub vero, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -156,6 +157,18 @@ Dettagli in [docs/operations.md §16](docs/operations.md#16-memoria-di-progetto)
 
 Dettagli in [docs/operations.md §17](docs/operations.md#17-esperimenti-e-opzioni-di-risparmio).
 
+### GitHub e changelog (2.0, milestone 7)
+
+Dalla pagina del progetto, **GitHub** apre una pagina con tre sezioni (serve che `origin` punti a GitHub):
+
+- **Issues**: le issue aperte del repository, con etichette e autore. Quelle scelte diventano task in bozza con il link, le etichette (che decidono il tipo: bug, docs, test…) e i file citati che esistono nell'indice. Il testo dell'issue è chiuso tra due marcatori e il prompt dice all'agente di trattarlo come descrizione, non come istruzioni; il task lo segnala in giallo.
+- **Pull requests**: scegli un branch pubblicato e Onyx prepara titolo e descrizione dai task pubblicati, dal diff e dai TDD loop, senza modello (chiude le issue collegate con `Closes #n`). *Push and open* pubblica il branch e apre la PR. Lo stato dei controlli compare qui, nel task e, se vuoi, nelle notifiche (*Pull request checks*); Onyx lo rilegge ogni minuto mentre girano e sempre meno spesso quando non cambia, con richieste condizionali che non consumano il limite di GitHub.
+- **Changelog**: le voci dall'ultimo rilascio o tag, dai commit Conventional Commits (feat, fix, perf, refactor, docs; chore, CI e test esclusi) e dai task completati, senza doppioni. Versione proposta, testo modificabile; *Save* lo mette in cima a `CHANGELOG.md`, da pubblicare con le prossime modifiche.
+
+Nessuna di queste funzioni usa token di Claude. Il token GitHub deve avere anche **Pull requests** in lettura e scrittura, e **Issues**, **Checks** e **Commit statuses** in lettura.
+
+Dettagli in [docs/operations.md §18](docs/operations.md#18-github-issue-pull-request-e-changelog).
+
 ### Comandi bloccati
 
 Durante una run nessuno può approvare comandi, quindi Claude Code esegue solo quelli consentiti all'agente (git in lettura, test e lint) e rifiuta gli altri. Quando succede, la run mostra i comandi rifiutati con **Allow and continue**: si scelgono quelli da consentire nel progetto (quelli che possono cancellare o modificare cose restano deselezionati), si risponde all'agente se ha chiesto qualcosa e il task riprende nella stessa sessione. La pagina del progetto elenca i comandi consentiti in *Commands agents may run*, dove si aggiungono o tolgono. `rm -rf`, `sudo` e `git push` restano bloccati comunque.
@@ -176,7 +189,7 @@ A ogni run il profilo diventa:
 
 **New project** (o **Import from GitHub** nella console) apre la scheda *From GitHub*: incolla un token personale e scegli uno dei tuoi repository, anche privati, oppure sfoglia i repository pubblici di un utente senza token. Onyx lo clona in `ONYX_PROJECTS_DIR/<nome>`, lo registra con i workspace di dominio e avvia l'indicizzazione; la scheda *Local folder* registra invece una cartella già presente sul server.
 
-Il token consigliato è *fine-grained* con **Contents** sui repository che vuoi usare ([crealo qui](https://github.com/settings/personal-access-tokens/new)): in sola lettura basta per importare, in lettura e scrittura serve per pubblicare i branch; un token classico richiede lo scope `repo`. Viene salvato nel database di Onyx e non è mai restituito dall'API; in alternativa si imposta `ONYX_GITHUB_TOKEN` nell'ambiente del servizio.
+Il token consigliato è *fine-grained* con **Contents** sui repository che vuoi usare ([crealo qui](https://github.com/settings/personal-access-tokens/new)): in sola lettura basta per importare, in lettura e scrittura serve per pubblicare i branch; per le pull request servono anche **Pull requests** in lettura e scrittura e **Issues**, **Checks** e **Commit statuses** in lettura; un token classico richiede lo scope `repo`. Viene salvato nel database di Onyx e non è mai restituito dall'API; in alternativa si imposta `ONYX_GITHUB_TOKEN` nell'ambiente del servizio.
 
 ## Account Claude Max, Roadmap e branch su GitHub
 

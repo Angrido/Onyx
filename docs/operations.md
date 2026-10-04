@@ -283,7 +283,7 @@ Tutte le run in attesa, di qualunque progetto, stanno in un'unica coda. La home 
 
 Sono tutte spente finché non si accendono in **Settings → Notifications**. Onyx invia e basta: non apre porte e non legge messaggi da ntfy o Telegram, quindi non si comanda dall'esterno.
 
-**Eventi**: run fallita (anche per timeout o interruzione), run che aspetta comandi da consentire, approvazione richiesta, budget raggiunto o run fermate da un budget, limiti di Claude che peggiorano o si azzerano; facoltativo ogni run finita. Lo stesso evento parte al massimo una volta al minuto.
+**Eventi**: run fallita (anche per timeout o interruzione), run che aspetta comandi da consentire, approvazione richiesta, budget raggiunto o run fermate da un budget, limiti di Claude che peggiorano o si azzerano, controlli di una pull request falliti o tornati verdi; facoltativo ogni run finita. Lo stesso evento parte al massimo una volta al minuto.
 
 **Link**: le notifiche aprono la pagina giusta se `ONYX_PUBLIC_ORIGIN` è impostata in `/etc/onyx/onyx.env` (per esempio `https://onyx.lan`), altrimenti usano la prima di `ONYX_ALLOWED_ORIGINS` o arrivano senza link.
 
@@ -360,3 +360,29 @@ Nel gruppo ogni task chiude con una riga `TASK n: DONE` o `TASK n: FAILED — mo
 | La riga dell'esploratore resta *now 0 and …* | Il nome dello strumento dei sotto-agenti non è quello atteso (`Task` o `Agent`) | Controlla nella run del planner se compare l'`explorer`; se no, spegni l'opzione e segnalalo |
 | Un task raggruppato torna in coda | L'agente non ha scritto la sua riga `TASK n:` | Nessuna azione: gira da solo alla prossima occasione |
 | I riassunti restano lunghi | La sessione era già partita prima dell'accensione | Apri una sessione nuova |
+
+## 18. GitHub: issue, pull request e changelog
+
+La pagina **GitHub** di un progetto funziona quando `origin` (o il remote registrato all'import) punta a `github.com`. Il token si collega in **Settings → GitHub**; per un repository pubblico l'elenco delle issue funziona anche senza.
+
+| Permesso del token fine-grained | Serve per |
+|---|---|
+| Contents: read and write | clonare e pubblicare i branch |
+| Pull requests: read and write | aprire e seguire le pull request |
+| Issues: read | importare le issue |
+| Checks: read, Commit statuses: read | leggere i controlli della PR |
+
+**Issue come task.** I task importati partono in bozza: nessun agente parte da solo. Il prompt contiene il testo dell'issue tra `<issue>` e `</issue>` (commenti HTML e marcatori finti tolti, al massimo 8.000 caratteri) e chiede all'agente di non seguire istruzioni che vi compaiano. Le stesse regole valgono per tutti i task: sandbox, guard e comandi consentiti (§12) restano attivi. Un'issue già importata non si importa due volte.
+
+**Pull request.** Il branch deve esistere nel progetto: lo crea *Publish* nella card git o la fine di un piano. *Push and open* lo pubblica di nuovo (se è già aggiornato non cambia nulla) e apre la PR verso il branch di default; se una PR aperta esiste già, Onyx la riprende. La descrizione si può modificare prima dell'invio e non passa da un modello.
+
+**Controlli.** Onyx legge check run e commit status della testa della PR: ogni minuto finché qualcosa gira o cambia, poi raddoppiando l'intervallo fino a 15 minuti; dopo un errore (rete, limite di GitHub) aspetta almeno 5 minuti, fino a 30. Le richieste usano gli ETag, quindi quelle senza novità non consumano il limite orario. Smette quando la PR viene unita o chiusa. *Check now* rilegge subito.
+
+**Changelog.** Parte dall'ultimo rilascio salvato da Onyx, altrimenti dall'ultimo tag, altrimenti dall'inizio. *Save* scrive in `CHANGELOG.md` nella cartella del progetto (sul branch attuale) e registra il rilascio; il file va poi pubblicato come le altre modifiche. Non crea tag e non fa commit.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| *The project has no GitHub remote* | `origin` non punta a GitHub | `git remote set-url origin https://github.com/<owner>/<repo>.git` nella cartella del progetto |
+| *The GitHub token cannot do this* | Mancano i permessi Pull requests | Rigenera il token con i permessi della tabella e ricollegalo |
+| I controlli restano *No checks* | Il repository non ha CI, o il token non legge Checks | Aggiungi Checks e Commit statuses in lettura al token |
+| Il changelog ripete voci già rilasciate | Il rilascio precedente non è un antenato del branch attuale | Torna sul branch giusto o indica il punto di partenza con `?from=<tag>` nell'API |

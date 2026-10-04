@@ -324,6 +324,119 @@ export class GitService {
     };
   }
 
+  async githubRepo(projectId: string): Promise<{ project: Project; repo: string | null }> {
+    const project = await this.project(projectId);
+    const remote = await this.git(project.rootPath, ["remote", "get-url", "origin"]).catch(
+      () => "",
+    );
+    const remoteUrl = remote.trim().length > 0 ? sanitizeRemote(remote.trim()) : null;
+    return { project, repo: githubRepoOf(remoteUrl) ?? githubRepoOf(project.gitRemote) };
+  }
+
+  async busy(projectId: string): Promise<boolean> {
+    return this.isBusy(projectId);
+  }
+
+  async branchExists(projectId: string, branch: string): Promise<boolean> {
+    const project = await this.project(projectId);
+    return this.git(project.rootPath, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branch}`,
+    ]).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  async diffFiles(
+    projectId: string,
+    base: string,
+    branch: string,
+  ): Promise<{ path: string; added: number | null; removed: number | null }[]> {
+    const project = await this.project(projectId);
+    const output = await this.git(project.rootPath, [
+      "diff",
+      "--numstat",
+      "--no-renames",
+      `${base}...${branch}`,
+      "--",
+    ]).catch(() => "");
+    return output
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        const [added, removed, ...path] = line.split("\t");
+        return {
+          path: path.join("\t"),
+          added: added === "-" ? null : Number(added),
+          removed: removed === "-" ? null : Number(removed),
+        };
+      });
+  }
+
+  async commits(
+    projectId: string,
+    from: string | null,
+    max: number,
+  ): Promise<{ sha: string; subject: string; body: string; date: string }[]> {
+    const project = await this.project(projectId);
+    const output = await this.git(project.rootPath, [
+      "log",
+      "--no-merges",
+      `-n${max}`,
+      "--format=%H%x1f%s%x1f%b%x1f%cI%x1e",
+      ...(from ? [`${from}..HEAD`] : ["HEAD"]),
+      "--",
+    ]).catch(() => "");
+    return output.split("\u001e").flatMap((record) => {
+      const [sha, subject, body, date] = record.replace(/^\n+/, "").split("\u001f");
+      return sha && subject !== undefined && date
+        ? [{ sha, subject, body: body ?? "", date: date.trim() }]
+        : [];
+    });
+  }
+
+  async head(projectId: string): Promise<string | null> {
+    const project = await this.project(projectId);
+    return this.git(project.rootPath, ["rev-parse", "HEAD"]).then(
+      (output) => output.trim(),
+      () => null,
+    );
+  }
+
+  async refInfo(projectId: string, ref: string): Promise<{ sha: string; date: string } | null> {
+    const project = await this.project(projectId);
+    const output = await this.git(project.rootPath, [
+      "log",
+      "-1",
+      "--format=%H%x1f%cI",
+      ref,
+      "--",
+    ]).catch(() => "");
+    const [sha, date] = output.trim().split("\u001f");
+    if (!sha || !date) return null;
+    const contained = await this.git(project.rootPath, [
+      "merge-base",
+      "--is-ancestor",
+      sha,
+      "HEAD",
+    ]).then(
+      () => true,
+      () => false,
+    );
+    return contained ? { sha, date } : null;
+  }
+
+  async latestTag(projectId: string): Promise<string | null> {
+    const project = await this.project(projectId);
+    return this.git(project.rootPath, ["describe", "--tags", "--abbrev=0", "HEAD"]).then(
+      (output) => output.trim() || null,
+      () => null,
+    );
+  }
+
   async switchToDefault(projectId: string, actor: string): Promise<GitStatusDto> {
     const project = await this.project(projectId);
     const before = await this.statusOf(project);

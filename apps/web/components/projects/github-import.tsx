@@ -64,7 +64,7 @@ function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
         <Field
           label="GitHub token"
           htmlFor="github-token"
-          hint="Fine-grained token with Contents access on the repositories you want: read-only is enough to clone, read and write lets Onyx push branches. A classic token needs the repo scope. It is stored on this Onyx server and never shown again."
+          hint="Fine-grained token with Contents access on the repositories you want: read-only is enough to clone, read and write lets Onyx push branches, and Pull requests read and write lets it open pull requests. A classic token needs the repo scope. It is stored on this Onyx server and never shown again."
         >
           <div className="flex gap-2">
             <Input
