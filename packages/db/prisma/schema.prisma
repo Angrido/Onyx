@@ -893,3 +893,13 @@ model CommandGrant {
   @@index([projectId])
   @@index([taskId])
 }
+
+model PushSubscription {
+  id         String    @id @default(cuid())
+  endpoint   String    @unique
+  keys       String
+  userAgent  String?
+  failures   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  lastSentAt DateTime?
+}

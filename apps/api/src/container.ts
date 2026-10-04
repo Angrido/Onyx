@@ -7,7 +7,7 @@ import {
   type ClaudeBinary,
   type CliCompatibility,
 } from "@onyx/agent-runtime";
-import type { ReadyResponse } from "@onyx/contracts";
+import type { ReadyResponse, RunStatus } from "@onyx/contracts";
 import { connectDatabase, seedDatabase, type PrismaClient } from "@onyx/db";
 import { AdjustableTokenEstimator, LeanAnalyzer } from "@onyx/lean-ctx";
 import type { Logger } from "pino";
@@ -16,6 +16,7 @@ import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
 import { MissionService } from "./application/mission-service";
+import { NotificationService } from "./application/notification-service";
 import { QueueService } from "./application/queue-service";
 import { QuotaService } from "./application/quota-service";
 import {
@@ -73,6 +74,8 @@ export interface ContainerOverrides {
   summarizer?: HandoffSummarizer | null;
   checkCli?: boolean;
   armRandom?: () => number;
+  fetcher?: typeof fetch;
+  telegramApiUrl?: string;
 }
 
 export interface Container {
@@ -101,6 +104,7 @@ export interface Container {
   quota: QuotaService;
   queue: QueueService;
   mission: MissionService;
+  notifications: NotificationService;
   orchestrator: OrchestratorService;
   backups: BackupService;
   vault: SecretVault;
@@ -280,13 +284,39 @@ export async function createContainer(
     activity,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
-  const approvals = new ApprovalService({ prisma, logger, hub });
+  const notifications = new NotificationService({
+    prisma,
+    logger,
+    vault,
+    linkBase: config.publicOrigin,
+    ...(overrides.fetcher ? { fetcher: overrides.fetcher } : {}),
+    ...(overrides.telegramApiUrl ? { telegramApiUrl: overrides.telegramApiUrl } : {}),
+  });
+  const approvals = new ApprovalService({
+    prisma,
+    logger,
+    hub,
+    onCreated: (approval) => {
+      void prisma.project
+        .findUnique({ where: { id: approval.projectId ?? "" }, select: { name: true } })
+        .then((project) =>
+          notifications.approvalCreated({
+            id: approval.id,
+            kind: approval.kind,
+            title: approval.title,
+            projectName: project?.name ?? null,
+          }),
+        )
+        .catch(() => undefined);
+    },
+  });
   const spending: { budgets: BudgetService | null } = { budgets: null };
   const quota = new QuotaService({
     prisma,
     logger,
     publish: (dto) => hub.publishQuota(dto),
     onChange: () => scheduling.scheduler?.poke(),
+    onLevel: (previous, next, message) => notifications.quotaChanged(previous, next, message),
     waitingTasks: () =>
       (scheduling.scheduler?.queuedRuns() ?? []).map((item) => ({
         canWait: item.canWait === true,
@@ -325,9 +355,12 @@ export async function createContainer(
         runId: null,
       });
     },
-    afterRun: (taskId) => {
+    afterRun: (taskId, outcome) => {
       router.forgetTelemetry();
       savings.forget();
+      void notifyRun(outcome).catch((error: unknown) =>
+        logger.warn({ err: error, taskId }, "Could not prepare the run notification"),
+      );
       void mission.forgetTask(taskId).catch(() => undefined);
       void spending.budgets?.refresh().catch(() => undefined);
     },
@@ -338,6 +371,10 @@ export async function createContainer(
     logger,
     approvals,
     onHardLimit: (projectId, reason) => {
+      void prisma.project
+        .findUnique({ where: { id: projectId ?? "" }, select: { name: true } })
+        .then((project) => notifications.budgetStopped(project?.name ?? null, reason))
+        .catch(() => undefined);
       void scheduler
         .abortScope(projectId)
         .then((aborted) => {
@@ -436,6 +473,13 @@ export async function createContainer(
   });
   loops.service = tdd;
   runs.service = runService;
+  async function notifyRun(outcome: { runId: string; status: RunStatus }): Promise<void> {
+    const blocked =
+      outcome.status === "COMPLETED" || outcome.status === "FAILED"
+        ? (await runService.blockedCommands(outcome.runId)).commands.length
+        : 0;
+    await notifications.runFinished({ ...outcome, blockedCommands: blocked });
+  }
   const git = new GitService({
     prisma,
     logger,
@@ -506,6 +550,7 @@ export async function createContainer(
     quota,
     queue,
     mission,
+    notifications,
     orchestrator,
     backups,
     vault,
@@ -599,6 +644,7 @@ export async function createContainer(
       await budgets.refresh();
       await quota.load();
       await queue.load();
+      await notifications.load();
       const recovery = await recoverInterruptedWork(prisma, logger, {
         claudeBin: binary.args[0] ?? binary.command,
         autoResumeQueued: config.autoResumeQueued,
@@ -619,6 +665,7 @@ export async function createContainer(
       await scheduler.shutdown();
       quota.stop();
       await quota.idle();
+      await notifications.idle();
       await writer.close();
       if (config.agentSandbox) shareWorkTrees(null);
       await prisma.$disconnect();

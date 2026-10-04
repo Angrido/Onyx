@@ -24,4 +24,5 @@ export * from "./api/savings";
 export * from "./api/quota";
 export * from "./api/queue";
 export * from "./api/mission";
+export * from "./api/notifications";
 export * from "./ws";

@@ -40,6 +40,7 @@ export interface QuotaServiceDeps {
   publish: (quota: QuotaDto) => void;
   onChange: () => void;
   waitingTasks: () => readonly { canWait: boolean }[];
+  onLevel?: (previous: QuotaLevel, next: QuotaLevel, message: string) => void;
   now?: () => Date;
 }
 
@@ -173,7 +174,10 @@ export class QuotaService {
   }
 
   private changed(): void {
+    const previous = this.lastLevel;
     this.lastLevel = this.level();
+    if (previous !== this.lastLevel && this.deps.onLevel)
+      this.deps.onLevel(previous, this.lastLevel, this.dto().message);
     this.schedule();
     this.announce();
     this.deps.onChange();

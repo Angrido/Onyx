@@ -42,6 +42,7 @@ export interface ApprovalServiceDeps {
   prisma: PrismaClient;
   logger: Logger;
   hub: Pick<WsHub, "publishApprovals">;
+  onCreated?: (approval: Approval) => void;
 }
 
 function readPayload(value: Prisma.JsonValue): ApprovalPayload {
@@ -90,6 +91,7 @@ export class ApprovalService {
       },
     });
     await this.announce();
+    this.deps.onCreated?.(approval);
     return approval;
   }
 

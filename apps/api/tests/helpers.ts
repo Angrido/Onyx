@@ -35,6 +35,8 @@ export interface TestContextOptions {
   sourceEnv?: Record<string, string>;
   checkCli?: boolean;
   armRandom?: () => number;
+  fetcher?: typeof fetch;
+  telegramApiUrl?: string;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -77,6 +79,8 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     summarizer: options.summarizer ?? null,
     checkCli: options.checkCli ?? false,
     ...(options.armRandom ? { armRandom: options.armRandom } : {}),
+    ...(options.fetcher ? { fetcher: options.fetcher } : {}),
+    ...(options.telegramApiUrl ? { telegramApiUrl: options.telegramApiUrl } : {}),
   });
   await container.start();
   const app = await buildApp(container);

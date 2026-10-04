@@ -119,6 +119,7 @@ export interface AppConfig {
   agentSandbox: AgentSandboxConfig | null;
   allowedProjectRoots: string[];
   allowedOrigins: string[];
+  publicOrigin: string | null;
   childEnvPassthrough: string[];
   cookieSecure: boolean;
   sessionTtlMs: number;
@@ -238,6 +239,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
         ? env.ONYX_ALLOWED_PROJECT_ROOTS.map((root) => resolve(root))
         : [projectsDir],
     allowedOrigins,
+    publicOrigin: env.ONYX_PUBLIC_ORIGIN ?? env.ONYX_ALLOWED_ORIGINS[0] ?? null,
     childEnvPassthrough: env.ONYX_CHILD_ENV_PASSTHROUGH,
     cookieSecure: env.COOKIE_SECURE,
     sessionTtlMs: env.SESSION_TTL_HOURS * 3_600_000,

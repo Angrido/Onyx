@@ -63,7 +63,7 @@ export interface RunSchedulerDeps {
   maxConcurrent: number;
   admit?: (item: QueuedRun) => Admission;
   reject?: (item: QueuedRun, reason: string) => Promise<void>;
-  afterRun?: (taskId: string) => void;
+  afterRun?: (taskId: string, outcome: ExecutionResult) => void;
   policy?: () => QueuePolicy;
   now?: () => number;
 }
@@ -417,7 +417,7 @@ export class RunScheduler {
         this.executions.delete(taskId);
         try {
           if (!handedOver) item.onFinished?.(outcome);
-          if (outcome) this.deps.afterRun?.(taskId);
+          if (outcome) this.deps.afterRun?.(taskId, outcome);
         } catch (error) {
           this.deps.logger.error({ err: error, taskId }, "Run completion listener failed");
         }

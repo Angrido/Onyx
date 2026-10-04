@@ -1,5 +1,12 @@
 import {
+  PushSubscriptionRequestSchema,
+  PushUnsubscribeRequestSchema,
   SaveClaudeTokenRequestSchema,
+  TestNotificationRequestSchema,
+  UpdateNotificationSettingsRequestSchema,
+  type NotificationSettingsDto,
+  type PushKeyResponse,
+  type TestNotificationResponse,
   SubmitLoginCodeRequestSchema,
   type ClaudeAccountDto,
   type ClaudeLoginDto,
@@ -50,5 +57,38 @@ export function registerSettingsRoutes(app: FastifyInstance, container: Containe
 
   app.delete("/api/settings/claude/login", async (): Promise<ClaudeAccountDto> =>
     credentials.cancelLogin(),
+  );
+
+  const { notifications } = container;
+
+  app.get("/api/settings/notifications", async (): Promise<NotificationSettingsDto> =>
+    notifications.settings(),
+  );
+
+  app.put("/api/settings/notifications", async (request): Promise<NotificationSettingsDto> =>
+    notifications.update(UpdateNotificationSettingsRequestSchema.parse(request.body ?? {})),
+  );
+
+  app.post("/api/notifications/test", async (request): Promise<TestNotificationResponse> =>
+    notifications.test(TestNotificationRequestSchema.parse(request.body ?? {}).channel),
+  );
+
+  app.get("/api/notifications/push/key", async (): Promise<PushKeyResponse> => ({
+    publicKey: await notifications.publicKey(),
+  }));
+
+  app.post(
+    "/api/notifications/push/subscriptions",
+    async (request): Promise<NotificationSettingsDto> =>
+      notifications.subscribe(
+        PushSubscriptionRequestSchema.parse(request.body ?? {}),
+        request.headers["user-agent"] ?? null,
+      ),
+  );
+
+  app.post(
+    "/api/notifications/push/unsubscribe",
+    async (request): Promise<NotificationSettingsDto> =>
+      notifications.unsubscribe(PushUnsubscribeRequestSchema.parse(request.body ?? {}).endpoint),
   );
 }

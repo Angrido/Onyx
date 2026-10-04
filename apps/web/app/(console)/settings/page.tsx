@@ -4,6 +4,7 @@ import type {
   ClaudeAccountDto,
   GitHubAccountDto,
   GitIdentityDto,
+  NotificationSettingsDto,
   ProjectListResponse,
   QueueDto,
 } from "@onyx/contracts";
@@ -13,21 +14,24 @@ import { BudgetsCard } from "@/components/settings/budgets-card";
 import { ClaudeAccountCard } from "@/components/settings/claude-account-card";
 import { GitHubAccountCard } from "@/components/settings/github-account-card";
 import { GitIdentityCard } from "@/components/settings/git-identity-card";
+import { NotificationsCard } from "@/components/settings/notifications-card";
 import { QueueCard } from "@/components/settings/queue-card";
 import { serverFetch } from "@/lib/api/server";
 
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [claude, github, identity, budgets, projects, backups, queue] = await Promise.all([
-    serverFetch<ClaudeAccountDto>("/api/settings/claude"),
-    serverFetch<GitHubAccountDto>("/api/github/account"),
-    serverFetch<GitIdentityDto>("/api/settings/git"),
-    serverFetch<BudgetListResponse>("/api/budgets"),
-    serverFetch<ProjectListResponse>("/api/projects"),
-    serverFetch<BackupListResponse>("/api/backups"),
-    serverFetch<QueueDto>("/api/queue"),
-  ]);
+  const [claude, github, identity, budgets, projects, backups, queue, notifications] =
+    await Promise.all([
+      serverFetch<ClaudeAccountDto>("/api/settings/claude"),
+      serverFetch<GitHubAccountDto>("/api/github/account"),
+      serverFetch<GitIdentityDto>("/api/settings/git"),
+      serverFetch<BudgetListResponse>("/api/budgets"),
+      serverFetch<ProjectListResponse>("/api/projects"),
+      serverFetch<BackupListResponse>("/api/backups"),
+      serverFetch<QueueDto>("/api/queue"),
+      serverFetch<NotificationSettingsDto>("/api/settings/notifications"),
+    ]);
   return (
     <>
       <PageHeader
@@ -43,7 +47,10 @@ export default async function SettingsPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <BudgetsCard initial={budgets.items} projects={projects.items} />
+        <div className="space-y-6">
+          <BudgetsCard initial={budgets.items} projects={projects.items} />
+          <NotificationsCard initial={notifications} />
+        </div>
         <div className="space-y-6">
           <QueueCard initial={queue} />
           <BackupsCard initial={backups} />

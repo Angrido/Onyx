@@ -47,6 +47,7 @@ export const queryKeys = {
   budgets: ["budgets"] as const,
   quota: ["quota"] as const,
   queue: ["queue"] as const,
+  notifications: ["settings", "notifications"] as const,
   mission: ["mission"] as const,
   backups: ["backups"] as const,
 };
