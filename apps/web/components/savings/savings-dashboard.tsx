@@ -183,7 +183,7 @@ function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
     onError: (error) => toast.error(errorMessage(error)),
   });
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-0/50 p-3 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-0/50 p-3 sm:flex-row sm:flex-wrap sm:items-center">
       <label className="flex items-center gap-3 text-sm">
         <input
           type="checkbox"
@@ -368,7 +368,12 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
             />
           ) : null}
         </div>
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="Context experiment results"
+        >
           <table className="w-full text-sm">
             <caption className="sr-only">Median per run, with and without the Onyx context</caption>
             <thead className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -494,7 +499,12 @@ function MemoryExperimentCard({ experiment }: { experiment: MemoryExperiment }) 
           <ArmProgress label="With memory" runs={withMemory.runs} min={experiment.minRunsPerArm} />
           <ArmProgress label="Without" runs={without.runs} min={experiment.minRunsPerArm} />
         </div>
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="Memory experiment results"
+        >
           <table className="w-full text-sm">
             <caption className="sr-only">
               Median per run, with and without the project memory

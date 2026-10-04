@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–5 | **Fatte** (vedi sotto) |
-| 6–11 | Da fare, nell'ordine concordato |
+| 1–6 | **Fatte** (vedi sotto) |
+| 7–11 | Da fare, nell'ordine concordato |
 
 ### Milestone 1 — esito
 
@@ -242,3 +242,17 @@ Da verificare sulla macchina vera: Web Push via HTTPS con la CA interna di Caddy
 Effetto sui token: la memoria costa i suoi token (in media 50–150 nelle prove con lo stub) a ogni sessione nuova e ne risparmia solo se evita esplorazione. Lo dice l'esperimento; se risulta *costs more* o *no difference*, conviene spegnerla.
 
 Da verificare con Claude reale: accendere l'esperimento (Settings → Project memory → Measure it) e guardare Savings dopo una ventina di sessioni nuove.
+
+### Milestone 6 — esito
+
+| Voce | Stato | Risparmio |
+|---|---|---|
+| 6.1 Esperimento a più bracci | Fatta (ADR-070): controllo, pacchetto e una variante alla volta | Strumento |
+| 6.2 Target da modificare come L2 | Fatta: solo i file del campo *Files* del task; quelli dedotti restano interi | **Stimato**: token non mandati, contati alla consegna. **Misurato** quando l'A/B ha il verdetto (10 run per braccio) |
+| 6.3 Esplorazione economica | Fatta (ADR-072): esploratore su Haiku per planner e roadmap, roadmap sul modello Builder. **Deviazione**: insights non esiste ancora (milestone 9) e prenderà la stessa opzione | **Stimato** finché non ci sono 3 piani con e 3 senza; poi **misurato**: costo del modello del planner per piano |
+| 6.4 Risposte concise | Fatta (ADR-071): riassunto finale di al massimo sei righe, congelato per sessione | **Stimato** (−20/−40% di output) finché non ci sono 10 run prima e 10 dopo; poi **misurato** come confronto prima/dopo, non A/B |
+| 6.5 Raggruppamento dei task piccoli | Fatta (ADR-073), spenta di default. Un task fallito non ferma il gruppo: fallisce solo lui, e quelli non riportati tornano in coda | **Stimato** (−10/−30% per task) finché non ci sono 5 run raggruppate e 5 singole; poi **misurato**: token per task completato |
+
+Effetto sui token: tutte le righe sono stimate finché non arrivano run vere. Con lo stub i meccanismi funzionano (esploratore registrato per modello, gruppo con esiti per task, firme consegnate), ma i numeri dello stub non dicono nulla sul risparmio reale.
+
+Da verificare con Claude reale: con quale nome Claude Code espone la delega ai sotto-agenti (Onyx consente sia `Task` sia `Agent`) e se `modelUsage` riporta Haiku a parte; che un gruppo di task risponda con le righe `TASK n:`; i verdetti della variante e delle opzioni dopo abbastanza run.

@@ -336,3 +336,27 @@ Ogni progetto ha una memoria di fatti raccolti dalle sue run: **Memory** nella p
 | La pagina dice *Nothing yet* | Nessuna run conclusa dopo l'aggiornamento | Fai girare qualche task; i comandi compaiono dopo la prima run |
 | Un fatto sbagliato continua a comparire | È ancora attivo | **Forget**: non verrà più raccolto |
 | Gli agenti non vedono una nota appena aggiunta | La sessione era già partita | Apri una sessione nuova |
+
+## 17. Esperimenti e opzioni di risparmio
+
+**Savings → Context experiment** confronta il pacchetto di contesto con il controllo (nessun contesto Onyx) e, se scegli una **variante**, anche la variante con il pacchetto. Le run nuove si dividono così: la quota di controllo che imposti, il resto metà al pacchetto e metà alla variante. Ogni confronto ha il suo test di Mann–Whitney e il suo verdetto dopo 10 run per gruppo.
+
+| Variante | Cosa cambia | Cosa guardare |
+|---|---|---|
+| *Files to edit as signatures* | I file indicati nel campo *Files* del task arrivano come firme (L2); quelli dedotti e gli altri restano come prima | Token di input per run e file letti: se l'agente legge di più, il guadagno sparisce |
+
+**Settings → Token saving options** raccoglie tre opzioni. Valgono per le sessioni nuove: le riprese tengono il prompt con cui sono partite, così la cache non si rompe.
+
+| Opzione | Default | Cosa fa | Riga di Savings | Quando diventa misurata |
+|---|---|---|---|---|
+| Short final summaries | Acceso | Chiede un riassunto finale di al massimo sei righe. Le run di controllo dell'esperimento ne fanno a meno | *Short final summaries* | 10 run completate prima e 10 dopo l'accensione (confronto prima/dopo, non A/B) |
+| Explore on a cheaper model | Acceso | Planner e roadmap ricevono un sotto-agente `explorer` su Haiku per le ricerche; la roadmap gira sul modello Builder | *Plan exploration on a cheaper model* | 3 piani con e 3 senza esploratore (costo del modello del planner per piano) |
+| Group small queued tasks | Spento | Quando parte un task breve (prompt fino a 600 caratteri, al massimo due file, niente architettura o refactor, niente worktree), fino a tre altri task brevi dello stesso workspace in coda si uniscono alla run | *Small tasks grouped in one run* | 5 run raggruppate e 5 singole (token per task completato) |
+
+Nel gruppo ogni task chiude con una riga `TASK n: DONE` o `TASK n: FAILED — motivo`. I task *DONE* si completano, quelli *FAILED* falliscono con il motivo, quelli senza riga tornano in coda e girano da soli. Il gruppo condivide sessione, prefisso e pacchetto: se un task modifica file che un altro tocca, conviene tenere l'opzione spenta per quel workspace o lanciarli a mano.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| La riga dell'esploratore resta *now 0 and …* | Il nome dello strumento dei sotto-agenti non è quello atteso (`Task` o `Agent`) | Controlla nella run del planner se compare l'`explorer`; se no, spegni l'opzione e segnalalo |
+| Un task raggruppato torna in coda | L'agente non ha scritto la sua riga `TASK n:` | Nessuna azione: gira da solo alla prossima occasione |
+| I riassunti restano lunghi | La sessione era già partita prima dell'accensione | Apri una sessione nuova |

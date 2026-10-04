@@ -22,6 +22,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 3 | Agenti in un utente di sistema separato, guard e recinto più precisi con verifica a fine run, *Allow and continue* con regole strette, per task o per agente e con scadenza | **Completata** (manca la prova dello script di sandbox sulla macchina vera, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 4 | Mission control con una scheda per progetto, coda globale con priorità e limite per progetto, griglia degli agenti, notifiche (browser, ntfy, Telegram), ricerca globale, prestazioni con molti progetti | **Completata** (manca la prova delle notifiche push via HTTPS su un telefono vero, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 5 | Memoria di progetto: fatti stabili raccolti dalle run, curati da una pagina, sotto un limite di token, nel prompt delle sessioni nuove e misurabili con un A/B | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 6 | Esperimenti sul contesto: A/B con una variante (file da modificare come firme), riassunti finali brevi, esplorazione su un modello economico, task piccoli raggruppati, ognuno con la sua riga in Savings | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -143,6 +144,17 @@ Dettagli in [docs/operations.md §13–15](docs/operations.md#13-coda-e-limite-p
 - **Settings → Project memory → Measure it**: metà delle sessioni nuove parte senza memoria e **Savings** confronta token di input, file letti e turni. Finché non ci sono 10 run per gruppo la riga del registro resta *stimata* e riporta i token che la memoria aggiunge.
 
 Dettagli in [docs/operations.md §16](docs/operations.md#16-memoria-di-progetto).
+
+### Esperimenti sul contesto (2.0, milestone 6)
+
+- **Savings → Context experiment** accetta una **variante** accanto al pacchetto attuale e al controllo. La prima: i file che un task dichiara da modificare arrivano come firme (L2) invece che interi, perché Claude Code li rilegge comunque prima di modificarli. La tabella ha una terza colonna e un verdetto per la variante.
+- **Settings → Token saving options**:
+  - *Short final summaries* (acceso): le sessioni nuove chiudono con un riassunto di al massimo sei righe; il dettaglio resta nel diff.
+  - *Explore on a cheaper model* (acceso): planner e roadmap mandano le ricerche a un sotto-agente su Haiku e la roadmap gira sul modello Builder. Il piano resta sul modello Architect.
+  - *Group small queued tasks* (spento): fino a quattro task brevi dello stesso workspace in coda diventano una run sola, con un esito per task. Quelli che l'agente non riporta tornano in coda da soli.
+- Ogni opzione ha una riga in Savings: *stimata* finché non ci sono abbastanza run (10 prima e 10 dopo per i riassunti, 3 piani con e 3 senza esploratore, 5 run raggruppate e 5 singole), poi *misurata*.
+
+Dettagli in [docs/operations.md §17](docs/operations.md#17-esperimenti-e-opzioni-di-risparmio).
 
 ### Comandi bloccati
 
