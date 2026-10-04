@@ -230,11 +230,24 @@ describe("task execution", () => {
       taskId: task.id,
       projectId: project.id,
       commands: ["python3 -c 1"],
-      suggestions: [{ rule: "Bash(python3 *)", program: "python3", risky: false, allowed: false }],
+      suggestions: [
+        {
+          rule: "Bash(python3 *)",
+          program: "python3",
+          safety: "REVIEW",
+          command: "python3 -c 1",
+          allowed: false,
+        },
+      ],
+      refused: [],
     });
 
     const invalid = await api.post(`/api/runs/${blockedRun.id}/allow`, { rules: ["rm -rf /"] });
     expect(invalid.status).toBe(400);
+    const unproposed = await api.post(`/api/runs/${blockedRun.id}/allow`, {
+      rules: ["Bash(rm *)"],
+    });
+    expect(unproposed.status).toBe(400);
 
     const continued = await api.post<RunTaskResponse>(`/api/runs/${blockedRun.id}/allow`, {
       rules: ["Bash(python3 *)"],
@@ -255,9 +268,36 @@ describe("task execution", () => {
     expect(args).toContain("Bash(python3 *)");
 
     const detail = await api.get<ProjectDetailDto>(`/api/projects/${project.id}`);
-    expect(detail.body.allowedTools).toEqual(["Bash(python3 *)"]);
+    expect(detail.body.allowedTools).toEqual([]);
+    expect(detail.body.commandGrants).toMatchObject([
+      {
+        rule: "Bash(python3 *)",
+        scope: "TASK",
+        taskId: task.id,
+        command: "python3 -c 1",
+        expiresAt: null,
+      },
+    ]);
     const again = await api.get<BlockedCommandsResponse>(`/api/runs/${blockedRun.id}/blocked`);
     expect(again.body.suggestions[0]?.allowed).toBe(true);
+    const other = await createTask("Other [stub:allowlist] bash:{python3 -c 1}");
+    await runTask(other.id);
+    const otherRun = (await waitForTask(other.id, ["COMPLETED"])).runs[0] as RunDto;
+    expect(otherRun.guardDenials).toBe(1);
+
+    const grantId = detail.body.commandGrants[0]?.id ?? "";
+    const revoked = await api.delete(`/api/projects/${project.id}/command-grants/${grantId}`);
+    expect(revoked.status).toBe(204);
+    const projectWide = await api.post(`/api/runs/${otherRun.id}/allow`, {
+      rules: ["Bash(python3 *)"],
+      scope: "PROJECT",
+    });
+    expect(projectWide.status).toBe(202);
+    await waitForTask(other.id, ["COMPLETED"]);
+    await context.container.scheduler.settledTask(other.id);
+    const projectDetail = await api.get<ProjectDetailDto>(`/api/projects/${project.id}`);
+    expect(projectDetail.body.allowedTools).toEqual(["Bash(python3 *)"]);
+    expect(projectDetail.body.commandGrants).toEqual([]);
 
     const rejected = await api.put(`/api/projects/${project.id}/allowed-tools`, {
       allowedTools: ["python3"],

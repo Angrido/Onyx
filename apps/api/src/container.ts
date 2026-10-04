@@ -270,6 +270,7 @@ export async function createContainer(
     ...(overrides.armRandom ? { random: overrides.armRandom } : {}),
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     onRateLimit: (item) => quota.observe(item),
+    grantedRules: (projectId, target) => projects.grantedRules(projectId, target),
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
   const approvals = new ApprovalService({ prisma, logger, hub });
@@ -348,7 +349,9 @@ export async function createContainer(
       : { killGraceMs: overrides.terminalKillGraceMs }),
   });
   scheduling.terminals = terminals;
-  const runService = new RunService(prisma, scheduler);
+  const runService = new RunService(prisma, scheduler, (projectId, target) =>
+    projects.grantedRules(projectId, target),
+  );
   const loops: { service: TddService | null } = { service: null };
   const tasks = new TaskService(
     prisma,

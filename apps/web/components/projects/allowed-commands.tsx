@@ -1,8 +1,8 @@
 "use client";
 
-import type { AllowedToolsResponse, ProjectStackDto } from "@onyx/contracts";
+import type { AllowedToolsResponse, CommandGrantDto, ProjectStackDto } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, Sparkles, Terminal, TriangleAlert, X } from "lucide-react";
+import { Check, Clock, Loader2, Plus, Sparkles, Terminal, TriangleAlert, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { formatRelative } from "@/lib/format";
 import { ruleFor, ruleProgram } from "@/lib/permissions";
 
 const STACK_LABELS: Record<string, string> = {
@@ -109,7 +110,63 @@ function StackSuggestions({
   );
 }
 
-export function AllowedCommands({ projectId, initial }: { projectId: string; initial: string[] }) {
+function grantScope(grant: CommandGrantDto): string {
+  if (grant.scope === "TASK") return `task ${grant.taskTitle ?? "removed"}`;
+  if (grant.scope === "AGENT") return `agent ${grant.agentName ?? "removed"}`;
+  return "whole project";
+}
+
+function Grants({ projectId, initial }: { projectId: string; initial: CommandGrantDto[] }) {
+  const [grants, setGrants] = useState(initial);
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/projects/${projectId}/command-grants/${id}`),
+    onSuccess: (_result, id) => setGrants((current) => current.filter((grant) => grant.id !== id)),
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  if (grants.length === 0) return null;
+  return (
+    <div className="space-y-1.5" data-testid="command-grants">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        Allowed for one task, one agent or for a while
+      </p>
+      <ul className="space-y-1">
+        {grants.map((grant) => (
+          <li key={grant.id} className="flex items-center gap-2 text-xs">
+            <span className="font-mono">{ruleProgram(grant.rule)}</span>
+            <span className="min-w-0 truncate text-muted-foreground">
+              {grantScope(grant)}
+              {grant.expiresAt ? (
+                <>
+                  {" · "}
+                  <Clock className="inline size-3" /> ends {formatRelative(grant.expiresAt)}
+                </>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              className="ml-auto rounded-full p-1 text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+              aria-label={`Stop allowing ${ruleProgram(grant.rule)} for ${grantScope(grant)}`}
+              disabled={revoke.isPending}
+              onClick={() => revoke.mutate(grant.id)}
+            >
+              <X className="size-3" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export function AllowedCommands({
+  projectId,
+  initial,
+  grants,
+}: {
+  projectId: string;
+  initial: string[];
+  grants: CommandGrantDto[];
+}) {
   const queryClient = useQueryClient();
   const [rules, setRules] = useState(initial);
   const [draft, setDraft] = useState("");
@@ -179,6 +236,7 @@ export function AllowedCommands({ projectId, initial }: { projectId: string; ini
             ))}
           </ul>
         )}
+        <Grants projectId={projectId} initial={grants} />
         {stack.data ? (
           <StackSuggestions
             key={stack.data.commands

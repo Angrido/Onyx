@@ -1,7 +1,9 @@
 import { realpath, stat } from "node:fs/promises";
 import { sep } from "node:path";
 import type {
+  CommandGrantDto,
   CreateProjectRequestSchema,
+  GrantScope,
   ProjectDetailDto,
   ProjectDto,
   ProjectStackDto,
@@ -53,7 +55,126 @@ export class ProjectService {
       ...toProjectDto(project),
       workspaces: project.workspaces.map(toWorkspaceDto),
       allowedTools: toStringArray(project.allowedTools),
+      commandGrants: await this.commandGrants(id),
     };
+  }
+
+  async commandGrants(projectId: string, now = new Date()): Promise<CommandGrantDto[]> {
+    const grants = await this.prisma.commandGrant.findMany({
+      where: { projectId, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+      include: { task: { select: { title: true } }, agentConfig: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return grants.map((grant) => ({
+      id: grant.id,
+      rule: grant.rule,
+      scope: grant.scope,
+      command: grant.command,
+      taskId: grant.taskId,
+      taskTitle: grant.task?.title ?? null,
+      agentConfigId: grant.agentConfigId,
+      agentName: grant.agentConfig?.name ?? null,
+      expiresAt: grant.expiresAt?.toISOString() ?? null,
+      createdAt: grant.createdAt.toISOString(),
+    }));
+  }
+
+  async grantedRules(
+    projectId: string,
+    target: { taskId: string; agentConfigId: string | null },
+    now = new Date(),
+  ): Promise<string[]> {
+    const grants = await this.prisma.commandGrant.findMany({
+      where: {
+        projectId,
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          {
+            OR: [
+              { scope: "PROJECT" },
+              { scope: "TASK", taskId: target.taskId },
+              ...(target.agentConfigId
+                ? [{ scope: "AGENT" as const, agentConfigId: target.agentConfigId }]
+                : []),
+            ],
+          },
+        ],
+      },
+      select: { rule: true },
+    });
+    return mergeRules(
+      [],
+      grants.map((grant) => grant.rule),
+    );
+  }
+
+  async grant(input: {
+    projectId: string;
+    rules: readonly { rule: string; command: string | null }[];
+    scope: GrantScope;
+    taskId: string;
+    agentConfigId: string | null;
+    expiresAt: Date | null;
+    actor: string;
+  }): Promise<void> {
+    if (input.rules.length === 0) return;
+    if (input.scope === "PROJECT" && input.expiresAt === null) {
+      const current = await this.allowedTools(input.projectId);
+      await this.setAllowedTools(
+        input.projectId,
+        mergeRules(
+          current,
+          input.rules.map((entry) => entry.rule),
+        ),
+        input.actor,
+      );
+      return;
+    }
+    if (input.scope === "AGENT" && input.agentConfigId === null)
+      throw badRequest("This run has no agent profile: allow the commands for the task instead");
+    await this.prisma.$transaction(async (tx) => {
+      await tx.commandGrant.createMany({
+        data: input.rules.map((entry) => ({
+          projectId: input.projectId,
+          rule: entry.rule,
+          scope: input.scope,
+          taskId: input.scope === "TASK" ? input.taskId : null,
+          agentConfigId: input.scope === "AGENT" ? input.agentConfigId : null,
+          command: entry.command,
+          expiresAt: input.expiresAt,
+          createdBy: input.actor,
+        })),
+      });
+      await tx.auditLog.create({
+        data: {
+          actor: input.actor,
+          action: "project.command-grant",
+          target: input.projectId,
+          meta: {
+            rules: input.rules.map((entry) => entry.rule),
+            scope: input.scope,
+            taskId: input.taskId,
+            agentConfigId: input.agentConfigId,
+            expiresAt: input.expiresAt?.toISOString() ?? null,
+          },
+        },
+      });
+    });
+  }
+
+  async revokeGrant(projectId: string, grantId: string, actor: string): Promise<void> {
+    const removed = await this.prisma.commandGrant.deleteMany({
+      where: { id: grantId, projectId },
+    });
+    if (removed.count === 0) throw notFound("Allowed command");
+    await this.prisma.auditLog.create({
+      data: {
+        actor,
+        action: "project.command-grant.revoked",
+        target: projectId,
+        meta: { grantId },
+      },
+    });
   }
 
   async allowedTools(id: string): Promise<string[]> {

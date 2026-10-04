@@ -93,6 +93,12 @@ enum RoutingStrategy {
   DEESCALATION
 }
 
+enum GrantScope {
+  TASK
+  AGENT
+  PROJECT
+}
+
 enum CacheLoss {
   NEW_SESSION
   NONE
@@ -227,6 +233,7 @@ model Project {
   edges          DependencyEdge[]
   routingRules   RoutingRule[]
   budgets        Budget[]
+  commandGrants  CommandGrant[]
   roadmapRuns    RoadmapGeneration[]
   roadmapItems   RoadmapItem[]
   orchestrations Orchestration[]
@@ -299,8 +306,9 @@ model AgentConfig {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  workspaces Workspace[]
-  runs       AgentRun[]
+  workspaces    Workspace[]
+  runs          AgentRun[]
+  commandGrants CommandGrant[]
 }
 
 model RoutingRule {
@@ -383,6 +391,7 @@ model Task {
   approvals     Approval[]
   roadmapItem   RoadmapItem?
   orchestration Orchestration?    @relation("OrchestrationRoot")
+  commandGrants CommandGrant[]
 
   @@index([projectId, status])
   @@index([parentTaskId])
@@ -850,4 +859,24 @@ model RoadmapItem {
   task       Task?              @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([projectId, status])
+}
+
+model CommandGrant {
+  id            String     @id @default(cuid())
+  projectId     String
+  rule          String
+  scope         GrantScope
+  taskId        String?
+  agentConfigId String?
+  command       String?
+  expiresAt     DateTime?
+  createdBy     String
+  createdAt     DateTime   @default(now())
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agentConfig AgentConfig? @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([taskId])
 }

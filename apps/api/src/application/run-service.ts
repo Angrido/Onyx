@@ -7,7 +7,7 @@ import {
 import type { PrismaClient } from "@onyx/db";
 import { conflict, notFound } from "../errors";
 import type { StoredRunEvent } from "../infrastructure/ws-hub";
-import { suggestRules } from "../domain/command-rules";
+import { analyzeCommands } from "../domain/command-rules";
 import { RUN_INCLUDE, toRunDto, toStringArray } from "./mappers";
 import type { RunScheduler } from "./run-scheduler";
 
@@ -15,6 +15,10 @@ export class RunService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly scheduler: RunScheduler,
+    private readonly grantedRules: (
+      projectId: string,
+      target: { taskId: string; agentConfigId: string | null },
+    ) => Promise<string[]> = () => Promise.resolve([]),
   ) {}
 
   async get(id: string): Promise<RunDto> {
@@ -55,7 +59,13 @@ export class RunService {
   async blockedCommands(id: string): Promise<BlockedCommandsResponse> {
     const run = await this.prisma.agentRun.findUnique({
       where: { id },
-      select: { id: true, taskId: true, task: { select: { project: true } } },
+      select: {
+        id: true,
+        taskId: true,
+        agentConfigId: true,
+        agentConfig: { select: { name: true } },
+        task: { select: { title: true, project: true } },
+      },
     });
     if (!run) throw notFound("Run");
     const commands: string[] = [];
@@ -65,16 +75,25 @@ export class RunService {
         if (item.target !== null && !commands.includes(item.target)) commands.push(item.target);
       }
     }
-    const allowed = new Set(toStringArray(run.task.project.allowedTools));
+    const granted = await this.grantedRules(run.task.project.id, {
+      taskId: run.taskId,
+      agentConfigId: run.agentConfigId,
+    });
+    const allowed = new Set([...toStringArray(run.task.project.allowedTools), ...granted]);
+    const analysis = analyzeCommands(commands);
     return {
       runId: run.id,
       taskId: run.taskId,
+      taskTitle: run.task.title,
       projectId: run.task.project.id,
+      agentConfigId: run.agentConfigId,
+      agentName: run.agentConfig?.name ?? null,
       commands,
-      suggestions: suggestRules(commands).map((suggestion) => ({
+      suggestions: analysis.suggestions.map((suggestion) => ({
         ...suggestion,
         allowed: allowed.has(suggestion.rule),
       })),
+      refused: analysis.refused,
     };
   }
 

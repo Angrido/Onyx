@@ -7,3 +7,4 @@ export * from "./presets";
 export * from "./rules";
 export * from "./fence";
 export * from "./shell";
+export * from "./destructive";

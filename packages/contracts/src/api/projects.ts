@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GRANT_SCOPES, RULE_SAFETY } from "../client";
 import { DomainSchema } from "../domain";
 import { IsoDateSchema } from "./common";
 import { WorkspaceDtoSchema } from "./workspaces";
@@ -82,9 +83,27 @@ export const BashRuleSchema = z
   .trim()
   .regex(/^Bash\([^()\n]{1,200}\)$/, "A rule looks like Bash(npm install *)");
 
+export const GrantScopeSchema = z.enum(GRANT_SCOPES);
+export type GrantScope = z.infer<typeof GrantScopeSchema>;
+
+export const CommandGrantDtoSchema = z.object({
+  id: z.string(),
+  rule: z.string(),
+  scope: GrantScopeSchema,
+  command: z.string().nullable(),
+  taskId: z.string().nullable(),
+  taskTitle: z.string().nullable(),
+  agentConfigId: z.string().nullable(),
+  agentName: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type CommandGrantDto = z.infer<typeof CommandGrantDtoSchema>;
+
 export const ProjectDetailDtoSchema = ProjectDtoSchema.extend({
   workspaces: z.array(WorkspaceDtoSchema),
   allowedTools: z.array(z.string()),
+  commandGrants: z.array(CommandGrantDtoSchema),
 });
 export type ProjectDetailDto = z.infer<typeof ProjectDetailDtoSchema>;
 
@@ -103,25 +122,45 @@ export const AllowedToolsResponseSchema = z.object({
 });
 export type AllowedToolsResponse = z.infer<typeof AllowedToolsResponseSchema>;
 
+export const RuleSafetySchema = z.enum(RULE_SAFETY);
+export type RuleSafety = z.infer<typeof RuleSafetySchema>;
+
 export const CommandRuleSuggestionSchema = z.object({
   rule: z.string(),
   program: z.string(),
+  safety: RuleSafetySchema,
+  reason: z.string().nullable(),
+  command: z.string(),
   risky: z.boolean(),
   allowed: z.boolean(),
 });
 export type CommandRuleSuggestion = z.infer<typeof CommandRuleSuggestionSchema>;
 
+export const RefusedCommandSchema = z.object({
+  command: z.string(),
+  program: z.string(),
+  reason: z.string(),
+});
+export type RefusedCommand = z.infer<typeof RefusedCommandSchema>;
+
 export const BlockedCommandsResponseSchema = z.object({
   runId: z.string(),
   taskId: z.string(),
+  taskTitle: z.string(),
   projectId: z.string(),
+  agentConfigId: z.string().nullable(),
+  agentName: z.string().nullable(),
   commands: z.array(z.string()),
   suggestions: z.array(CommandRuleSuggestionSchema),
+  refused: z.array(RefusedCommandSchema),
 });
 export type BlockedCommandsResponse = z.infer<typeof BlockedCommandsResponseSchema>;
 
 export const AllowAndContinueRequestSchema = z.object({
   rules: z.array(BashRuleSchema).max(50),
   reply: z.string().trim().max(20_000).optional(),
+  scope: GrantScopeSchema.default("TASK"),
+  expiresInHours: z.number().int().min(1).max(720).nullable().default(null),
 });
+
 export type AllowAndContinueRequest = z.input<typeof AllowAndContinueRequestSchema>;

@@ -69,7 +69,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         <h2 className="text-sm font-semibold tracking-tight">Tasks</h2>
         <TaskList initial={tasks.items} projectId={project.id} emptyAction={createTask} />
       </section>
-      <AllowedCommands projectId={project.id} initial={project.allowedTools} />
+      <AllowedCommands
+        projectId={project.id}
+        initial={project.allowedTools}
+        grants={project.commandGrants}
+      />
     </>
   );
 }

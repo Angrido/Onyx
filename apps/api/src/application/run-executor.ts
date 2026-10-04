@@ -110,6 +110,10 @@ export interface RunExecutorDeps {
   random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
   onRateLimit?: (item: RunItemOf<"rate_limit">) => void;
+  grantedRules?: (
+    projectId: string,
+    target: { taskId: string; agentConfigId: string | null },
+  ) => Promise<string[]>;
   sourceEnv?: NodeJS.ProcessEnv;
 }
 
@@ -734,10 +738,19 @@ export class RunExecutor {
       contextPack: context.packText,
       agents,
     });
+    const readOnly = agentConfig.permissionMode === "plan";
+    const granted =
+      readOnly || !this.deps.grantedRules
+        ? []
+        : await this.deps.grantedRules(task.projectId, {
+            taskId: task.id,
+            agentConfigId: agentConfig.id,
+          });
     const allowedTools = [
       ...new Set([
         ...toStringArray(agentConfig.allowedTools),
-        ...toStringArray(task.project.allowedTools),
+        ...(readOnly ? [] : toStringArray(task.project.allowedTools)),
+        ...granted,
       ]),
     ];
     const handoffText = plan.item.handoff?.text ?? null;

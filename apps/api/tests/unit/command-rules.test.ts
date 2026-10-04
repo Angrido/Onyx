@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  analyzeCommands,
   commandPrograms,
   continuePrompt,
   mergeRules,
@@ -30,14 +31,68 @@ describe("command programs", () => {
 });
 
 describe("rule suggestions", () => {
-  it("proposes one rule per program and flags the risky ones", () => {
+  it("never preselects interpreters, package runners or commands that delete", () => {
     expect(
-      suggestRules(["python3 -c 'import x'", "npx playwright --version", "rm -r dist", "npx foo"]),
+      suggestRules([
+        "python3 -c 'import x'",
+        "npx playwright --version",
+        "rm -r dist",
+        "npx foo",
+      ]).map((entry) => [entry.rule, entry.safety, entry.reason]),
     ).toEqual([
-      { rule: "Bash(python3 *)", program: "python3", risky: false },
-      { rule: "Bash(npx *)", program: "npx", risky: false },
-      { rule: "Bash(rm *)", program: "rm", risky: true },
+      ["Bash(python3 *)", "REVIEW", "runs any code it is given, not just one command"],
+      ["Bash(npx *)", "REVIEW", "downloads and runs any package"],
+      ["Bash(rm *)", "REVIEW", "can delete or change files"],
     ]);
+  });
+
+  it("proposes the program behind wrappers and subshells, never the wrapper (A9)", () => {
+    const rules = (command: string) =>
+      suggestRules([command]).map((entry) => [entry.rule, entry.safety]);
+    expect(rules("timeout 5 rm -rf ~")).toEqual([["Bash(rm *)", "REVIEW"]]);
+    expect(rules("nice -n 5 rm -rf /")).toEqual([["Bash(rm *)", "REVIEW"]]);
+    expect(rules("(cd x; make)")).toEqual([["Bash(make *)", "REVIEW"]]);
+    expect(rules("find . -name x | xargs rm")).toEqual([
+      ["Bash(find *)", "REVIEW"],
+      ["Bash(rm *)", "REVIEW"],
+    ]);
+    expect(suggestRules(["timeout 60 pnpm test"])[0]).toMatchObject({
+      rule: "Bash(pnpm test *)",
+      safety: "SAFE",
+      reason: "the agent ran it through timeout: the rule covers the command without timeout",
+      command: "timeout 60 pnpm test",
+    });
+  });
+
+  it("scopes package managers and git to the subcommand", () => {
+    const rules = (command: string) =>
+      suggestRules([command]).map((entry) => [entry.rule, entry.safety]);
+    expect(rules("pnpm run build")).toEqual([["Bash(pnpm run build *)", "SAFE"]]);
+    expect(rules("pnpm --filter api test --run")).toEqual([
+      ["Bash(pnpm --filter api test *)", "SAFE"],
+    ]);
+    expect(rules("npm install lodash")).toEqual([["Bash(npm install *)", "REVIEW"]]);
+    expect(rules("pnpm exec tsx a.ts")).toEqual([["Bash(pnpm exec *)", "REVIEW"]]);
+    expect(rules("git status --short")).toEqual([["Bash(git status *)", "SAFE"]]);
+    expect(rules("vitest run src")).toEqual([["Bash(vitest *)", "SAFE"]]);
+  });
+
+  it("refuses privileged commands and pushes instead of proposing them", () => {
+    expect(analyzeCommands(["sudo apt install x", "git -C . push origin main"])).toEqual({
+      suggestions: [],
+      refused: [
+        {
+          command: "sudo apt install x",
+          program: "apt",
+          reason: "runs commands as another user",
+        },
+        {
+          command: "git -C . push origin main",
+          program: "git push",
+          reason: "Onyx pushes the branches: agents never push",
+        },
+      ],
+    });
   });
 
   it("merges rules without duplicates or malformed entries", () => {

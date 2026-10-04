@@ -1,19 +1,17 @@
 "use client";
 
-import type { BlockedCommandsResponse, RunTaskResponse } from "@onyx/contracts";
+import type { BlockedCommandsResponse, GrantScope, RunTaskResponse } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Play, ShieldAlert } from "lucide-react";
+import { Ban, Loader2, Play, ShieldAlert, TriangleAlert } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/form-controls";
+import { Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-import { defaultRules } from "@/lib/permissions";
+import { EXPIRY_OPTIONS, SCOPE_LABELS, defaultRules } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-
-const SHOWN_COMMANDS = 4;
 
 export function BlockedCommands({ runId, taskId }: { runId: string; taskId: string }) {
   const router = useRouter();
@@ -25,12 +23,16 @@ export function BlockedCommands({ runId, taskId }: { runId: string; taskId: stri
   });
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [reply, setReply] = useState("");
+  const [scope, setScope] = useState<GrantScope>("TASK");
+  const [expiry, setExpiry] = useState<number | null>(null);
   const rules = chosen ?? (data ? defaultRules(data.suggestions) : []);
 
   const allow = useMutation({
     mutationFn: () =>
       api.post<RunTaskResponse>(`/api/runs/${runId}/allow`, {
         rules,
+        scope,
+        expiresInHours: expiry,
         ...(reply.trim() ? { reply: reply.trim() } : {}),
       }),
     onSuccess: () => {
@@ -46,6 +48,9 @@ export function BlockedCommands({ runId, taskId }: { runId: string; taskId: stri
   if (!data || data.commands.length === 0) return null;
   const toggle = (rule: string, on: boolean) =>
     setChosen(on ? [...rules, rule] : rules.filter((entry) => entry !== rule));
+  const scopes: GrantScope[] = data.agentConfigId
+    ? ["TASK", "AGENT", "PROJECT"]
+    : ["TASK", "PROJECT"];
 
   return (
     <div
@@ -60,59 +65,112 @@ export function BlockedCommands({ runId, taskId }: { runId: string; taskId: stri
             {data.commands.length === 1 ? "command" : "commands"}
           </p>
           <p className="text-xs text-muted-foreground">
-            Nobody can approve commands during a run, so Claude Code refused these. Allow them for
-            this project and the task continues in the same session; answer the agent below if it
-            asked something.
+            Nobody can approve commands during a run, so Claude Code refused these. Allow the ones
+            you trust and the task continues in the same session; answer the agent below if it asked
+            something.
           </p>
         </div>
       </div>
-      <ul className="space-y-1">
-        {data.commands.slice(0, SHOWN_COMMANDS).map((command) => (
-          <li
-            key={command}
-            className="truncate rounded bg-surface-0/70 px-2 py-1 font-mono text-[11px] text-muted-foreground"
-            title={command}
-          >
-            {command}
-          </li>
-        ))}
-        {data.commands.length > SHOWN_COMMANDS ? (
-          <li className="text-[11px] text-muted-foreground">
-            and {data.commands.length - SHOWN_COMMANDS} more
-          </li>
-        ) : null}
-      </ul>
-      <fieldset className="space-y-1.5">
-        <legend className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Allow in this project
-        </legend>
-        {data.suggestions.map((suggestion) => (
-          <label
-            key={suggestion.rule}
-            className={cn(
-              "flex items-center gap-2 text-xs",
-              suggestion.allowed && "text-muted-foreground",
-            )}
-          >
-            <input
-              type="checkbox"
-              className="size-4 accent-[var(--primary)]"
-              checked={suggestion.allowed || rules.includes(suggestion.rule)}
-              disabled={suggestion.allowed}
-              onChange={(event) => toggle(suggestion.rule, event.target.checked)}
-            />
-            <span className="font-mono">{suggestion.program}</span>
-            <span className="text-muted-foreground">any command starting with it</span>
-            {suggestion.allowed ? (
-              <span className="text-[10px] uppercase tracking-wider">already allowed</span>
-            ) : suggestion.risky ? (
-              <span className="text-[10px] uppercase tracking-wider text-warning">
-                can change or delete things: check first
+      {data.suggestions.length > 0 ? (
+        <fieldset className="space-y-2">
+          <legend className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Commands to allow
+          </legend>
+          {data.suggestions.map((suggestion) => (
+            <label
+              key={suggestion.rule}
+              className={cn(
+                "flex min-h-6 items-start gap-2.5 text-xs",
+                suggestion.allowed && "text-muted-foreground",
+              )}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 accent-[var(--primary)]"
+                checked={suggestion.allowed || rules.includes(suggestion.rule)}
+                disabled={suggestion.allowed}
+                onChange={(event) => toggle(suggestion.rule, event.target.checked)}
+              />
+              <span className="min-w-0 space-y-0.5">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="font-mono">{suggestion.program} …</span>
+                  {suggestion.allowed ? (
+                    <span className="text-[10px] uppercase tracking-wider">already allowed</span>
+                  ) : suggestion.safety === "REVIEW" ? (
+                    <span className="inline-flex items-center gap-1 text-warning">
+                      <TriangleAlert className="size-3" />
+                      {suggestion.reason ?? "check before allowing"}
+                    </span>
+                  ) : suggestion.reason ? (
+                    <span className="text-muted-foreground">{suggestion.reason}</span>
+                  ) : null}
+                </span>
+                <span
+                  className="block truncate font-mono text-[11px] text-muted-foreground"
+                  title={suggestion.command}
+                >
+                  from: {suggestion.command}
+                </span>
               </span>
-            ) : null}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      {data.refused.length > 0 ? (
+        <ul className="space-y-1" data-testid="refused-commands">
+          {data.refused.map((entry) => (
+            <li key={entry.command} className="flex items-start gap-2 text-xs">
+              <Ban className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+              <span className="min-w-0">
+                <span className="block truncate font-mono" title={entry.command}>
+                  {entry.command}
+                </span>
+                <span className="text-muted-foreground">
+                  Never allowed: {entry.program} {entry.reason}.
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {data.suggestions.some((suggestion) => !suggestion.allowed) ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="space-y-1 text-xs">
+            <span className="text-muted-foreground">Allow for</span>
+            <Select
+              value={scope}
+              onChange={(event) => setScope(event.target.value as GrantScope)}
+              data-testid="grant-scope"
+            >
+              {scopes.map((entry) => (
+                <option key={entry} value={entry}>
+                  {entry === "AGENT" && data.agentName
+                    ? `Agent profile ${data.agentName}`
+                    : entry === "TASK"
+                      ? `This task: ${data.taskTitle}`
+                      : SCOPE_LABELS[entry]}
+                </option>
+              ))}
+            </Select>
           </label>
-        ))}
-      </fieldset>
+          <label className="space-y-1 text-xs">
+            <span className="text-muted-foreground">For how long</span>
+            <Select
+              value={expiry === null ? "" : String(expiry)}
+              onChange={(event) =>
+                setExpiry(event.target.value === "" ? null : Number(event.target.value))
+              }
+              data-testid="grant-expiry"
+            >
+              {EXPIRY_OPTIONS.map((option) => (
+                <option key={option.label} value={option.hours === null ? "" : option.hours}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </div>
+      ) : null}
       <Textarea
         aria-label="Reply to the agent"
         placeholder="Reply to the agent (optional), e.g. Yes, install Playwright. Only the invitation screens."

@@ -4,6 +4,7 @@ import {
   StatusLineInputSchema,
   type GuardItem,
 } from "@onyx/contracts";
+import { destructiveReason } from "@onyx/ignore-compiler";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
 import { requireGrant } from "../internal-auth";
@@ -53,6 +54,28 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
       let readDecision: ReturnType<typeof grant.guard.evaluate>;
       let testDecision: ReturnType<NonNullable<typeof grant.tests>["evaluate"]> | null;
       let fenceDecision: ReturnType<NonNullable<typeof grant.fence>["evaluate"]> | null;
+      const command =
+        input.tool_name === "Bash" &&
+        typeof input.tool_input === "object" &&
+        input.tool_input !== null &&
+        "command" in input.tool_input &&
+        typeof input.tool_input.command === "string"
+          ? input.tool_input.command
+          : null;
+      const destructive = command === null ? null : destructiveReason(command);
+      if (destructive) {
+        const reason = `Onyx never lets agents run this: ${destructive}.`;
+        executor.recordGuard(grant.runId, {
+          kind: "guard",
+          source: "hook",
+          tool: input.tool_name,
+          toolUseId: input.tool_use_id ?? null,
+          target: command,
+          rule: "destructive command",
+          reason,
+        });
+        return denied(reason);
+      }
       try {
         readDecision = grant.guard.evaluate(call);
         testDecision = readDecision.allowed && grant.tests ? grant.tests.evaluate(call) : null;
