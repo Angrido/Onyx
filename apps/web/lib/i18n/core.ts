@@ -1,9 +1,14 @@
 import { IT } from "./it";
 
-export const LOCALES = ["it", "en"] as const;
-export type Locale = (typeof LOCALES)[number];
-export const DEFAULT_LOCALE: Locale = "it";
-export const LOCALE_COOKIE = "onyx_locale";
+import { DEFAULT_LOCALE, type Locale } from "./locale";
+
+export {
+  DEFAULT_LOCALE,
+  LOCALE_COOKIE,
+  LOCALE_COOKIE_MAX_AGE,
+  LOCALES,
+  type Locale,
+} from "./locale";
 export const LOCALE_NAMES: Record<Locale, string> = { it: "Italiano", en: "English" };
 
 export type Params = Record<string, string | number>;

@@ -1,9 +1,12 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import {
   DEFAULT_LOCALE,
   LOCALE_COOKIE,
+  LOCALE_COOKIE_MAX_AGE,
   setActiveLocale,
   translator,
   type Locale,
@@ -27,5 +30,19 @@ export function useT(): Translate {
 }
 
 export function storeLocale(locale: Locale): void {
-  document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=31536000; samesite=lax`;
+  document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax`;
+}
+
+export function useSwitchLocale(): (locale: Locale) => void {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  return useCallback(
+    (locale: Locale) => {
+      storeLocale(locale);
+      setActiveLocale(locale);
+      void queryClient.invalidateQueries();
+      router.refresh();
+    },
+    [queryClient, router],
+  );
 }

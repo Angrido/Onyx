@@ -34,7 +34,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
-import { storeLocale, useLocale, useT } from "@/lib/i18n/client";
+import { useLocale, useSwitchLocale, useT } from "@/lib/i18n/client";
 import { msg } from "@/lib/i18n/core";
 import {
   CREATE_LINKS,
@@ -116,6 +116,7 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
   const t = useT();
   const locale = useLocale();
   const router = useRouter();
+  const switchLocale = useSwitchLocale();
   const [open, setOpen] = useState(initiallyOpen);
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
@@ -273,8 +274,7 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                 value="settings language switch english italiano lingua"
                 onSelect={() => {
                   setOpen(false);
-                  storeLocale(locale === "it" ? "en" : "it");
-                  router.refresh();
+                  switchLocale(locale === "it" ? "en" : "it");
                 }}
                 icon={<Languages />}
               >

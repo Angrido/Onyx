@@ -1,16 +1,15 @@
 "use client";
 
 import { Languages } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form-controls";
-import { storeLocale, useLocale, useT } from "@/lib/i18n/client";
+import { useLocale, useSwitchLocale, useT } from "@/lib/i18n/client";
 import { LOCALE_NAMES, LOCALES, parseLocale } from "@/lib/i18n/core";
 
 export function LanguageCard() {
   const t = useT();
   const locale = useLocale();
-  const router = useRouter();
+  const switchLocale = useSwitchLocale();
   return (
     <Card id="language" data-testid="language-card">
       <CardHeader>
@@ -20,7 +19,7 @@ export function LanguageCard() {
         </CardTitle>
         <CardDescription>
           {t(
-            "Onyx shows its screens in this language on this browser. Texts produced by the server, such as plan messages and Savings details, stay in English.",
+            "Onyx shows its screens and messages in this language on this browser. What Claude writes, such as plans and answers, is not translated.",
           )}
         </CardDescription>
       </CardHeader>
@@ -30,8 +29,7 @@ export function LanguageCard() {
             id="interface-language"
             value={locale}
             onChange={(event) => {
-              storeLocale(parseLocale(event.target.value));
-              router.refresh();
+              switchLocale(parseLocale(event.target.value));
             }}
           >
             {LOCALES.map((entry) => (
