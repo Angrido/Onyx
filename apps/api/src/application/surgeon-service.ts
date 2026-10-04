@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   CompiledPolicyDto,
@@ -30,6 +30,7 @@ import {
 import type { Logger } from "pino";
 import type { z } from "zod";
 import { badRequest, notFound } from "../errors";
+import { sharesWorkTrees } from "../infrastructure/git-env";
 import { stableSample, type CalibrationService } from "./calibration-service";
 import type { IndexService } from "./index-service";
 import type { ProjectContext } from "./project-context";
@@ -410,6 +411,7 @@ export class SurgeonService {
     const base = await this.baseProfile(projectId);
     const path = join(project.rootPath, CLAUDESIGNORE_FILE);
     await writeFile(path, renderIgnoreFile(base.rules.map(toPolicyRule)));
+    if (sharesWorkTrees()) await chmod(path, 0o660).catch(() => undefined);
     await this.deps.prisma.auditLog.create({
       data: { actor, action: "surgeon.export", target: path, meta: { rules: base.rules.length } },
     });

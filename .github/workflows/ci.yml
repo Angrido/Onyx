@@ -40,3 +40,35 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Create the agent user
+        run: |
+          sudo install -d -o runner -m 750 /tmp/onyx-sandbox /tmp/onyx-sandbox/data
+          sudo env SERVICE_USER=runner PROJECTS_DIR=/tmp/onyx-sandbox/projects DATA_DIR=/tmp/onyx-sandbox/data RELEASES_DIR=/tmp/onyx-sandbox/none ENV_FILE=/dev/null deploy/scripts/agent-sandbox.sh
+          directory="$GITHUB_WORKSPACE"
+          while [ "$directory" != "/" ]; do
+            sudo chmod o+x "$directory"
+            directory="$(dirname "$directory")"
+          done
+          sudo -n -u onyx-agent -- id
+
+      - name: Sandbox tests
+        run: |
+          sg onyx-work -c "ONYX_TEST_AGENT_USER=onyx-agent pnpm --filter @onyx/agent-runtime exec vitest run tests/sandbox.test.ts"
+          sg onyx-work -c "ONYX_TEST_AGENT_USER=onyx-agent pnpm --filter @onyx/api exec vitest run tests/integration/sandbox.test.ts"

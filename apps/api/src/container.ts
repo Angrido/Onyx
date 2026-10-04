@@ -16,6 +16,12 @@ import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
 import { QuotaService } from "./application/quota-service";
+import {
+  prepareAgentSandbox,
+  shareProjectTree,
+  type SandboxCheck,
+} from "./infrastructure/agent-sandbox";
+import { shareWorkTrees } from "./infrastructure/git-env";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
@@ -152,11 +158,13 @@ export async function createContainer(
     return checking;
   };
 
+  let sandboxCheck: SandboxCheck = { ok: true, detail: "not checked yet" };
   const pool = new AgentPool({
     maxConcurrent: config.maxConcurrentAgents,
     binary,
     escalationGraceMs: config.escalationGraceMs,
     ...(overrides.closeGraceMs === undefined ? {} : { closeGraceMs: overrides.closeGraceMs }),
+    sandbox: config.agentSandbox,
   });
   const writer = new EventWriter(prisma, {
     onError: (error, rows) =>
@@ -350,13 +358,26 @@ export async function createContainer(
       router.inferWorkspace(projectId, targetPaths, prompt, kind),
     (taskId, actor) => loops.service?.abortForTask(taskId, actor) ?? Promise.resolve(false),
   );
-  const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
-    indexes
-      .start(projectId)
-      .catch((error: unknown) =>
-        logger.warn({ err: error, projectId }, "Initial indexing could not start"),
-      );
-  });
+  const projects = new ProjectService(
+    prisma,
+    config.allowedProjectRoots,
+    (projectId) => {
+      indexes
+        .start(projectId)
+        .catch((error: unknown) =>
+          logger.warn({ err: error, projectId }, "Initial indexing could not start"),
+        );
+    },
+    async (root) => {
+      if (!config.agentSandbox) return;
+      const report = await shareProjectTree(root, config.agentSandbox.group);
+      if (report.failed > 0)
+        logger.warn(
+          { root, failed: report.failed, group: config.agentSandbox.group },
+          "Some project files could not be shared with the agents: run deploy/scripts/agent-sandbox.sh",
+        );
+    },
+  );
   const github = new GitHubService({
     prisma,
     logger,
@@ -493,6 +514,8 @@ export async function createContainer(
               ? `${cliVersion} is not compatible: ${missing.length > 0 ? `missing ${missing.join(", ")}` : (compatibility.error ?? "check failed")}`
               : cliVersion,
       });
+      if (config.agentSandbox)
+        checks.push({ name: "agent-sandbox", ok: sandboxCheck.ok, detail: sandboxCheck.detail });
       const resolved = await credentials.resolve();
       checks.push({
         name: "credentials",
@@ -521,6 +544,15 @@ export async function createContainer(
     },
 
     async start(): Promise<void> {
+      if (config.agentSandbox) {
+        process.umask(0o027);
+        shareWorkTrees(0o007);
+      }
+      sandboxCheck = await prepareAgentSandbox(config);
+      if (!sandboxCheck.ok)
+        logger.error({ detail: sandboxCheck.detail }, "Agent sandbox is not ready");
+      else if (config.agentSandbox)
+        logger.info({ user: config.agentSandbox.user }, "Agents run in their own user");
       cliVersion = await detectCliVersion(binary);
       if (cliVersion === null)
         logger.warn({ command: binary.command }, "Claude Code CLI not found");
@@ -556,6 +588,7 @@ export async function createContainer(
       quota.stop();
       await quota.idle();
       await writer.close();
+      if (config.agentSandbox) shareWorkTrees(null);
       await prisma.$disconnect();
     },
   };

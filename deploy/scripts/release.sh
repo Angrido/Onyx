@@ -15,6 +15,11 @@ install -d -o root -g onyx -m 750 "$BASE/releases"
 cp -a "$SOURCE" "$TARGET"
 chown -R root:onyx "$TARGET"
 chmod -R g+rX,o-rwx "$TARGET"
+if getent group onyx-work >/dev/null && [ -d "$TARGET/mcp" ]; then
+  chmod o+x "$BASE" "$BASE/releases" "$TARGET"
+  chgrp -R onyx-work "$TARGET/mcp"
+  chmod -R g+rX "$TARGET/mcp"
+fi
 
 set -a
 . /etc/onyx/onyx.env

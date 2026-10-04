@@ -50,6 +50,18 @@ const EnvSchema = z.object({
   ONYX_TERMINAL_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   ONYX_INTERNAL_API_URL: z.string().url().optional(),
   ONYX_GITHUB_TOKEN: z.string().optional(),
+  ONYX_AGENT_USER: z
+    .string()
+    .trim()
+    .regex(/^([a-z_][a-z0-9_-]{0,31})?$/, "must be a system user name")
+    .optional(),
+  ONYX_AGENT_HOME: z.string().optional(),
+  ONYX_AGENT_GROUP: z
+    .string()
+    .trim()
+    .regex(/^[a-z_][a-z0-9_-]{0,31}$/, "must be a system group name")
+    .default("onyx-work"),
+  ONYX_SUDO: z.string().default("sudo"),
   ONYX_GITHUB_API_URL: z.string().url().optional(),
   ONYX_SECRET_KEY_FILE: z.string().optional(),
   ONYX_SECRET_KEY: z.string().optional(),
@@ -87,6 +99,13 @@ export interface TerminalConfig {
   idleMs: number;
 }
 
+export interface AgentSandboxConfig {
+  user: string;
+  home: string;
+  group: string;
+  sudo: string;
+}
+
 export interface AppConfig {
   env: "development" | "production" | "test";
   logLevel: string;
@@ -95,7 +114,9 @@ export interface AppConfig {
   databaseUrl: string;
   dataDir: string;
   runtimeDir: string;
+  worktreesDir: string;
   projectsDir: string;
+  agentSandbox: AgentSandboxConfig | null;
   allowedProjectRoots: string[];
   allowedOrigins: string[];
   childEnvPassthrough: string[];
@@ -198,7 +219,20 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: env.DATABASE_URL,
     dataDir,
     runtimeDir,
+    worktreesDir: join(dataDir, "worktrees"),
     projectsDir,
+    agentSandbox:
+      env.ONYX_AGENT_USER && env.ONYX_AGENT_USER.length > 0
+        ? {
+            user: env.ONYX_AGENT_USER,
+            home:
+              env.ONYX_AGENT_HOME && env.ONYX_AGENT_HOME.trim().length > 0
+                ? resolve(env.ONYX_AGENT_HOME)
+                : `/home/${env.ONYX_AGENT_USER}`,
+            group: env.ONYX_AGENT_GROUP,
+            sudo: env.ONYX_SUDO,
+          }
+        : null,
     allowedProjectRoots:
       env.ONYX_ALLOWED_PROJECT_ROOTS.length > 0
         ? env.ONYX_ALLOWED_PROJECT_ROOTS.map((root) => resolve(root))

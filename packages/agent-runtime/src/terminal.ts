@@ -2,6 +2,7 @@ import type { PermissionMode } from "@onyx/contracts";
 import { spawn, type IPty } from "node-pty";
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from "./environment";
 import type { ClaudeBinary, SessionDirective } from "./run-spec";
+import { sandboxCommand, signalSandboxedGroup, type AgentSandbox } from "./sandbox";
 
 export interface TerminalSpec {
   terminalId: string;
@@ -32,6 +33,7 @@ export interface TerminalHandlers {
 export interface TerminalOptions {
   killGraceMs?: number;
   sourceEnv?: NodeJS.ProcessEnv;
+  sandbox?: AgentSandbox | null;
 }
 
 const DEFAULT_KILL_GRACE_MS = 3_000;
@@ -97,12 +99,13 @@ export class PtySession {
       ...TERMINAL_ENV,
       ...this.spec.env,
     });
-    const pty = spawn(this.spec.command, [...this.spec.args], {
+    const launch = sandboxCommand(this.options.sandbox, this.spec.command, this.spec.args, env);
+    const pty = spawn(launch.command, launch.args, {
       name: TERMINAL_ENV.TERM,
       cols: this.spec.cols,
       rows: this.spec.rows,
       cwd: this.spec.cwd,
-      env,
+      env: launch.env,
     });
     this.pty = pty;
     pty.onData((data) => this.handlers.onData(data));
@@ -127,13 +130,18 @@ export class PtySession {
     const pty = this.pty;
     if (!pty || this.exitInfo) return this.exitInfo;
     const exited = new Promise<TerminalExit>((resolve) => this.exitWaiters.push(resolve));
-    pty.kill("SIGTERM");
+    this.signal(pty, "SIGTERM");
     const timer = setTimeout(() => {
-      if (this.exitInfo === null) pty.kill("SIGKILL");
+      if (this.exitInfo === null) this.signal(pty, "SIGKILL");
     }, this.options.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
     const exit = await exited;
     clearTimeout(timer);
     return exit;
+  }
+
+  private signal(pty: IPty, signal: NodeJS.Signals): void {
+    if (this.options.sandbox) void signalSandboxedGroup(this.options.sandbox, pty.pid, signal);
+    else pty.kill(signal);
   }
 }
 

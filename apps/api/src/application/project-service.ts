@@ -32,6 +32,7 @@ export class ProjectService {
     private readonly prisma: PrismaClient,
     private readonly allowedRoots: readonly string[],
     private readonly onCreated: (projectId: string) => void = () => undefined,
+    private readonly share: (root: string) => Promise<void> = () => Promise.resolve(),
   ) {}
 
   async list(): Promise<ProjectDto[]> {
@@ -159,6 +160,7 @@ export class ProjectService {
             : {}),
         },
       });
+      await this.share(rootPath);
       this.onCreated(project.id);
       return this.get(project.id);
     } catch (error) {

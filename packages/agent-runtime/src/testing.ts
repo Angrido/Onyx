@@ -18,6 +18,7 @@ export const STUB_SCENARIOS = [
   "split-lines",
   "garbage",
   "silent",
+  "probe",
 ] as const;
 export type StubScenario = (typeof STUB_SCENARIOS)[number];
 

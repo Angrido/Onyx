@@ -76,6 +76,7 @@ export interface TerminalServiceDeps {
     | "terminal"
     | "internalApiUrl"
     | "agentProtectedPaths"
+    | "agentSandbox"
   >;
   surgeon: SurgeonService;
   indexes: IndexService;
@@ -378,6 +379,7 @@ export class TerminalService {
         {
           ...(this.deps.killGraceMs === undefined ? {} : { killGraceMs: this.deps.killGraceMs }),
           ...(this.deps.sourceEnv ? { sourceEnv: this.deps.sourceEnv } : {}),
+          sandbox: config.agentSandbox,
         },
       );
       record = {

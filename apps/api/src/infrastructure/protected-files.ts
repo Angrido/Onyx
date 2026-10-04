@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
-import { gitEnvironment, safeGitArgs } from "./git-env";
+import { gitEnvironment, safeGitArgs, sharesWorkTrees } from "./git-env";
 
 const execFileAsync = promisify(execFile);
 
@@ -200,6 +200,7 @@ export class ProtectedSnapshot {
       const original = await readFile(join(this.directory, "files", path));
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, original);
+      if (sharesWorkTrees()) await chmod(target, 0o660).catch(() => undefined);
     }
   }
 

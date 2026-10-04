@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -1503,6 +1510,44 @@ async function runSetupToken(): Promise<void> {
   await new Promise<never>(() => undefined);
 }
 
+interface ProbeStep {
+  path: string;
+  action: "read" | "write" | "list";
+}
+
+function probe(step: ProbeStep): {
+  path: string;
+  action: string;
+  ok: boolean;
+  code: string | null;
+} {
+  try {
+    if (step.action === "read") readFileSync(step.path);
+    else if (step.action === "list") readdirSync(step.path);
+    else writeFileSync(step.path, "written by the agent\n");
+    return { ...step, ok: true, code: null };
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? String(error.code) : "ERROR";
+    return { ...step, ok: false, code };
+  }
+}
+
+async function runProbeScenario(): Promise<void> {
+  const file = process.env.CLAUDE_STUB_PROBE;
+  const steps: ProbeStep[] = file ? (JSON.parse(readFileSync(file, "utf8")) as ProbeStep[]) : [];
+  const report = JSON.stringify({
+    uid: process.getuid?.() ?? null,
+    home: process.env.HOME ?? null,
+    results: steps.map(probe),
+  });
+  await replay([
+    initLine(),
+    assistantLine("msg_stub_probe", [{ type: "text", text: report }]),
+    resultLine(report),
+  ]);
+}
+
 function missingCredentials(): boolean {
   if (process.env.CLAUDE_STUB_REQUIRE_AUTH !== "1") return false;
   return !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY;
@@ -1601,6 +1646,9 @@ async function main(): Promise<void> {
       await replay([...lines.slice(0, -1), boundary, ...lines.slice(-1)]);
       return;
     }
+    case "probe":
+      await runProbeScenario();
+      return;
     case "crash":
       await replay([initLine()]);
       process.stderr.write("fatal: simulated crash\n");

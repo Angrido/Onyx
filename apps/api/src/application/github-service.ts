@@ -17,6 +17,7 @@ import type { z } from "zod";
 import type { AppConfig } from "../config";
 import { AppError, badRequest, conflict, notFound } from "../errors";
 import { cloneRepository, redact } from "../infrastructure/git-clone";
+import { GitRepo } from "../infrastructure/git-worktree";
 import { isSealed, type SecretVault } from "../infrastructure/secret-vault";
 import {
   GitHubError,
@@ -323,6 +324,7 @@ export class GitHubService {
           job.percent = progress.percent;
         },
       });
+      await new GitRepo(temp, this.deps.sourceEnv ?? process.env).populate(temp);
       job.state = "registering";
       job.phase = "Registering";
       job.percent = null;

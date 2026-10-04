@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { PtySession, TextTail } from "@onyx/agent-runtime";
@@ -72,7 +72,7 @@ export interface TddServiceDeps {
     "hold" | "runAndWait" | "abortTask" | "removeQueued" | "isWorkspaceBusy"
   >;
   router: Pick<RouterService, "autoEscalate">;
-  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough">;
+  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "agentSandbox">;
   estimate: (text: string) => number;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
@@ -379,13 +379,12 @@ export class TddService {
         select: { id: true },
       });
       const loopId = created.id;
-      const directory = this.loopDirectory(loopId);
-      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const directory = await this.prepareLoopDirectory(loopId);
       const guard = new TestGuard(root);
       const snapshot = await ProtectedSnapshot.capture(root, join(directory, "snapshot"), (path) =>
         guard.isProtected(path),
       );
-      const reportPath = join(directory, "report.json");
+      const reportPath = this.reportPath(loopId);
       await prisma.tddLoop.update({
         where: { id: loopId },
         data: {
@@ -760,7 +759,7 @@ export class TddService {
     loop.phase = "tests";
     await this.publish(loop);
     const started = Date.now();
-    const reportPath = join(this.loopDirectory(loop.id), "report.json");
+    const reportPath = this.reportPath(loop.id);
     const scopes: Array<"related" | "full"> =
       loop.relatedFiles.length > 0 ? ["related", "full"] : ["full"];
     let lastReport: Evaluation | null = null;
@@ -922,8 +921,7 @@ export class TddService {
     if (!runner) return [];
     const base = this.baseCommand(runner, workspace.testCommand, facts.binaries);
     const id = `baseline-${randomUUID()}`;
-    const directory = this.loopDirectory(id);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const directory = await this.prepareLoopDirectory(id);
     const target: CommandTarget = {
       id,
       root,
@@ -935,7 +933,7 @@ export class TddService {
     const paths = new PathResolver([root, ...this.realRoot(root)]);
     const keys = new Set<string>();
     try {
-      const reportPath = join(directory, "report.json");
+      const reportPath = this.reportPath(id);
       await this.runCommand(
         target,
         "baseline test suite",
@@ -1001,6 +999,7 @@ export class TddService {
         {
           ...(this.deps.killGraceMs === undefined ? {} : { killGraceMs: this.deps.killGraceMs }),
           sourceEnv: { ...process.env, ...this.deps.sourceEnv },
+          sandbox: this.deps.config.agentSandbox,
         },
       );
       const timer = setTimeout(() => {
@@ -1139,7 +1138,7 @@ export class TddService {
             base: loop.base,
             scope: "related",
             files: loop.relatedFiles,
-            reportPath: join(this.loopDirectory(loop.id), "report.json"),
+            reportPath: this.reportPath(loop.id),
           }),
         },
       })
@@ -1231,9 +1230,7 @@ export class TddService {
       `\r\n${colour}${status === "GREEN" ? "✔" : "■"} ${status}: ${finalMessage}${RESET}\r\n`,
     );
     await loop.snapshot.discard().catch(() => undefined);
-    await rm(join(this.loopDirectory(loop.id), "report.json"), { force: true }).catch(
-      () => undefined,
-    );
+    await rm(this.reportPath(loop.id), { force: true }).catch(() => undefined);
     this.active.delete(loop.id);
     loop.release();
     await prisma.$transaction([
@@ -1352,6 +1349,18 @@ export class TddService {
 
   private loopDirectory(loopId: string): string {
     return join(this.deps.config.runtimeDir, "tdd", loopId);
+  }
+
+  private reportPath(loopId: string): string {
+    return join(this.loopDirectory(loopId), "reports", "report.json");
+  }
+
+  private async prepareLoopDirectory(loopId: string): Promise<string> {
+    const directory = this.loopDirectory(loopId);
+    await mkdir(directory, { recursive: true, mode: 0o750 });
+    await mkdir(join(directory, "reports"), { mode: 0o770 });
+    await chmod(join(directory, "reports"), 0o770);
+    return directory;
   }
 
   private realRoot(root: string): string[] {

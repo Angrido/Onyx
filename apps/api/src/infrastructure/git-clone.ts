@@ -71,6 +71,7 @@ export function cloneRepository(options: CloneOptions): Promise<void> {
     : [];
   const args = [
     "clone",
+    "--no-checkout",
     "--progress",
     ...(options.branch ? ["--branch", options.branch] : []),
     "--",

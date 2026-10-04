@@ -28,6 +28,13 @@ export {
   terminateStaleProcess,
 } from "./process-tools";
 export { TextTail } from "./ring-buffer";
+export {
+  SANDBOX_PATH_VARIABLE,
+  sandboxCommand,
+  signalSandboxedGroup,
+  type AgentSandbox,
+  type SandboxedCommand,
+} from "./sandbox";
 export { buildClaudeArgs } from "./run-spec";
 export type { ClaudeBinary, RunSpec, RunTimeouts, SessionDirective } from "./run-spec";
 export { Semaphore, SemaphoreCancelledError } from "./semaphore";

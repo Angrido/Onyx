@@ -86,6 +86,7 @@ export interface OrchestratorDeps {
     | "context"
     | "internalApiUrl"
     | "dataDir"
+    | "worktreesDir"
     | "agentProtectedPaths"
   >;
   sourceEnv?: NodeJS.ProcessEnv;
@@ -1388,7 +1389,7 @@ export class OrchestratorService {
   }
 
   private worktreesRoot(projectId: string): string {
-    return join(this.deps.config.dataDir, "worktrees", projectId);
+    return join(this.deps.config.worktreesDir, projectId);
   }
 
   private passthroughEnv(): Record<string, string> {

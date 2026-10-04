@@ -1,8 +1,15 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdir, readdir, rm, symlink } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { chmod, lstat, mkdir, readdir, rm, symlink } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { gitEnvironment, safeGitArgs } from "./git-env";
+import {
+  gitEnvironment,
+  lockGitMetadata,
+  safeGitArgs,
+  sharesWorkTrees,
+  withSharedUmask,
+  writesWorkTree,
+} from "./git-env";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 120_000;
@@ -61,19 +68,45 @@ export class GitRepo {
     args: readonly string[],
     options: { cwd?: string; env?: Record<string, string> } = {},
   ): Promise<string> {
+    const cwd = options.cwd ?? this.root;
+    const shared = writesWorkTree(args);
     try {
-      const { stdout } = await execFileAsync("git", safeGitArgs(args), {
-        cwd: options.cwd ?? this.root,
-        env: gitEnvironment(this.baseEnv, { GIT_TERMINAL_PROMPT: "0", ...options.env }),
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: MAX_BUFFER,
-      });
+      const { stdout } = await withSharedUmask(() =>
+        execFileAsync("git", safeGitArgs(args), {
+          cwd,
+          env: gitEnvironment(this.baseEnv, { GIT_TERMINAL_PROMPT: "0", ...options.env }),
+          timeout: GIT_TIMEOUT_MS,
+          maxBuffer: MAX_BUFFER,
+        }),
+      );
+      if (shared) await this.lockMetadata(cwd);
       return stdout;
     } catch (error) {
+      if (shared) await this.lockMetadata(cwd);
       const record = error as { stderr?: string; message?: string };
       const detail = (record.stderr ?? record.message ?? String(error)).trim().split("\n").at(-1);
       throw new GitError(args, `git ${args[0] ?? ""} failed: ${detail ?? "unknown error"}`);
     }
+  }
+
+  private async lockMetadata(cwd: string): Promise<void> {
+    if (!sharesWorkTrees()) return;
+    const output = await this.run(["rev-parse", "--absolute-git-dir", "--git-common-dir"], {
+      cwd,
+    }).catch(() => "");
+    const [gitDir, commonDir] = output.trim().split("\n");
+    if (!gitDir) return;
+    const common = commonDir
+      ? isAbsolute(commonDir)
+        ? commonDir
+        : resolve(cwd, commonDir)
+      : gitDir;
+    await lockGitMetadata([gitDir, common]);
+  }
+
+  async populate(path: string): Promise<void> {
+    if (sharesWorkTrees()) await chmod(path, 0o2770);
+    await this.run(["reset", "--hard", "--quiet"], { cwd: path });
   }
 
   async isRepo(): Promise<boolean> {
@@ -106,14 +139,17 @@ export class GitRepo {
   async addWorktree(path: string, branch: string, from: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     await this.run(["worktree", "prune"]);
-    if (await this.branchExists(branch)) await this.run(["worktree", "add", path, branch]);
-    else await this.run(["worktree", "add", "-b", branch, path, from]);
+    if (await this.branchExists(branch))
+      await this.run(["worktree", "add", "--no-checkout", path, branch]);
+    else await this.run(["worktree", "add", "--no-checkout", "-b", branch, path, from]);
+    await this.populate(path);
   }
 
   async addDetachedWorktree(path: string, commit: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     await this.run(["worktree", "prune"]);
-    await this.run(["worktree", "add", "--detach", path, commit]);
+    await this.run(["worktree", "add", "--no-checkout", "--detach", path, commit]);
+    await this.populate(path);
   }
 
   async removeWorktree(path: string): Promise<void> {

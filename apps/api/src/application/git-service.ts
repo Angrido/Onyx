@@ -15,7 +15,14 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { credentialEnv as gitCredentialEnv, redact } from "../infrastructure/git-clone";
 import type { GitHubService } from "./github-service";
-import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
+import {
+  gitEnvironment,
+  lockGitMetadata,
+  safeGitArgs,
+  sharesWorkTrees,
+  withSharedUmask,
+  writesWorkTree,
+} from "../infrastructure/git-env";
 
 type PublishInput = z.output<typeof PublishChangesRequestSchema>;
 type IdentityInput = z.output<typeof UpdateGitIdentityRequestSchema>;
@@ -403,19 +410,24 @@ export class GitService {
       LC_ALL: "C",
       ...options.env,
     });
+    const shared = writesWorkTree(args);
     try {
-      const child = execFileAsync(this.deps.gitBin ?? "git", safeGitArgs(args), {
-        cwd,
-        env,
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: 16 * 1024 * 1024,
-      });
+      const child = withSharedUmask(() =>
+        execFileAsync(this.deps.gitBin ?? "git", safeGitArgs(args), {
+          cwd,
+          env,
+          timeout: GIT_TIMEOUT_MS,
+          maxBuffer: 16 * 1024 * 1024,
+        }),
+      );
       if (options.input !== undefined) {
         child.child.stdin?.end(options.input);
       }
       const { stdout } = await child;
+      if (shared) await this.lockMetadata(cwd);
       return stdout;
     } catch (error) {
+      if (shared) await this.lockMetadata(cwd);
       const record = error as { stderr?: unknown; message?: unknown };
       const stderr = typeof record.stderr === "string" ? record.stderr.trim() : "";
       const message = stderr.length > 0 ? stderr : String(record.message ?? error);
@@ -424,6 +436,13 @@ export class GitService {
         redact(message.split("\n").slice(-3).join(" "), options.secrets ?? []),
       );
     }
+  }
+
+  private async lockMetadata(cwd: string): Promise<void> {
+    if (!sharesWorkTrees()) return;
+    const output = await this.git(cwd, ["rev-parse", "--absolute-git-dir"]).catch(() => "");
+    const gitDir = output.trim();
+    if (gitDir) await lockGitMetadata([gitDir]);
   }
 
   private async isBusy(projectId: string): Promise<boolean> {

@@ -5,6 +5,7 @@ import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from "./environment";
 import { DEFAULT_MAX_LINE_LENGTH, LineSplitter } from "./line-splitter";
 import { isProcessGroupAlive, signalProcessGroup } from "./process-tools";
 import { TextTail } from "./ring-buffer";
+import { sandboxCommand, signalSandboxedGroup, type AgentSandbox } from "./sandbox";
 import { buildClaudeArgs, type ClaudeBinary, type RunSpec } from "./run-spec";
 
 export type AbortReason =
@@ -40,6 +41,7 @@ export interface ClaudeProcessOptions {
   closeGraceMs?: number;
   maxLineLength?: number;
   stderrTailChars?: number;
+  sandbox?: AgentSandbox | null;
 }
 
 const ESCALATION_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGKILL"];
@@ -108,13 +110,20 @@ export class ClaudeProcess {
       this.spec.env,
     );
 
+    const launch = sandboxCommand(
+      this.options.sandbox,
+      this.options.binary.command,
+      [...this.options.binary.args, ...buildClaudeArgs(this.spec)],
+      env,
+    );
     let child: StdioChild;
     try {
-      child = spawn(
-        this.options.binary.command,
-        [...this.options.binary.args, ...buildClaudeArgs(this.spec)],
-        { cwd: this.spec.cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true },
-      );
+      child = spawn(launch.command, launch.args, {
+        cwd: this.spec.cwd,
+        env: launch.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
+      });
     } catch (error) {
       this.finish("spawn_error", describeError(error));
       return;
@@ -147,7 +156,8 @@ export class ClaudeProcess {
     const graceMs = this.options.escalationGraceMs ?? 5_000;
     for (const signal of ESCALATION_SIGNALS) {
       if (this.exited) return;
-      signalProcessGroup(pid, signal);
+      if (this.options.sandbox) await signalSandboxedGroup(this.options.sandbox, pid, signal);
+      else signalProcessGroup(pid, signal);
       if (await this.waitForExit(graceMs)) return;
     }
   }
@@ -258,7 +268,10 @@ export class ClaudeProcess {
   private complete(): void {
     if (this.exited) return;
     const pid = this.child?.pid;
-    if (pid !== undefined && isProcessGroupAlive(pid)) signalProcessGroup(pid, "SIGKILL");
+    if (pid !== undefined && isProcessGroupAlive(pid)) {
+      if (this.options.sandbox) void signalSandboxedGroup(this.options.sandbox, pid, "SIGKILL");
+      else signalProcessGroup(pid, "SIGKILL");
+    }
     this.finish("completed", null);
   }
 
