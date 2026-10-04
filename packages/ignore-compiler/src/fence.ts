@@ -4,6 +4,13 @@ import picomatch from "picomatch";
 import { parse, type ParseEntry } from "shell-quote";
 import { permissionPaths } from "./compiler";
 import type { GuardDecision, ToolCall } from "./guard";
+import {
+  DirectoryTracker,
+  isGitMetadata,
+  pathWithin,
+  separateLines,
+  withoutKeywords,
+} from "./shell";
 
 export interface FenceZone {
   name: string;
@@ -73,6 +80,7 @@ export class WriteFence {
     private readonly zone: FenceZone,
     others: readonly FenceZone[],
     private readonly describe: FenceReason = defaultReason,
+    private readonly protectedPaths: readonly string[] = [],
   ) {
     this.own = zone.globs.length === 0 ? () => false : picomatch([...zone.globs], { dot: true });
     this.others = others
@@ -155,18 +163,36 @@ export class WriteFence {
   evaluateCommand(command: string, cwd: string): GuardDecision {
     let entries: ParseEntry[];
     try {
-      entries = parse(command, (name) => `$${name}`);
+      entries = parse(separateLines(command), (name) => `$${name}`);
     } catch {
       return ALLOW;
     }
-    const segments: string[][] = [];
-    const redirects: { target: string; segment: number }[] = [];
+    const tracker = new DirectoryTracker(cwd, this.projectRoot, homedir());
     let segment: string[] = [];
+    let redirects: string[] = [];
     let pendingRedirect = false;
+    const flush = (): GuardDecision => {
+      const words = withoutKeywords(segment);
+      const directories = [...tracker.candidates()];
+      tracker.enter(words);
+      const targets = [
+        ...redirects.filter((target) => !target.startsWith("&") && target !== "/dev/null"),
+        ...this.writeTargets(words),
+      ];
+      segment = [];
+      redirects = [];
+      for (const target of targets) {
+        for (const directory of directories) {
+          const decision = this.check(target, directory, "Bash");
+          if (!decision.allowed) return decision;
+        }
+      }
+      return ALLOW;
+    };
     for (const entry of entries) {
       if (typeof entry === "string") {
         if (pendingRedirect) {
-          redirects.push({ target: entry, segment: segments.length });
+          redirects.push(entry);
           pendingRedirect = false;
           continue;
         }
@@ -184,34 +210,14 @@ export class WriteFence {
         ) {
           pendingRedirect = false;
         } else {
-          segments.push(segment);
-          segment = [];
+          const decision = flush();
+          if (!decision.allowed) return decision;
+          if (entry.op === "(") tracker.open();
+          else if (entry.op === ")") tracker.close();
         }
       }
     }
-    segments.push(segment);
-
-    let current = cwd;
-    const directories: string[] = [];
-    for (const words of segments) {
-      directories.push(current);
-      if (words[0] === "cd" || words[0] === "pushd") {
-        const target = words.find((word, position) => position > 0 && !word.startsWith("-"));
-        current = target === undefined ? this.projectRoot : resolve(current, target);
-      }
-    }
-    for (const redirect of redirects) {
-      if (redirect.target.startsWith("&") || redirect.target === "/dev/null") continue;
-      const decision = this.check(redirect.target, directories[redirect.segment] ?? cwd, "Bash");
-      if (!decision.allowed) return decision;
-    }
-    for (const [index, words] of segments.entries()) {
-      for (const target of this.writeTargets(words)) {
-        const decision = this.check(target, directories[index] ?? cwd, "Bash");
-        if (!decision.allowed) return decision;
-      }
-    }
-    return ALLOW;
+    return flush();
   }
 
   private writeTargets(words: readonly string[]): string[] {
@@ -235,14 +241,25 @@ export class WriteFence {
     return [];
   }
 
+  private refuse(target: string, reason: string): GuardDecision {
+    return { allowed: false, target, rule: null, reason };
+  }
+
   private check(rawPath: string, cwd: string, toolName: string): GuardDecision {
     if (rawPath.length === 0 || rawPath.startsWith("$")) return ALLOW;
     if (rawPath.startsWith("~") && rawPath !== "~" && !rawPath.startsWith("~/")) return ALLOW;
     const expanded = rawPath.startsWith("~") ? resolve(homedir(), rawPath.slice(2)) : rawPath;
     const absolute = normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
+    if (this.protectedPaths.some((path) => pathWithin(absolute, path)))
+      return this.refuse(absolute, `${absolute} holds Onyx's own data: agents cannot change it.`);
     const inside = relative(this.projectRoot, absolute);
     if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const relPath = inside.split("\\").join("/");
+    if (isGitMetadata(relPath))
+      return this.refuse(
+        relPath,
+        `${relPath} is git metadata: Onyx makes the commits, merges and branches, so agents cannot change .git.`,
+      );
     const verdict = this.verdict(relPath);
     if (verdict.allowed) return ALLOW;
     return {

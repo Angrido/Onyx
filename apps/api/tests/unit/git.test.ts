@@ -7,6 +7,8 @@ import {
   suggestBranch,
   suggestMessage,
 } from "../../src/application/git-service";
+import { buildRunSettings } from "../../src/domain/permission-rules";
+import { gitEnvironment, safeGitArgs } from "../../src/infrastructure/git-env";
 
 describe("git status parsing", () => {
   it("reads branch, upstream and divergence", () => {
@@ -65,5 +67,50 @@ describe("git status parsing", () => {
     expect(suggestBranch([], now)).toBe("onyx/20261005-changes");
     expect(suggestMessage(["Fix login"])).toBe("Onyx: Fix login");
     expect(suggestMessage(["A", "B"])).toBe("Onyx: 2 tasks\n\n- A\n- B");
+  });
+});
+
+describe("git environment", () => {
+  it("passes git only what it needs, never Onyx's secrets", () => {
+    const env = gitEnvironment(
+      {
+        PATH: "/usr/bin",
+        HOME: "/home/onyx",
+        GIT_AUTHOR_NAME: "Onyx",
+        ONYX_GITHUB_TOKEN: "ghp_secret",
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-secret",
+        ANTHROPIC_API_KEY: "sk-ant-api-secret",
+        ONYX_SECRET_KEY: "key",
+        DATABASE_URL: "file:/var/lib/onyx/onyx.db",
+      },
+      { GIT_TERMINAL_PROMPT: "0" },
+    );
+    expect(env).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/home/onyx",
+      GIT_AUTHOR_NAME: "Onyx",
+      GIT_TERMINAL_PROMPT: "0",
+    });
+  });
+
+  it("switches off repository hooks and the fsmonitor command", () => {
+    expect(safeGitArgs(["status"])).toEqual([
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "status",
+    ]);
+  });
+});
+
+describe("run settings", () => {
+  it("deny git metadata edits and Onyx's own files", () => {
+    const deny = buildRunSettings({ protectedPaths: ["/var/lib/onyx/secret.key"] }).permissions
+      .deny;
+    expect(deny).toContain("Edit(**/.git/**)");
+    expect(deny).toContain("Read(//var/lib/onyx/secret.key)");
+    expect(deny).toContain("Read(//var/lib/onyx/secret.key/**)");
+    expect(deny).toContain("Edit(//var/lib/onyx/secret.key)");
   });
 });

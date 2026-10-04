@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
@@ -54,6 +55,7 @@ export interface SurgeonServiceDeps {
   indexes: IndexService;
   calibration: CalibrationService;
   logger: Logger;
+  protectedPaths?: readonly string[];
 }
 
 function toPolicyRule(row: ProfileWithRules["rules"][number]): PolicyRule {
@@ -186,7 +188,7 @@ export class SurgeonService {
         projectRoot: root,
         ...(context ? { files } : {}),
       }),
-      guard: new PathGuard(policy, root, files),
+      guard: new PathGuard(policy, root, files, homedir(), this.deps.protectedPaths ?? []),
     };
   }
 

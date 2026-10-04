@@ -1,4 +1,6 @@
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { checkCliCompatibility } from "@onyx/agent-runtime";
 import { sqliteFilePathFromUrl } from "@onyx/db";
 import { loadConfig, type AppConfig } from "./config";
@@ -13,6 +15,7 @@ import {
   writeBackup,
   type BackupReason,
 } from "./infrastructure/database-backup";
+import { migrateSafely } from "./infrastructure/safe-migration";
 import { SecretVault } from "./infrastructure/secret-vault";
 
 const USAGE = `Usage: onyx-cli <command>
@@ -23,6 +26,9 @@ const USAGE = `Usage: onyx-cli <command>
   restore <name|latest|path> [--force]  replace the database with a backup;
                                         Onyx must be stopped (the current
                                         database is saved first)
+  migrate --prisma-dir <dir>            back up the database, apply the
+                                        migrations and put the backup back if
+                                        they fail (Onyx must be stopped)
   check-claude                          check that CLAUDE_BIN accepts every
                                         option Onyx passes (no request is sent)
 `;
@@ -149,6 +155,50 @@ async function restore(config: AppConfig, args: string[]): Promise<void> {
     );
 }
 
+function runPrisma(directory: string, databaseUrl: string): Promise<boolean> {
+  return new Promise((done) => {
+    const child = spawn(join(directory, "node_modules", ".bin", "prisma"), ["migrate", "deploy"], {
+      cwd: directory,
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      stdio: "inherit",
+    });
+    child.on("error", (error) => {
+      process.stderr.write(`error: ${error.message}\n`);
+      done(false);
+    });
+    child.on("exit", (code) => done(code === 0));
+  });
+}
+
+async function migrate(config: AppConfig, args: string[]): Promise<boolean> {
+  const directory = option(args, "--prisma-dir");
+  if (!directory) throw new UsageError("migrate needs --prisma-dir <dir>");
+  if (await onyxIsRunning(config))
+    throw new BackupError("Onyx is running: stop it first (onyx-stop), then migrate");
+  const result = await migrateSafely({
+    databasePath: databasePath(config),
+    backupDir: config.backup.dir,
+    keep: config.backup.keep,
+    keyFingerprint: await keyFingerprint(config),
+    migrate: () => runPrisma(resolve(directory), config.databaseUrl),
+  });
+  switch (result.status) {
+    case "migrated":
+      if (result.backup) print(`Backup written before the migration: ${result.backup.file}`);
+      print("The database is up to date");
+      return true;
+    case "failed-fresh":
+      print("The migration of the new database failed: nothing to put back");
+      return false;
+    case "rolled-back":
+      print(
+        `The migration failed: the database is back as it was before the update (${result.backup.file})`,
+      );
+      if (result.failedCopy) print(`The half-migrated database was kept as ${result.failedCopy}`);
+      return false;
+  }
+}
+
 async function checkClaude(config: AppConfig): Promise<boolean> {
   const result = await checkCliCompatibility(
     { command: config.claudeBin, args: [] },
@@ -186,6 +236,8 @@ export async function main(argv: string[]): Promise<number> {
       case "restore":
         await restore(config, args);
         return 0;
+      case "migrate":
+        return (await migrate(config, args)) ? 0 : 1;
       case "check-claude":
         return (await checkClaude(config)) ? 0 : 1;
       default:

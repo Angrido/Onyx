@@ -57,6 +57,7 @@ import { toStringArray } from "./mappers";
 import type { ExecutionResult } from "./run-executor";
 import { runLockKey, type RunScheduler } from "./run-scheduler";
 import type { RouterService } from "./router-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type StartInput = z.output<typeof StartTddLoopRequestSchema>;
 
@@ -1308,8 +1309,9 @@ export class TddService {
   private async defaultRelatedFiles(root: string, targetPaths: unknown): Promise<string[]> {
     const guard = new TestGuard(root);
     const candidates = new Set(toStringArray(targetPaths));
-    const status = await execFileAsync("git", ["status", "--porcelain", "-uall"], {
+    const status = await execFileAsync("git", safeGitArgs(["status", "--porcelain", "-uall"]), {
       cwd: root,
+      env: gitEnvironment(),
       timeout: 30_000,
       maxBuffer: 8 * 1024 * 1024,
     }).catch(() => null);

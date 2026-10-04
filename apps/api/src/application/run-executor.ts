@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import {
   buildClaudeArgs,
   notStartedExit,
@@ -91,7 +91,10 @@ export interface RunExecutorDeps {
   writer: EventWriter;
   hub: WsHub;
   logger: Logger;
-  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl">;
+  config: Pick<
+    AppConfig,
+    "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl" | "agentProtectedPaths"
+  >;
   indexes: IndexService;
   surgeon: SurgeonService;
   router: RouterService;
@@ -555,6 +558,10 @@ export class RunExecutor {
     });
 
     const scope = await this.deps.surgeon.runScope(task.projectId, workspace.id, task.worktreePath);
+    const protectedPaths = [
+      ...config.agentProtectedPaths,
+      ...(task.worktreePath ? [join(task.project.rootPath, ".git")] : []),
+    ];
     const indexed = await this.deps.indexes.context(task.projectId);
     const fence = new WriteFence(
       root,
@@ -562,6 +569,8 @@ export class RunExecutor {
       task.project.workspaces
         .filter((candidate) => candidate.id !== workspace.id)
         .map((candidate) => ({ name: candidate.name, globs: toStringArray(candidate.pathGlobs) })),
+      undefined,
+      protectedPaths,
     );
     const fenceRules = fence.compile(indexed ? [...indexed.index.files.keys()] : []);
     const runToken = this.deps.runTokens.issue(run.id, task.projectId, {
@@ -590,6 +599,7 @@ export class RunExecutor {
           ...fenceRules.editDeny,
           ...(request.tdd ? request.tdd.guard.denyRules() : []),
         ],
+        protectedPaths,
         hooks: guardHooks(config.internalApiUrl),
       }),
       primer: composePrimer({

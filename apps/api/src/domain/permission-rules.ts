@@ -8,6 +8,20 @@ export const SECRET_READ_DENY_RULES: readonly string[] = [
   "Read(**/id_ed25519*)",
 ];
 
+export const GIT_METADATA_DENY_RULES: readonly string[] = ["Edit(**/.git/**)"];
+
+export function protectedPathRules(paths: readonly string[]): string[] {
+  return paths.flatMap((path) => {
+    const absolute = `/${path.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+    return [
+      `Read(/${absolute})`,
+      `Read(/${absolute}/**)`,
+      `Edit(/${absolute})`,
+      `Edit(/${absolute}/**)`,
+    ];
+  });
+}
+
 export const RUN_TOKEN_ENV = "ONYX_RUN_TOKEN";
 export const GUARDED_TOOLS = "Read|Grep|Glob|LS|LSP|NotebookRead|Bash";
 export const EDIT_TOOLS = "Edit|Write|MultiEdit|NotebookEdit";
@@ -50,6 +64,7 @@ export interface RunSettings {
 
 export interface RunSettingsOptions {
   deny?: readonly string[];
+  protectedPaths?: readonly string[];
   hooks?: RunHooks;
   statusLine?: StatusLineSetting;
 }
@@ -110,7 +125,14 @@ export function statusLineSetting(nodePath: string, scriptPath: string): StatusL
 export function buildRunSettings(options: RunSettingsOptions = {}): RunSettings {
   return {
     permissions: {
-      deny: [...new Set([...SECRET_READ_DENY_RULES, ...(options.deny ?? [])])],
+      deny: [
+        ...new Set([
+          ...SECRET_READ_DENY_RULES,
+          ...GIT_METADATA_DENY_RULES,
+          ...protectedPathRules(options.protectedPaths ?? []),
+          ...(options.deny ?? []),
+        ]),
+      ],
       allow: [],
     },
     ...(options.hooks ? { hooks: options.hooks } : {}),

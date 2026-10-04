@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { TextTail } from "@onyx/agent-runtime";
+import { gitEnvironment, safeGitArgs } from "./git-env";
 
 export interface CloneProgress {
   phase: string;
@@ -77,13 +78,12 @@ export function cloneRepository(options: CloneOptions): Promise<void> {
     options.destination,
   ];
   return new Promise((resolve, reject) => {
-    const child = spawn(options.gitBin ?? "git", args, {
-      env: {
-        ...(options.sourceEnv ?? process.env),
+    const child = spawn(options.gitBin ?? "git", safeGitArgs(args), {
+      env: gitEnvironment(options.sourceEnv ?? process.env, {
         GIT_TERMINAL_PROMPT: "0",
         GCM_INTERACTIVE: "never",
         ...credentialEnv(options.token, options.tokenOrigin),
-      },
+      }),
       stdio: ["ignore", "ignore", "pipe"],
     });
     const stderr = new TextTail(16_000);

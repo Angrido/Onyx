@@ -15,6 +15,7 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { credentialEnv as gitCredentialEnv, redact } from "../infrastructure/git-clone";
 import type { GitHubService } from "./github-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type PublishInput = z.output<typeof PublishChangesRequestSchema>;
 type IdentityInput = z.output<typeof UpdateGitIdentityRequestSchema>;
@@ -396,15 +397,14 @@ export class GitService {
     args: readonly string[],
     options: { env?: Record<string, string>; input?: string; secrets?: readonly string[] } = {},
   ): Promise<string> {
-    const env = {
-      ...(this.deps.sourceEnv ?? process.env),
+    const env = gitEnvironment(this.deps.sourceEnv ?? process.env, {
       GIT_TERMINAL_PROMPT: "0",
       GCM_INTERACTIVE: "never",
       LC_ALL: "C",
       ...options.env,
-    };
+    });
     try {
-      const child = execFileAsync(this.deps.gitBin ?? "git", [...args], {
+      const child = execFileAsync(this.deps.gitBin ?? "git", safeGitArgs(args), {
         cwd,
         env,
         timeout: GIT_TIMEOUT_MS,

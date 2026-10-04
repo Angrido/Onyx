@@ -70,7 +70,12 @@ export interface TerminalServiceDeps {
   binary: ClaudeBinary;
   config: Pick<
     AppConfig,
-    "runtimeDir" | "childEnvPassthrough" | "context" | "terminal" | "internalApiUrl"
+    | "runtimeDir"
+    | "childEnvPassthrough"
+    | "context"
+    | "terminal"
+    | "internalApiUrl"
+    | "agentProtectedPaths"
   >;
   surgeon: SurgeonService;
   indexes: IndexService;
@@ -281,6 +286,8 @@ export class TerminalService {
             name: candidate.name,
             globs: toStringArray(candidate.pathGlobs),
           })),
+        undefined,
+        config.agentProtectedPaths,
       );
       const fenceRules = fence.compile(indexed ? [...indexed.index.files.keys()] : []);
       const token = this.deps.runTokens.issue(id, workspace.projectId, {
@@ -303,6 +310,7 @@ export class TerminalService {
         runId: `terminal-${id}`,
         settings: buildRunSettings({
           deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny, ...fenceRules.editDeny],
+          protectedPaths: config.agentProtectedPaths,
           hooks: terminalHooks(config.internalApiUrl),
           ...(statusLinePath !== null && isReadableFile(statusLinePath)
             ? { statusLine: statusLineSetting(process.execPath, statusLinePath) }

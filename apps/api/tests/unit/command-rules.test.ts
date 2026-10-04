@@ -23,6 +23,8 @@ describe("command programs", () => {
       "./node_modules/.bin/playwright",
     ]);
     expect(commandPrograms("$HOME/bin/tool")).toEqual([]);
+    expect(commandPrograms("echo hi\nrm -rf build")).toEqual(["echo", "rm"]);
+    expect(commandPrograms("if true; then make; fi")).toEqual(["make"]);
     expect(commandPrograms("")).toEqual([]);
   });
 });

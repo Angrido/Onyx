@@ -1,3 +1,4 @@
+import { separateLines, withoutKeywords } from "@onyx/ignore-compiler";
 import { parse, type ParseEntry } from "shell-quote";
 
 export type TestRunnerName = "VITEST" | "JEST";
@@ -137,7 +138,7 @@ export function defaultLintCommand(
 function words(command: string): string[][] {
   let entries: ParseEntry[];
   try {
-    entries = parse(command, (name) => `$${name}`);
+    entries = parse(separateLines(command), (name) => `$${name}`);
   } catch {
     return [command.split(/\s+/)];
   }
@@ -152,7 +153,7 @@ function words(command: string): string[][] {
     }
   }
   segments.push(current);
-  return segments.filter((segment) => segment.length > 0);
+  return segments.map(withoutKeywords).filter((segment) => segment.length > 0);
 }
 
 const FLAGS_WITH_VALUE = new Set([

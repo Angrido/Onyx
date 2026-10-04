@@ -58,6 +58,7 @@ async function waitForTask(taskId: string, statuses: string[]): Promise<TaskDeta
   await waitFor(
     async () => (await api.get<TaskDetailDto>(`/api/tasks/${taskId}`)).body,
     (task) => statuses.includes(task.status),
+    25_000,
   );
   await context.container.scheduler.settledTask(taskId);
   return (await api.get<TaskDetailDto>(`/api/tasks/${taskId}`)).body;
@@ -77,6 +78,7 @@ beforeEach(async () => {
       rootPath: context.projectRoot,
     })
   ).body;
+  await context.container.indexes.idle(project.id);
 });
 
 afterEach(async () => {

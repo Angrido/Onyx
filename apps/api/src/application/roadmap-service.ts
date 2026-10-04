@@ -46,6 +46,7 @@ import { priceUsage, type RouterService } from "./router-service";
 import type { SlotReservation } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
 import type { TaskService } from "./task-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type GenerateInput = z.output<typeof GenerateRoadmapRequestSchema>;
 
@@ -59,7 +60,10 @@ export interface RoadmapServiceDeps {
   tasks: TaskService;
   runTokens: RunTokenRegistry;
   credentials: Pick<CredentialService, "childEnv">;
-  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl">;
+  config: Pick<
+    AppConfig,
+    "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl" | "agentProtectedPaths"
+  >;
   reserve: (workspaceId: string | null) => SlotReservation;
   sourceEnv?: NodeJS.ProcessEnv;
   timeouts?: { wallClockMs: number; idleMs: number; initMs: number };
@@ -334,6 +338,7 @@ export class RoadmapService {
         runId: entry.runId,
         settings: buildRunSettings({
           deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
+          protectedPaths: config.agentProtectedPaths,
           hooks: guardHooks(config.internalApiUrl),
         }),
         primer: null,
@@ -532,8 +537,9 @@ export class RoadmapService {
 
   private async gitLog(root: string): Promise<string[]> {
     try {
-      const { stdout } = await execFileAsync("git", ["log", "--oneline", "-n", "15"], {
+      const { stdout } = await execFileAsync("git", safeGitArgs(["log", "--oneline", "-n", "15"]), {
         cwd: root,
+        env: gitEnvironment(),
         timeout: 10_000,
       });
       return stdout.split("\n").filter((line) => line.trim().length > 0);

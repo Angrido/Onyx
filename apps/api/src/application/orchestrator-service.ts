@@ -60,6 +60,7 @@ import { priceUsage, type RouterService } from "./router-service";
 import type { RunScheduler } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
 import type { TddService } from "./tdd-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type CreateInput = z.output<typeof CreateOrchestrationRequestSchema>;
 
@@ -80,7 +81,12 @@ export interface OrchestratorDeps {
   credentials: Pick<CredentialService, "childEnv">;
   config: Pick<
     AppConfig,
-    "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl" | "dataDir"
+    | "runtimeDir"
+    | "childEnvPassthrough"
+    | "context"
+    | "internalApiUrl"
+    | "dataDir"
+    | "agentProtectedPaths"
   >;
   sourceEnv?: NodeJS.ProcessEnv;
   plannerTimeouts?: { wallClockMs: number; idleMs: number; initMs: number };
@@ -476,6 +482,7 @@ export class OrchestratorService {
       runId: planner.runId,
       settings: buildRunSettings({
         deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
+        protectedPaths: config.agentProtectedPaths,
         hooks: guardHooks(config.internalApiUrl),
       }),
       primer: null,
@@ -1303,8 +1310,9 @@ export class OrchestratorService {
   }
 
   private async gitLog(root: string): Promise<string[]> {
-    const output = await execFileAsync("git", ["log", "--oneline", "-15"], {
+    const output = await execFileAsync("git", safeGitArgs(["log", "--oneline", "-15"]), {
       cwd: root,
+      env: gitEnvironment(),
       timeout: 15_000,
     }).catch(() => null);
     return output ? output.stdout.split("\n").filter((line) => line.trim().length > 0) : [];

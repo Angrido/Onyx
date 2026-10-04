@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { lstat, mkdir, readdir, rm, symlink } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
+import { gitEnvironment, safeGitArgs } from "./git-env";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 120_000;
@@ -61,9 +62,9 @@ export class GitRepo {
     options: { cwd?: string; env?: Record<string, string> } = {},
   ): Promise<string> {
     try {
-      const { stdout } = await execFileAsync("git", [...args], {
+      const { stdout } = await execFileAsync("git", safeGitArgs(args), {
         cwd: options.cwd ?? this.root,
-        env: { ...this.baseEnv, GIT_TERMINAL_PROMPT: "0", ...options.env },
+        env: gitEnvironment(this.baseEnv, { GIT_TERMINAL_PROMPT: "0", ...options.env }),
         timeout: GIT_TIMEOUT_MS,
         maxBuffer: MAX_BUFFER,
       });

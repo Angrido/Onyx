@@ -1,7 +1,22 @@
+import { separateLines, withoutKeywords } from "@onyx/ignore-compiler";
 import { parse, type ParseEntry } from "shell-quote";
 
 const SEPARATORS = new Set([";", "&&", "||", "|", "&", "|&"]);
-const SKIPPED = new Set(["cd", "pushd", "popd", "export", "set", "true", "false", ":", "exit"]);
+const SKIPPED = new Set([
+  "cd",
+  "pushd",
+  "popd",
+  "export",
+  "set",
+  "true",
+  "false",
+  ":",
+  "exit",
+  "fi",
+  "done",
+  "esac",
+  "}",
+]);
 const WRAPPERS = new Set(["env", "nice", "time", "command", "nohup"]);
 const RISKY = new Set([
   "rm",
@@ -38,7 +53,7 @@ export interface RuleSuggestion {
 export function commandPrograms(command: string): string[] {
   let entries: ParseEntry[];
   try {
-    entries = parse(command, (name) => `$${name}`);
+    entries = parse(separateLines(command), (name) => `$${name}`);
   } catch {
     return [];
   }
@@ -65,7 +80,7 @@ export function commandPrograms(command: string): string[] {
   }
   segments.push(current);
   const programs: string[] = [];
-  for (const words of segments) {
+  for (const words of segments.map(withoutKeywords)) {
     let index = 0;
     while (
       index < words.length &&

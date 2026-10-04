@@ -192,7 +192,13 @@ export async function createContainer(
       : { refreshDelayMs: overrides.indexRefreshDelayMs }),
   });
   const runTokens = new RunTokenRegistry();
-  const surgeon = new SurgeonService({ prisma, indexes, calibration, logger });
+  const surgeon = new SurgeonService({
+    prisma,
+    indexes,
+    calibration,
+    logger,
+    protectedPaths: config.agentProtectedPaths,
+  });
   const scheduling: { scheduler: RunScheduler | null; terminals: TerminalService | null } = {
     scheduler: null,
     terminals: null,

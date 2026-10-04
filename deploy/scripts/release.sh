@@ -35,12 +35,7 @@ restart_previous() {
 trap restart_previous ERR
 
 install -d -o onyx -g onyx -m 700 "${ONYX_BACKUP_DIR:-/var/backups/onyx}"
-if [ -f "${DATABASE_URL#file:}" ]; then
-  runuser -u onyx -- bash -c 'set -a; . /etc/onyx/onyx.env; set +a; exec node "$1/api/dist/cli.js" backup --reason pre-update' onyx-cli "$TARGET" \
-    || printf 'warning: the backup before the update failed\n' >&2
-fi
-
-(cd "$TARGET/db" && runuser -u onyx -- env DATABASE_URL="$DATABASE_URL" ./node_modules/.bin/prisma migrate deploy)
+runuser -u onyx -- bash -c 'set -a; . /etc/onyx/onyx.env; set +a; exec node "$1/api/dist/cli.js" migrate --prisma-dir "$1/db"' onyx-cli "$TARGET"
 trap - ERR
 
 ln -sfn "$TARGET" "$BASE/current"

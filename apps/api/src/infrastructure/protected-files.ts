@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
+import { gitEnvironment, safeGitArgs } from "./git-env";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,8 +53,8 @@ async function gitFiles(root: string): Promise<string[] | null> {
   try {
     const { stdout } = await execFileAsync(
       "git",
-      ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-      { cwd: root, maxBuffer: 64 * 1024 * 1024, timeout: 60_000 },
+      safeGitArgs(["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
+      { cwd: root, env: gitEnvironment(), maxBuffer: 64 * 1024 * 1024, timeout: 60_000 },
     );
     return stdout.split("\0").filter((entry) => entry.length > 0 && !skipped(entry));
   } catch {

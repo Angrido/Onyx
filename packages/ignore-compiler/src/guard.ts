@@ -3,6 +3,7 @@ import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { parse, type ParseEntry } from "shell-quote";
 import type { ContextPolicy, Explanation } from "./policy";
 import type { PolicyRule } from "./rules";
+import { DirectoryTracker, pathWithin, separateLines, withoutKeywords } from "./shell";
 
 export interface ToolCall {
   toolName: string;
@@ -128,8 +129,22 @@ export class PathGuard {
     private readonly projectRoot: string,
     private readonly files: readonly string[] = [],
     private readonly home: string = homedir(),
+    private readonly protectedPaths: readonly string[] = [],
   ) {
     this.knownFiles = new Set(files);
+  }
+
+  private shielded(absolute: string, pattern: boolean): GuardDecision | null {
+    const hit = this.protectedPaths.find(
+      (path) => pathWithin(absolute, path) || (pattern && pathWithin(path, absolute)),
+    );
+    if (hit === undefined) return null;
+    return {
+      allowed: false,
+      target: absolute,
+      rule: null,
+      reason: `${absolute} holds Onyx's own data (keys, database, backups or run files): agents cannot read it.`,
+    };
   }
 
   private absolutePath(path: string, cwd: string): string | null {
@@ -174,19 +189,27 @@ export class PathGuard {
   evaluateCommand(command: string, cwd: string): GuardDecision {
     let entries: ParseEntry[];
     try {
-      entries = parse(command, (name) => `$${name}`);
+      entries = parse(separateLines(command), (name) => `$${name}`);
     } catch {
       return ALLOW;
     }
+    const tracker = new DirectoryTracker(cwd, this.projectRoot, this.home);
     let segment: string[] = [];
-    const segments: string[][] = [];
     let redirectInput = false;
+    const flush = (): GuardDecision => {
+      const words = withoutKeywords(segment);
+      segment = [];
+      if (tracker.enter(words)) return ALLOW;
+      return this.inEach(tracker, (directory) => this.evaluateWords(words, directory));
+    };
     for (const entry of entries) {
       if (typeof entry === "string") {
         if (redirectInput) {
-          const decision = this.check(entry, cwd, "Bash");
-          if (!decision.allowed) return decision;
           redirectInput = false;
+          const decision = this.inEach(tracker, (directory) =>
+            this.check(entry, directory, "Bash"),
+          );
+          if (!decision.allowed) return decision;
           continue;
         }
         segment.push(entry);
@@ -199,22 +222,26 @@ export class PathGuard {
           redirectInput = true;
           continue;
         }
-        segments.push(segment);
-        segment = [];
+        const decision = flush();
+        if (!decision.allowed) return decision;
+        if (entry.op === "(") tracker.open();
+        else if (entry.op === ")") tracker.close();
       }
     }
-    segments.push(segment);
-    let current = cwd;
-    for (const words of segments) {
-      if (words[0] === "cd" || words[0] === "pushd") {
-        const target = words.find((word, position) => position > 0 && !word.startsWith("-"));
-        current = target === undefined ? this.projectRoot : resolve(current, target);
-        continue;
-      }
-      const decision = this.evaluateWords(words, current);
+    const last = flush();
+    if (!last.allowed) return last;
+    return OBFUSCATION.test(command) ? this.sweep(command, cwd) : ALLOW;
+  }
+
+  private inEach(
+    tracker: DirectoryTracker,
+    decide: (directory: string) => GuardDecision,
+  ): GuardDecision {
+    for (const directory of tracker.candidates()) {
+      const decision = decide(directory);
       if (!decision.allowed) return decision;
     }
-    return OBFUSCATION.test(command) ? this.sweep(command, cwd) : ALLOW;
+    return ALLOW;
   }
 
   private sweep(command: string, cwd: string): GuardDecision {
@@ -318,6 +345,8 @@ export class PathGuard {
     const resolved = this.absolutePath(cleaned || ".", cwd);
     if (resolved === null) return ALLOW;
     const absolute = normalize(resolved);
+    const shielded = this.shielded(absolute, cleaned !== rawPath);
+    if (shielded) return shielded;
     const inside = relative(this.projectRoot, absolute);
     if (inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const relPath = inside.split("\\").join("/");

@@ -398,16 +398,8 @@ dev_update_steps() {
   fi
   step "Installing dependencies"
   (cd "$ROOT" && pnpm install --frozen-lockfile) || return 1
-  load_dev_env
-  if [ -n "${DATABASE_URL:-}" ] && [ -f "${DATABASE_URL#file:}" ]; then
-    backup_now pre-update || warn "the backup before the update failed: continuing"
-  fi
-  step "Migrating the database"
-  if [ -z "${DATABASE_URL:-}" ]; then
-    warn "DATABASE_URL is not set in apps/api/.env"
-    return 1
-  fi
-  (cd "$ROOT" && DATABASE_URL="$DATABASE_URL" pnpm --filter @onyx/db migrate:deploy) || return 1
+  step "Backing up and migrating the database"
+  onyx_cli migrate --prisma-dir "$ROOT/packages/db" || return 1
   step "Building the MCP server"
   (cd "$ROOT" && pnpm --filter @onyx/mcp-server build) || return 1
 }
@@ -420,7 +412,7 @@ dev_update() {
   fi
   if ! dev_update_steps; then
     if $was_running; then warn "Onyx was stopped for the update and is still stopped"; fi
-    fail "the update did not finish: fix the error above and run onyx-update again (the backup written before the update is listed by onyx backups)"
+    fail "the update did not finish: fix the error above and run onyx-update again (a failed migration puts the database back as it was; the backups are listed by onyx backups)"
   fi
   if $was_running; then
     dev_start

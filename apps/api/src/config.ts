@@ -110,6 +110,7 @@ export interface AppConfig {
   internalApiUrl: string;
   secrets: SecretsConfig;
   backup: BackupConfig;
+  agentProtectedPaths: string[];
 }
 
 export interface SecretsConfig {
@@ -143,6 +144,14 @@ function resolveCredentials(apiKey?: string, oauthToken?: string): ClaudeCredent
   return { kind: "none" };
 }
 
+const SERVICE_CONFIG_DIR = "/etc/onyx";
+
+function databaseFiles(databaseUrl: string): string[] {
+  if (!databaseUrl.startsWith("file:")) return [];
+  const file = resolve(databaseUrl.slice("file:".length).split("?")[0] ?? "");
+  return [file, `${file}-wal`, `${file}-shm`, `${file}-journal`];
+}
+
 function loopbackHost(apiHost: string): string {
   if (apiHost === "0.0.0.0" || apiHost === "127.0.0.1" || apiHost === "localhost")
     return "127.0.0.1";
@@ -171,6 +180,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       : mcpServerPath
         ? join(dirname(mcpServerPath), "onyx-statusline.js")
         : null;
+  const keyFile = resolve(env.ONYX_SECRET_KEY_FILE ?? join(dataDir, "secret.key"));
+  const backupDir = resolve(env.ONYX_BACKUP_DIR ?? join(dataDir, "backups"));
+  const runtimeDir = resolve(dataDir, "runtime");
   const allowedOrigins = [
     ...env.ONYX_ALLOWED_ORIGINS,
     ...(env.ONYX_PUBLIC_ORIGIN ? [env.ONYX_PUBLIC_ORIGIN] : []),
@@ -183,7 +195,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     port: env.API_PORT,
     databaseUrl: env.DATABASE_URL,
     dataDir,
-    runtimeDir: resolve(dataDir, "runtime"),
+    runtimeDir,
     projectsDir,
     allowedProjectRoots:
       env.ONYX_ALLOWED_PROJECT_ROOTS.length > 0
@@ -217,17 +229,25 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       env.ONYX_INTERNAL_API_URL ?? `http://${loopbackHost(env.API_HOST)}:${env.API_PORT}`
     ).replace(/\/+$/, ""),
     secrets: {
-      keyFile: resolve(env.ONYX_SECRET_KEY_FILE ?? join(dataDir, "secret.key")),
+      keyFile,
       key:
         env.ONYX_SECRET_KEY && env.ONYX_SECRET_KEY.trim().length > 0
           ? env.ONYX_SECRET_KEY.trim()
           : null,
     },
     backup: {
-      dir: resolve(env.ONYX_BACKUP_DIR ?? join(dataDir, "backups")),
+      dir: backupDir,
       keep: env.ONYX_BACKUP_KEEP,
       intervalHours: env.ONYX_BACKUP_INTERVAL_HOURS,
     },
+    agentProtectedPaths: [
+      keyFile,
+      ...databaseFiles(env.DATABASE_URL),
+      backupDir,
+      runtimeDir,
+      join(dataDir, "logs"),
+      SERVICE_CONFIG_DIR,
+    ],
   };
 }
 
