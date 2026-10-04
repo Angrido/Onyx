@@ -34,8 +34,9 @@ step() { printf '%s==>%s %s%s%s\n' "$ACCENT" "$RESET" "$BOLD" "$*" "$RESET"; }
 info() { printf '    %s\n' "$*"; }
 ok() { printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
 warn() { printf '%swarning:%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
+error() { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; }
 fail() {
-  printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2
+  error "$@"
   exit 1
 }
 has() { command -v "$1" >/dev/null 2>&1; }
@@ -389,13 +390,54 @@ dev_status() {
   lan_urls ":3000"
 }
 
+checkout_git() {
+  local owner home
+  owner="$(stat -c %U "$ROOT" 2>/dev/null || printf 'UNKNOWN')"
+  if [ "$(id -u)" -eq 0 ] && [ "$owner" != root ] && [ "$owner" != UNKNOWN ] && has runuser; then
+    home="$(getent passwd "$owner" | cut -d: -f6)"
+    runuser -u "$owner" -- env HOME="${home:-/}" git -C "$ROOT" "$@"
+  else
+    git -c safe.directory="$(cd "$ROOT" && pwd -P)" -C "$ROOT" "$@"
+  fi
+}
+
+update_code() {
+  local branch upstream before after status=0
+  if ! checkout_git rev-parse --is-inside-work-tree >/dev/null; then
+    error "git cannot read the checkout in $ROOT (see the git message above): the code was not updated"
+    return 1
+  fi
+  branch="$(checkout_git symbolic-ref --quiet --short HEAD)" || status=$?
+  if [ "$status" -eq 1 ]; then
+    warn "HEAD is detached in $ROOT: skipping git pull"
+    return 0
+  elif [ "$status" -ne 0 ]; then
+    error "git could not read the current branch in $ROOT: the code was not updated"
+    return 1
+  fi
+  if ! upstream="$(checkout_git for-each-ref --format='%(upstream:short)' "refs/heads/$branch")"; then
+    error "git could not read the upstream of $branch in $ROOT: the code was not updated"
+    return 1
+  fi
+  if [ -z "$upstream" ]; then
+    warn "the branch $branch has no upstream: skipping git pull"
+    return 0
+  fi
+  before="$(checkout_git rev-parse --short HEAD)" || {
+    error "git could not read HEAD in $ROOT: the code was not updated"
+    return 1
+  }
+  if ! checkout_git pull --ff-only; then
+    error "git pull from $upstream failed (see the git message above): the code was not updated"
+    return 1
+  fi
+  after="$(checkout_git rev-parse --short HEAD)" || after="?"
+  if [ "$before" = "$after" ]; then ok "the code is up to date ($after)"; else ok "code updated: $before -> $after"; fi
+}
+
 dev_update_steps() {
   step "Updating the code"
-  if git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-    git -C "$ROOT" pull --ff-only || return 1
-  else
-    warn "the current branch has no upstream: skipping git pull"
-  fi
+  update_code || return 3
   step "Installing dependencies"
   (cd "$ROOT" && pnpm install --frozen-lockfile) || return 1
   step "Backing up and migrating the database"
@@ -410,7 +452,12 @@ dev_update() {
     was_running=true
     dev_stop
   fi
-  if ! dev_update_steps; then
+  local status=0
+  dev_update_steps || status=$?
+  if [ "$status" -eq 3 ]; then
+    if $was_running; then dev_start; fi
+    fail "the code was not updated: fix the git error above and run onyx-update again"
+  elif [ "$status" -ne 0 ]; then
     if $was_running; then warn "Onyx was stopped for the update and is still stopped"; fi
     fail "the update did not finish: fix the error above and run onyx-update again (a failed migration puts the database back as it was; the backups are listed by onyx backups)"
   fi
@@ -451,28 +498,26 @@ service_status() {
   info "      http://$(hostname).local"
 }
 
+STAGE=""
+
+remove_stage() {
+  if [ -n "$STAGE" ]; then
+    rm -rf "$STAGE"
+    STAGE=""
+  fi
+}
+
 service_update() {
   step "Updating the code in $ROOT"
-  if git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-    git -C "$ROOT" pull --ff-only
-  else
-    warn "the current branch has no upstream: skipping git pull"
-  fi
-  local stage
-  stage="$(mktemp -d /tmp/onyx-release-XXXXXX)"
+  update_code || fail "the update stopped before touching Onyx: fix the git error above and run onyx-update again"
+  STAGE="$(mktemp -d "${TMPDIR:-/tmp}/onyx-release-XXXXXX")"
+  trap remove_stage EXIT
   step "Building a release"
-  "$ROOT/deploy/scripts/build.sh" "$stage/release"
+  "$ROOT/deploy/scripts/build.sh" "$STAGE/release" || fail "the build failed: Onyx was not touched"
   step "Installing the release"
-  as_root "$ROOT/deploy/scripts/release.sh" "$stage/release"
-  rm -rf "$stage"
-  if [ -d /opt/onyx/releases ]; then
-    local old
-    old="$(find /opt/onyx/releases -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk 'NR > 3 { print $2 }')"
-    if [ -n "$old" ]; then
-      info "removing old releases"
-      printf '%s\n' "$old" | while read -r dir; do as_root rm -rf "$dir"; done
-    fi
-  fi
+  as_root "$ROOT/deploy/scripts/release.sh" "$STAGE/release" || fail "the new release was not installed: see the messages above"
+  remove_stage
+  trap - EXIT
   install_commands >/dev/null || true
   ok "Onyx updated"
   service_status
@@ -535,14 +580,21 @@ run() {
   esac
 }
 
-invoked="$(basename "$0")"
-case "$invoked" in
-  onyx-*) run "${invoked#onyx-}" "${1:-}" ;;
-  *)
-    if [ $# -eq 0 ]; then
-      usage
-      exit 0
-    fi
-    run "$1" "${2:-}"
-    ;;
-esac
+main() {
+  local invoked
+  invoked="$(basename "$0")"
+  case "$invoked" in
+    onyx-*) run "${invoked#onyx-}" "${1:-}" ;;
+    *)
+      if [ $# -eq 0 ]; then
+        usage
+        exit 0
+      fi
+      run "$1" "${2:-}"
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

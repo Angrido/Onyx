@@ -2260,7 +2260,7 @@ Caddy gestisce l'upgrade WebSocket in modo trasparente. Per l'HTTPS in LAN si ag
 | `db/` | Schema, migrazioni e CLI Prisma per `prisma migrate deploy` |
 | `deploy/` | Script, unit systemd, Caddyfile, env di esempio |
 
-`deploy/scripts/release.sh <dir>` (come root) copia la release in `/opt/onyx/releases/<versione>`, applica le migrazioni come utente `onyx`, sposta il symlink `/opt/onyx/current`, installa le unit, riavvia i servizi e interroga `/api/ready`. Il rollback consiste nel riportare il symlink alla release precedente e riavviare.
+`deploy/scripts/release.sh <dir>` (come root) copia la release in `/opt/onyx/releases/<versione>`, applica le migrazioni come utente `onyx` (con il backup `pre-update` di `onyx-cli migrate`), sposta il symlink `/opt/onyx/current` in modo atomico (`ln -sfn … current.new && mv -Tf current.new current`), installa le unit, riavvia i servizi e interroga `/api/ready` con `curl -fsS` per al massimo 60 tentativi. Se la release nuova non risponde o fallisce un controllo che prima passava (`database` non è mai tollerato; `claude-cli` e `disk` sì solo se falliscono già prima dell'aggiornamento, o se Onyx era spento), lo script torna da solo alla release precedente: riporta il collegamento e le unit, rimette il backup `pre-update` se la release portava migrazioni nuove, riavvia ed esce con errore senza stampare *Released*. Una release resta marcata `.release-pending` finché non supera il controllo; la pulizia finale tiene la release corrente, la precedente e le più recenti fino a tre, e cancella sempre quelle mai completate.
 
 ### 10.9 Backup e ripristino
 
