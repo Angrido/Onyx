@@ -145,7 +145,7 @@ export const ContextItemSchema = z.object({
 });
 export type ContextItem = z.infer<typeof ContextItemSchema>;
 
-export const GuardSourceSchema = z.enum(["hook", "permission"]);
+export const GuardSourceSchema = z.enum(["hook", "permission", "audit"]);
 export type GuardSource = z.infer<typeof GuardSourceSchema>;
 
 export const GuardItemSchema = z.object({

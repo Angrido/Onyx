@@ -40,6 +40,7 @@ import {
 } from "../infrastructure/mcp-config";
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
+import type { WorkTreeActivity } from "../infrastructure/work-tree-activity";
 import { ptyOutputMessage, ptyStateMessage, type WsHub } from "../infrastructure/ws-hub";
 import type { CompartmentService } from "./compartment-service";
 import type { CredentialService } from "./credential-service";
@@ -79,6 +80,7 @@ export interface TerminalServiceDeps {
     | "agentSandbox"
   >;
   surgeon: SurgeonService;
+  activity?: WorkTreeActivity;
   indexes: IndexService;
   compartments: CompartmentService;
   runTokens: RunTokenRegistry;
@@ -109,6 +111,7 @@ interface TerminalWorkspace {
 
 interface TerminalRecord {
   id: string;
+  activity: number | null;
   projectId: string;
   projectRoot: string;
   workspace: TerminalWorkspace;
@@ -384,6 +387,7 @@ export class TerminalService {
       );
       record = {
         id,
+        activity: null,
         projectId: workspace.projectId,
         projectRoot: workspace.project.rootPath,
         workspace: {
@@ -426,6 +430,8 @@ export class TerminalService {
         this.records.delete(id);
         throw error;
       }
+      created.activity =
+        this.deps.activity?.begin(workspace.project.rootPath, workspace.name) ?? null;
       await this.audit(actor, "terminal.opened", id, {
         workspaceId: workspace.id,
         sessionId: session.id,
@@ -743,6 +749,8 @@ export class TerminalService {
     const { prisma, runTokens, logger } = this.deps;
     record.state = "exited";
     record.exitCode = exit.exitCode;
+    if (record.activity !== null) this.deps.activity?.end(record.activity);
+    record.activity = null;
     record.pending = null;
     this.stopPump(record);
     runTokens.revoke(record.id);

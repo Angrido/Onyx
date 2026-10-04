@@ -22,6 +22,7 @@ import {
   type SandboxCheck,
 } from "./infrastructure/agent-sandbox";
 import { shareWorkTrees } from "./infrastructure/git-env";
+import { WorkTreeActivity } from "./infrastructure/work-tree-activity";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
@@ -251,6 +252,7 @@ export async function createContainer(
     router,
     contextEnabled: config.context.enabled,
   });
+  const activity = new WorkTreeActivity();
   const executor = new RunExecutor({
     prisma,
     pool,
@@ -271,6 +273,7 @@ export async function createContainer(
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
     onRateLimit: (item) => quota.observe(item),
     grantedRules: (projectId, target) => projects.grantedRules(projectId, target),
+    activity,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
   const approvals = new ApprovalService({ prisma, logger, hub });
@@ -343,6 +346,7 @@ export async function createContainer(
     runTokens,
     credentials,
     reserve: (workspaceId) => scheduler.reserve(workspaceId),
+    activity,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
       ? {}

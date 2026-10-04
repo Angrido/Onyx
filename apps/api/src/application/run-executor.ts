@@ -26,6 +26,8 @@ import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "
 import type { Logger } from "pino";
 import type { AppConfig } from "../config";
 import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
+import { captureFence, reviewFence, type FenceSnapshot } from "../infrastructure/fence-audit";
+import type { WorkTreeActivity } from "../infrastructure/work-tree-activity";
 import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
@@ -110,6 +112,7 @@ export interface RunExecutorDeps {
   random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
   onRateLimit?: (item: RunItemOf<"rate_limit">) => void;
+  activity?: WorkTreeActivity;
   grantedRules?: (
     projectId: string,
     target: { taskId: string; agentConfigId: string | null },
@@ -145,6 +148,8 @@ interface PreparedRun {
   prefixHash: string;
   delivered: ReadonlyMap<string, string>;
   packFingerprints: readonly (readonly [string, string])[];
+  fence: WriteFence;
+  workspaceName: string;
 }
 
 interface PrimerMap {
@@ -275,6 +280,15 @@ export class RunExecutor {
     recorder.recordOnyx(prepared.context);
     recorder.recordOnyx(statusItem("SPAWNING"));
 
+    const fenced = (path: string) => !prepared.fence.verdict(path).allowed;
+    const activity = this.deps.activity?.begin(prepared.projectRoot, prepared.workspaceName);
+    const snapshot = await captureFence(prepared.projectRoot, fenced, this.gitEnv()).catch(
+      (error: unknown) => {
+        logger.warn({ err: error, runId: prepared.runId }, "Could not record the fenced files");
+        return null;
+      },
+    );
+
     let exit: ProcessExit;
     if (this.abortRequests.has(prepared.runId)) {
       exit = notStartedExit("aborted");
@@ -302,8 +316,59 @@ export class RunExecutor {
     }
     this.abortRequests.delete(prepared.runId);
 
+    const concurrent =
+      activity === undefined
+        ? new Set<string>()
+        : (this.deps.activity?.concurrent(activity) ?? new Set<string>());
+    if (activity !== undefined) this.deps.activity?.end(activity);
+    if (snapshot) await this.undoFencedWrites(prepared, recorder, snapshot, fenced, concurrent);
+
     await Promise.allSettled(pendingWrites);
     return this.finalize(prepared, recorder, exit, established);
+  }
+
+  private gitEnv(): NodeJS.ProcessEnv {
+    return this.deps.sourceEnv ?? process.env;
+  }
+
+  private async undoFencedWrites(
+    prepared: PreparedRun,
+    recorder: RunRecorder,
+    snapshot: FenceSnapshot,
+    fenced: (path: string) => boolean,
+    concurrent: ReadonlySet<string>,
+  ): Promise<void> {
+    const { prisma, logger } = this.deps;
+    try {
+      const review = await reviewFence(
+        snapshot,
+        fenced,
+        (path) => concurrent.has(prepared.fence.verdict(path).owner ?? ""),
+        this.gitEnv(),
+      );
+      const undone = [...review.restored, ...review.removed].sort();
+      if (undone.length === 0) return;
+      const owners = [...new Set(undone.map((path) => prepared.fence.verdict(path).owner))];
+      recorder.recordOnyx({
+        kind: "guard",
+        source: "audit",
+        tool: "Run",
+        toolUseId: null,
+        target: undone.join(", "),
+        rule: `write fence (${prepared.workspaceName})`,
+        reason: `The run changed ${undone.length} ${undone.length === 1 ? "file" : "files"} of the ${owners.join(", ")} workspace, which ${prepared.workspaceName} may not change: Onyx put ${undone.length === 1 ? "it" : "them"} back.`,
+      });
+      await prisma.auditLog.create({
+        data: {
+          actor: `run:${prepared.runId}`,
+          action: "fence.undone",
+          target: prepared.projectId,
+          meta: { restored: review.restored, removed: review.removed, skipped: review.skipped },
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error, runId: prepared.runId }, "Could not undo the fenced writes");
+    }
   }
 
   private async finalize(
@@ -825,6 +890,8 @@ export class RunExecutor {
       prefixHash: prefix,
       delivered: sessionContext.delivered,
       packFingerprints: context.packFingerprints,
+      fence,
+      workspaceName: workspace.name,
     };
   }
 

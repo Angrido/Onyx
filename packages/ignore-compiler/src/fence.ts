@@ -1,5 +1,6 @@
+import { lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, normalize, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import picomatch from "picomatch";
 import { parse, type ParseEntry } from "shell-quote";
 import { permissionPaths } from "./compiler";
@@ -59,7 +60,6 @@ const ALL_ARGUMENT_WRITERS = new Set([
 ]);
 const MODE_FIRST_WRITERS = new Set(["chmod", "chown", "chgrp"]);
 const DESTINATION_WRITERS = new Set(["cp", "rsync", "install", "ln", "scp"]);
-const GIT_WRITERS = new Set(["checkout", "restore", "rm", "mv", "clean"]);
 const VALUE_FLAGS: Readonly<Record<string, readonly string[]>> = {
   touch: ["-r", "--reference", "-d", "--date", "-t"],
   install: ["-m", "--mode", "-o", "--owner", "-g", "--group", "-t", "--target-directory"],
@@ -67,6 +67,80 @@ const VALUE_FLAGS: Readonly<Record<string, readonly string[]>> = {
   shred: ["-n", "--iterations", "-s", "--size"],
 };
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
+const GLOB_CHARS = /[*?[{]/;
+const FIND_WRITERS = new Set(["-delete", "-exec", "-execdir", "-ok", "-okdir"]);
+const FORMATTERS = new Set([
+  "prettier",
+  "biome",
+  "eslint",
+  "ruff",
+  "black",
+  "isort",
+  "gofmt",
+  "rustfmt",
+  "stylelint",
+]);
+const FORMATTER_WRITE_FLAGS = new Set(["--write", "-w", "--fix", "--apply", "format"]);
+const WALK_LIMIT = 20_000;
+const WALK_SKIPPED = new Set([".git", "node_modules"]);
+
+interface WriteTarget {
+  path: string;
+  tree: boolean;
+}
+
+function valueOf(words: readonly string[], flags: readonly string[]): string[] {
+  const values: string[] = [];
+  words.forEach((word, index) => {
+    if (flags.includes(word) && words[index + 1] !== undefined) values.push(words[index + 1] ?? "");
+  });
+  return values;
+}
+
+function findRoots(rest: readonly string[]): string[] {
+  const roots: string[] = [];
+  for (const word of rest) {
+    if (word.startsWith("-") || word === "(" || word === "!") break;
+    roots.push(word);
+  }
+  return roots.length > 0 ? roots : ["."];
+}
+
+function* ancestors(file: string): Generator<string> {
+  let index = file.indexOf("/");
+  while (index > 0) {
+    yield file.slice(0, index);
+    index = file.indexOf("/", index + 1);
+  }
+}
+
+function walkFiles(start: string, root: string): string[] {
+  const files: string[] = [];
+  const visit = (directory: string, depth: number): void => {
+    if (files.length >= WALK_LIMIT || depth > 12) return;
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= WALK_LIMIT) return;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!WALK_SKIPPED.has(entry.name)) visit(path, depth + 1);
+      } else {
+        files.push(relative(root, path).split("\\").join("/"));
+      }
+    }
+  };
+  try {
+    if (lstatSync(start).isDirectory()) visit(start, 0);
+  } catch {
+    return files;
+  }
+  return files;
+}
 const DEFAULT_MAX_RULES = 1_500;
 const PROBE = "__onyx_fence_probe__";
 
@@ -183,15 +257,17 @@ export class WriteFence {
       const words = withoutKeywords(segment);
       const directories = [...tracker.candidates()];
       tracker.enter(words);
-      const targets = [
-        ...redirects.filter((target) => !target.startsWith("&") && target !== "/dev/null"),
+      const targets: WriteTarget[] = [
+        ...redirects
+          .filter((target) => !target.startsWith("&") && target !== "/dev/null")
+          .map((path) => ({ path, tree: false })),
         ...this.writeTargets(words),
       ];
       segment = [];
       redirects = [];
       for (const target of targets) {
         for (const directory of directories) {
-          const decision = this.check(target, directory, "Bash");
+          const decision = this.checkTarget(target, directory);
           if (!decision.allowed) return decision;
         }
       }
@@ -233,7 +309,7 @@ export class WriteFence {
     return flush();
   }
 
-  private writeTargets(words: readonly string[]): string[] {
+  private writeTargets(words: readonly string[]): WriteTarget[] {
     const index = commandStart(words);
     const program = programName(words[index] ?? "");
     const rest = words.slice(index + 1);
@@ -241,26 +317,132 @@ export class WriteFence {
     const args = rest.filter(
       (word, position) => !word.startsWith("-") && !valued.includes(rest[position - 1] ?? ""),
     );
-    if (ALL_ARGUMENT_WRITERS.has(program)) return args;
-    if (MODE_FIRST_WRITERS.has(program)) return args.slice(1);
-    if (DESTINATION_WRITERS.has(program)) return args.slice(-1);
-    if ((program === "sed" || program === "perl") && hasInPlaceFlag(rest)) return args.slice(1);
-    if (program === "git" && GIT_WRITERS.has(args[0] ?? "")) {
-      return args.slice(1).filter((arg) => arg !== "--");
-    }
+    const plain = (paths: readonly string[]) => paths.map((path) => ({ path, tree: false }));
+    const trees = (paths: readonly string[]) => paths.map((path) => ({ path, tree: true }));
+    const recursive =
+      rest.some((word) => /^-[A-Za-z]*[rR]/.test(word)) || rest.includes("--recursive");
+    if (program === "rm") return recursive ? trees(args) : plain(args);
+    if (ALL_ARGUMENT_WRITERS.has(program)) return plain(args);
+    if (MODE_FIRST_WRITERS.has(program))
+      return recursive ? trees(args.slice(1)) : plain(args.slice(1));
+    if (DESTINATION_WRITERS.has(program)) return plain(this.destinations(rest, args));
+    if ((program === "sed" || program === "perl") && hasInPlaceFlag(rest))
+      return plain(args.slice(1));
+    if (program === "dd")
+      return plain(rest.filter((word) => word.startsWith("of=")).map((word) => word.slice(3)));
+    if (program === "unzip") return trees(valueOf(rest, ["-d"]));
+    if (program === "tar") return this.tarTargets(rest);
+    if (program === "find" && rest.some((word) => FIND_WRITERS.has(word)))
+      return trees(findRoots(rest));
+    if (FORMATTERS.has(program) && rest.some((word) => FORMATTER_WRITE_FLAGS.has(word)))
+      return trees(args);
+    if (program === "git") return this.gitTargets(rest);
     return [];
+  }
+
+  private destinations(rest: readonly string[], args: readonly string[]): string[] {
+    const flagged = valueOf(rest, ["-t", "--target-directory"]);
+    const inline = rest
+      .filter((word) => word.startsWith("--target-directory="))
+      .map((word) => word.slice("--target-directory=".length));
+    const directory = flagged[0] ?? inline[0];
+    const sources = directory === undefined ? args.slice(0, -1) : args;
+    const destination = directory ?? args.at(-1);
+    if (destination === undefined) return [];
+    return [destination, ...sources.map((source) => join(destination, basename(source)))];
+  }
+
+  private tarTargets(rest: readonly string[]): WriteTarget[] {
+    const mode = (rest[0] ?? "").replace(/^-/, "");
+    const directory = valueOf(rest, ["-C", "--directory"]);
+    if (/^[A-Za-z]+$/.test(mode) && mode.includes("x"))
+      return directory.map((path) => ({ path, tree: true }));
+    if (/^[A-Za-z]+$/.test(mode) && /[cru]/.test(mode) && mode.includes("f") && rest[1])
+      return [{ path: rest[1], tree: false }];
+    return valueOf(rest, ["-f", "--file"]).map((path) => ({ path, tree: false }));
+  }
+
+  private gitTargets(rest: readonly string[]): WriteTarget[] {
+    let index = 0;
+    let directory = ".";
+    while (index < rest.length && (rest[index] ?? "").startsWith("-")) {
+      const option = rest[index] ?? "";
+      if (option === "-C") directory = join(directory, rest[index + 1] ?? ".");
+      index += option === "-C" || option === "-c" ? 2 : 1;
+    }
+    const sub = rest[index] ?? "";
+    const paths = rest
+      .slice(index + 1)
+      .filter((word) => !word.startsWith("-") && word !== "--")
+      .map((path) => join(directory, path));
+    if (sub === "checkout" || sub === "restore") {
+      const separator = rest.indexOf("--");
+      if (separator > index) return paths.map((path) => ({ path, tree: true }));
+      if (sub === "restore" && paths.length > 0) return paths.map((path) => ({ path, tree: true }));
+      return [{ path: paths.find((path) => path.endsWith(".")) ?? directory, tree: true }];
+    }
+    if (sub === "clean" || sub === "stash" || (sub === "reset" && rest.includes("--hard")))
+      return [{ path: paths[0] ?? directory, tree: true }];
+    if (sub === "rm" || sub === "mv") return paths.map((path) => ({ path, tree: true }));
+    return [];
+  }
+
+  private checkTarget(target: WriteTarget, cwd: string): GuardDecision {
+    if (GLOB_CHARS.test(target.path)) {
+      for (const match of this.expand(target.path, cwd)) {
+        const decision = this.check(match, this.projectRoot, "Bash");
+        if (!decision.allowed) return decision;
+      }
+      return this.check(
+        target.path.slice(0, target.path.search(GLOB_CHARS)) || ".",
+        cwd,
+        "Bash",
+        true,
+      );
+    }
+    const direct = this.check(target.path, cwd, "Bash", target.tree);
+    if (!direct.allowed || !target.tree) return direct;
+    const absolute = this.absolute(target.path, cwd);
+    if (absolute === null) return ALLOW;
+    for (const file of walkFiles(absolute, this.projectRoot)) {
+      const decision = this.check(file, this.projectRoot, "Bash");
+      if (!decision.allowed) return decision;
+    }
+    return ALLOW;
+  }
+
+  private expand(pattern: string, cwd: string): string[] {
+    const absolute = this.absolute(pattern, cwd);
+    if (absolute === null) return [];
+    const inside = relative(this.projectRoot, absolute).split("\\").join("/");
+    if (inside.startsWith("..") || isAbsolute(inside)) return [];
+    const prefix = inside.slice(0, inside.search(GLOB_CHARS));
+    const base = prefix.slice(0, prefix.lastIndexOf("/") + 1);
+    const matcher = picomatch(inside, { dot: true });
+    return walkFiles(join(this.projectRoot, base), this.projectRoot).filter(
+      (file) => matcher(file) || [...ancestors(file)].some((directory) => matcher(directory)),
+    );
+  }
+
+  private absolute(rawPath: string, cwd: string): string | null {
+    if (rawPath.startsWith("~") && rawPath !== "~" && !rawPath.startsWith("~/")) return null;
+    const expanded = rawPath.startsWith("~") ? resolve(homedir(), rawPath.slice(2)) : rawPath;
+    return normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
   }
 
   private refuse(target: string, reason: string): GuardDecision {
     return { allowed: false, target, rule: null, reason };
   }
 
-  private check(rawPath: string, cwd: string, toolName: string): GuardDecision {
+  private check(rawPath: string, cwd: string, toolName: string, tree = false): GuardDecision {
     if (rawPath.length === 0 || rawPath.startsWith("$")) return ALLOW;
-    if (rawPath.startsWith("~") && rawPath !== "~" && !rawPath.startsWith("~/")) return ALLOW;
-    const expanded = rawPath.startsWith("~") ? resolve(homedir(), rawPath.slice(2)) : rawPath;
-    const absolute = normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
-    if (this.protectedPaths.some((path) => pathWithin(absolute, path)))
+    const absolute = this.absolute(rawPath, cwd);
+    if (absolute === null) return ALLOW;
+    if (
+      this.protectedPaths.some(
+        (path) => pathWithin(absolute, path) || (tree && pathWithin(path, absolute)),
+      )
+    )
       return this.refuse(absolute, `${absolute} holds Onyx's own data: agents cannot change it.`);
     const inside = relative(this.projectRoot, absolute);
     if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) return ALLOW;

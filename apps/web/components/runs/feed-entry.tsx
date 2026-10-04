@@ -346,7 +346,9 @@ function GuardEntry({
       data-testid="guard-entry"
     >
       <ShieldX className="size-3.5 shrink-0 text-warning" />
-      <span className="font-medium text-warning">Blocked</span>
+      <span className="font-medium text-warning">
+        {item.source === "audit" ? "Undone" : "Blocked"}
+      </span>
       <span className="font-medium">{toolLabel(item.tool)}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
         {item.target ? relativeTo(item.target, cwd) : "—"}
@@ -357,7 +359,11 @@ function GuardEntry({
         </span>
       ) : null}
       <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-        {item.source === "hook" ? "context guard" : "permission rule"}
+        {item.source === "hook"
+          ? "context guard"
+          : item.source === "audit"
+            ? "after the run"
+            : "permission rule"}
       </span>
     </div>
   );
