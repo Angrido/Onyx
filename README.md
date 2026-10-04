@@ -16,6 +16,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 5 | TDD Auto-Loop: test Vitest/Jest in PTY, digest dei fallimenti, anti-cheat, gate, escalation su stallo | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 6 | Orchestrator multi-agente: planner, approvazione del piano, DAG, git worktree in parallelo, merge assistito, sub-agenti nativi, budget, centro approvazioni | **Completata** (manca solo la prova con la CLI reale, vedi `architecture.md` §16) |
 | 7 | Hardening: token cifrati, backup e ripristino testati, aggiornamento e verifica di Claude Code, firme di movimento, accessibilità, palette dei comandi, Lighthouse ≥ 90 | **Completata** (manca solo la registrazione delle trascrizioni reali, vedi `architecture.md` §16) |
+| 2.0 · 0 | Audit (`docs/audit-2.0.md`), correzione dei bug critici, piano della 2.0 (`docs/roadmap-2.0.md`) | **Completata**; milestone 2.0 in attesa di approvazione |
 
 ## Requisiti
 

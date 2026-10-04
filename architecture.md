@@ -2617,6 +2617,8 @@ Onyx è pensato per essere aperto da qualsiasi dispositivo della LAN, con qualun
 | ADR-050 | Risparmio misurato con un esperimento A/B sulle run che aprono una sessione nuova, bracci assegnati a caso, mediane e test di Mann–Whitney sui token reali della CLI | Confronto tra run con e senza pacchetto già avvenute; solo la stima | Le run senza pacchetto oggi sono quelle senza indice o senza file target, cioè task diversi: il confronto sarebbe falsato. L'assegnazione casuale sulle sessioni nuove rende confrontabili i due gruppi senza toccare le sessioni riprese |
 | ADR-051 | Stima netta che sottrae le riletture dei file della baseline rilevate dalle chiamate `Read` | Stima lorda (baseline contro consegnati) | La stima lorda conta come risparmiato anche un file che l'agente poi rilegge per intero, come fa sempre prima di modificarlo; la netta è più bassa ma onesta, e i file più riletti indicano dove il pacchetto non serve |
 | ADR-052 | Comandi Bash consentiti per progetto (`Project.allowedTools`, regole `Bash(<programma> *)`) aggiunti alla lista dell'agente; proposti dalla run che li ha visti rifiutare e confermati dall'operatore con *Allow and continue*, che rimette in coda il task nella stessa sessione | Allargare la lista predefinita dell'agente; approvazione interattiva durante la run | In headless nessuno può rispondere a una richiesta di permesso: la run finisce con l'agente che chiede. Le regole per progetto restano strette dove non servono, le regole `deny` (`rm -rf`, `sudo`, `git push`) vincono comunque e i programmi rischiosi non sono preselezionati |
+| ADR-053 | I comandi `git` lanciati da Onyx ricevono un ambiente da allowlist e `-c core.fsmonitor=false -c core.hooksPath=/dev/null`; gli agenti non possono scrivere in `.git/` né leggere i file di Onyx (`config.agentProtectedPaths`) | Fidarsi della configurazione del repository; affidarsi al solo guard | Un agente poteva piantare un hook o un `fsmonitor` che l'API eseguiva con tutti i suoi segreti. Gli hook del repository non servono ai commit e ai merge di Onyx. Resta il limite dell'utente condiviso (roadmap 2.0, milestone 3) |
+| ADR-054 | Migrazioni tramite `onyx-cli migrate`: backup obbligatorio, migrazioni, ripristino del backup se falliscono | Backup facoltativo con avviso; `prisma migrate resolve` a mano | Con SQLite una migrazione fallita a metà non viene annullata e blocca le successive (P3009); il ripristino automatico rende ogni aggiornamento ripetibile, e la logica in TypeScript si può testare |
 
 ---
 
@@ -2879,6 +2881,17 @@ La telemetria mostrava solo la stima *baseline contro consegnati*: diceva quanto
 
 - Una run headless non può chiedere permessi: Claude Code rifiuta i comandi Bash fuori dalla lista dell'agente e l'agente chiude chiedendo conferme a cui nessuno può rispondere. `GET /api/runs/:id/blocked` raccoglie i comandi rifiutati (voci `guard` con `source: "permission"`), li scompone con `shell-quote` nei programmi di ogni sottocomando (senza `cd`, assegnazioni, wrapper e redirezioni) e propone una regola `Bash(<programma> *)` per ciascuno, segnalando quelli rischiosi (`rm`, `chmod`, `curl`, `git`…). `POST /api/runs/:id/allow` aggiunge le regole scelte a `Project.allowedTools` (migrazione `20261009090000_project_allowed_tools`), scrive l'audit e rimette in coda il task con un prompt che dice cosa è stato consentito e porta la risposta dell'operatore. `PUT /api/projects/:id/allowed-tools` gestisce l'elenco dalla pagina del progetto (ADR-052).
 - Il guard del Context Surgeon trattava `~/.cache/...` come un percorso dentro il progetto (la tilde non veniva espansa) e lo bloccava con la regola `.cache/`; lo stesso valeva per il recinto di scrittura. Ora `~` e `~/` vengono espansi alla home, e i percorsi fuori dal progetto non sono confrontati con le sue regole.
+
+### Onyx 2.0 — Fase 0: audit (dopo la Fase 7)
+
+- Audit completo in `docs/audit-2.0.md`: controlli di base verdi; prova end-to-end con lo stub e Playwright sulla build di produzione, desktop e 375 px, senza errori di console e con una sola violazione axe; revisione di sessioni, scheduler, guard, migrazioni, sicurezza e prestazioni. Trovati 5 bug critici, 17 alti, 30 medi e 29 bassi.
+- Bug critici corretti, ognuno con il suo test:
+  - un a capo nascondeva i comandi a guard, recinto, anti-cheat del TDD e suggerimenti: `separateLines`;
+  - i `cd` nelle subshell e con `pushd`/`popd` accecavano il guard: `DirectoryTracker`;
+  - gli agenti potevano leggere i file di Onyx e far eseguire codice a `git` dentro l'API (ADR-053);
+  - un aggiornamento fallito poteva lasciare il database a metà e senza backup (ADR-054).
+- Totale del monorepo: 557 test verdi più uno saltato.
+- Piano della 2.0 in `docs/roadmap-2.0.md`, in attesa di approvazione.
 
 ---
 

@@ -104,7 +104,7 @@ Lo script invia cinque prompt minimi con Haiku (risposta breve, uso di un tool, 
 
 ## 6. Aggiornare Onyx
 
-`onyx-update` ferma Onyx, prende il codice nuovo, installa le dipendenze, fa un backup `pre-update`, applica le migrazioni e lo riavvia se era acceso. Le migrazioni girano sempre a Onyx spento: con l'API accesa SQLite può rifiutarle con *database is locked*. Se un passo fallisce, Onyx resta fermo e il messaggio dice cosa rifare. In modalità servizio costruisce una release in `/opt/onyx/releases/` e sposta il collegamento `/opt/onyx/current`; se le migrazioni falliscono riavvia la release precedente. Per tornare alla release precedente basta riportare il collegamento e riavviare (con `onyx-restore` del backup `pre-update` se le migrazioni nuove vanno annullate).
+`onyx-update` ferma Onyx, prende il codice nuovo, installa le dipendenze, fa un backup `pre-update`, applica le migrazioni e lo riavvia se era acceso. Backup e migrazioni passano da `onyx-cli migrate`: se il backup non riesce le migrazioni non partono; se una migrazione fallisce a metà il database torna com'era prima dell'aggiornamento (la copia mezza migrata resta come `…-pre-restore.db`), così il tentativo successivo non si blocca con *P3009*. Le migrazioni girano sempre a Onyx spento: con l'API accesa SQLite può rifiutarle con *database is locked*. Se un passo fallisce, Onyx resta fermo e il messaggio dice cosa rifare. In modalità servizio costruisce una release in `/opt/onyx/releases/` e sposta il collegamento `/opt/onyx/current`; se le migrazioni falliscono riavvia la release precedente. Per tornare alla release precedente basta riportare il collegamento e riavviare (con `onyx-restore` del backup `pre-update` se le migrazioni nuove vanno annullate).
 
 ## 7. Sicurezza
 
@@ -114,12 +114,13 @@ Lo script invia cinque prompt minimi con Haiku (risposta breve, uso di un tool, 
 |---|---|---|
 | Accesso non autorizzato | Login argon2id, cookie `httpOnly` + `SameSite=Strict`, sessioni con scadenza, rate limit (5/min sulla configurazione iniziale, 10/min sul login) | `auth.test.ts`, `security.test.ts` (l'undicesimo tentativo riceve 429) |
 | Richieste cross-site e DNS rebinding | Controllo dell'origine su scritture e WebSocket | `auth.test.ts` |
-| Agente che legge segreti | `deny` su `.env*`, chiavi e certificati, hook di guardia, ambiente dei processi figli da allowlist | `security.test.ts` (una variabile non in allowlist e `DATABASE_URL` non arrivano all'agente) |
+| Agente che legge segreti | `deny` su `.env*`, chiavi e certificati; `deny` e hook di guardia sui file di Onyx (chiave, database, backup, runtime delle run, log, `/etc/onyx`); ambiente dei processi figli da allowlist | `security.test.ts`, `agent-isolation.test.ts` |
+| Agente che fa eseguire codice a Onyx | Gli agenti non possono scrivere in `.git/`; ogni `git` lanciato da Onyx ignora hook e `core.fsmonitor` e non riceve i segreti nell'ambiente | `agent-isolation.test.ts` |
 | Segreti a riposo | Token cifrati AES-256-GCM, chiave `0600`, dato associato al nome dell'impostazione | `security.test.ts` |
 | Comandi distruttivi | `acceptEdits`, Bash solo da allowlist, `deny` su `rm -rf`, `git push`, `sudo` | `permission-rules`, test del Context Surgeon |
 | Prompt injection | Recinto di scrittura, approvazioni per piani, merge e budget, audit | test di orchestrator e TDD |
 | Endpoint interni | Solo loopback, token di run con revoca e scadenza a 12 ore | `context.test.ts`, `security.test.ts` |
-| Escalation nel container | Utente `onyx` senza sudo, `NoNewPrivileges`, `RestrictSUIDSGID`, `LockPersonality`, `UMask=0027` | unit systemd |
+| Escalation nel container | Utente `onyx` senza sudo, `NoNewPrivileges`, `RestrictSUIDSGID`, `LockPersonality`, `UMask=0027`. **Limite noto:** gli agenti girano con lo stesso utente dell'API; un agente che esegue codice (per esempio con un test) può leggere i file di Onyx. Il guard riduce gli incidenti ma non è un confine di sicurezza: la sandbox è nella roadmap 2.0 (milestone 3) | unit systemd |
 | Esfiltrazione | Firewall in ingresso (`nftables.conf`) | — |
 | Perdita di dati | WAL, backup giornalieri verificati, backup prima di aggiornamenti e ripristini | `backup.test.ts` |
 | Header HTTP | API: `no-store`, `nosniff`, `Referrer-Policy`; web: `X-Frame-Options`, CSP `frame-ancestors`/`object-src`/`base-uri`/`form-action`, `Permissions-Policy` | `security.test.ts` |
@@ -147,6 +148,8 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | `/api/ready` non pronto per `disk` | Meno del 10% di spazio libero | Libera spazio (backup vecchi, worktree di piani annullati in `worktrees/`) |
 | Run fallita con *error_during_execution*, 0 turni, $0.00 | Claude Code non ha più la sessione che Onyx riprende (creata col simulatore, con un'altra HOME o svuotata con `/clear` nel terminale): *No conversation found with session ID* | Nessuna azione: Onyx chiude la sessione persa e rimette in coda la run in una sessione nuova, con la nota di passaggio |
 | Run *Completed* ma con *N blocked · permission rule*, e l'agente chiede il permesso | Durante una run nessuno può approvare comandi: Claude Code rifiuta quelli fuori dalla lista dell'agente (per esempio `python3`, `npx`, `npm install`) | Nella run, **Allow and continue**: scegli i comandi da consentire nel progetto, rispondi all'agente se ha chiesto qualcosa, e il task riprende nella stessa sessione. L'elenco si modifica nella pagina del progetto, *Commands agents may run* |
+| `onyx-update` dice *The migration failed: the database is back as it was before the update* | Una migrazione nuova non si applica al tuo database | Il database è intatto e Onyx resta sulla versione precedente (in servizio) o fermo (in sviluppo): manda l'errore sopra il messaggio; la copia mezza migrata è in `onyx backups` come `pre-restore` |
+| `onyx-update` si ferma prima delle migrazioni con un errore del backup | Cartella dei backup non scrivibile o disco pieno | Libera spazio o sistema i permessi di `ONYX_BACKUP_DIR`, poi rilancia: nulla è stato migrato |
 | `onyx-update` si ferma su *database is locked* | Versione di `onyx-update` precedente al 4 ottobre 2026, che migrava con Onyx acceso | `onyx-stop`, poi `onyx-update`, poi `onyx-start`: il database non è stato toccato e il backup `pre-update` c'è |
 | Console *Offline* | API ferma o WebSocket bloccato dal proxy | `onyx-status`, `onyx-logs`; con Caddy controlla la rotta `/ws` |
 | **Savings**: *Only N of M runs got a context pack* | Progetto non indicizzato o task senza file target | Imposta i *target paths* del task o nomina i file nel prompt; controlla l'indice nella pagina del progetto |
