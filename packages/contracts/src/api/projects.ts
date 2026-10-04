@@ -31,8 +31,14 @@ export const ProjectDtoSchema = z.object({
 });
 export type ProjectDto = z.infer<typeof ProjectDtoSchema>;
 
+export const BashRuleSchema = z
+  .string()
+  .trim()
+  .regex(/^Bash\([^()\n]{1,200}\)$/, "A rule looks like Bash(npm install *)");
+
 export const ProjectDetailDtoSchema = ProjectDtoSchema.extend({
   workspaces: z.array(WorkspaceDtoSchema),
+  allowedTools: z.array(z.string()),
 });
 export type ProjectDetailDto = z.infer<typeof ProjectDetailDtoSchema>;
 
@@ -40,3 +46,36 @@ export const ProjectListResponseSchema = z.object({
   items: z.array(ProjectDtoSchema),
 });
 export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
+
+export const UpdateAllowedToolsRequestSchema = z.object({
+  allowedTools: z.array(BashRuleSchema).max(100),
+});
+export type UpdateAllowedToolsRequest = z.input<typeof UpdateAllowedToolsRequestSchema>;
+
+export const AllowedToolsResponseSchema = z.object({
+  allowedTools: z.array(z.string()),
+});
+export type AllowedToolsResponse = z.infer<typeof AllowedToolsResponseSchema>;
+
+export const CommandRuleSuggestionSchema = z.object({
+  rule: z.string(),
+  program: z.string(),
+  risky: z.boolean(),
+  allowed: z.boolean(),
+});
+export type CommandRuleSuggestion = z.infer<typeof CommandRuleSuggestionSchema>;
+
+export const BlockedCommandsResponseSchema = z.object({
+  runId: z.string(),
+  taskId: z.string(),
+  projectId: z.string(),
+  commands: z.array(z.string()),
+  suggestions: z.array(CommandRuleSuggestionSchema),
+});
+export type BlockedCommandsResponse = z.infer<typeof BlockedCommandsResponseSchema>;
+
+export const AllowAndContinueRequestSchema = z.object({
+  rules: z.array(BashRuleSchema).max(50),
+  reply: z.string().trim().max(20_000).optional(),
+});
+export type AllowAndContinueRequest = z.input<typeof AllowAndContinueRequestSchema>;

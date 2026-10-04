@@ -93,6 +93,10 @@ La pagina **Savings** lo dice con un verdetto e separa ciò che è misurato da c
 
 Dettagli in [docs/operations.md §10](docs/operations.md#10-il-risparmio-di-token-funziona).
 
+### Comandi bloccati
+
+Durante una run nessuno può approvare comandi, quindi Claude Code esegue solo quelli consentiti all'agente (git in lettura, test e lint) e rifiuta gli altri. Quando succede, la run mostra i comandi rifiutati con **Allow and continue**: si scelgono quelli da consentire nel progetto (quelli che possono cancellare o modificare cose restano deselezionati), si risponde all'agente se ha chiesto qualcosa e il task riprende nella stessa sessione. La pagina del progetto elenca i comandi consentiti in *Commands agents may run*, dove si aggiungono o tolgono. `rm -rf`, `sudo` e `git push` restano bloccati comunque.
+
 ## Context Surgeon (Fase 3)
 
 Dalla pagina del progetto, **Context Surgeon** apre l'albero dei file con la heatmap dei token: ogni checkbox decide se un file o una directory resta visibile agli agenti. Si parte dal preset aggressivo (dipendenze, build, lockfile, generati, minificati, log) più le regole di sicurezza bloccate (`.env*`, chiavi, `.npmrc`…); i suggerimenti propongono asset binari, file di dati voluminosi e codice generato. Il pannello laterale mostra il risparmio in token e dollari, la differenza rispetto al profilo salvato e gli avvisi quando si nasconde un file centrale nel grafo. Ogni workspace può aggiungere un overlay al profilo di progetto.

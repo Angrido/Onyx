@@ -2,7 +2,9 @@ import {
   CreateProjectRequestSchema,
   CreateWorkspaceRequestSchema,
   ResetWorkspaceRequestSchema,
+  UpdateAllowedToolsRequestSchema,
   UpdateWorkspaceRequestSchema,
+  type AllowedToolsResponse,
   type ProjectDetailDto,
   type ProjectListResponse,
   type ResetWorkspaceResponse,
@@ -34,6 +36,14 @@ export function registerProjectRoutes(app: FastifyInstance, container: Container
     await projects.remove(idParam(request.params));
     reply.status(204);
   });
+
+  app.put("/api/projects/:id/allowed-tools", async (request): Promise<AllowedToolsResponse> => ({
+    allowedTools: await projects.setAllowedTools(
+      idParam(request.params),
+      UpdateAllowedToolsRequestSchema.parse(request.body).allowedTools,
+      request.user ? `user:${request.user.username}` : "user:unknown",
+    ),
+  }));
 
   app.get("/api/projects/:id/workspaces", async (request): Promise<{ items: WorkspaceDto[] }> => ({
     items: await workspaces.list(idParam(request.params)),

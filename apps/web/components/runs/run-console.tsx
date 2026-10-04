@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentOrb } from "@/components/motion/agent-orb";
+import { BlockedCommands } from "@/components/runs/blocked-commands";
 import { FeedEntryView } from "@/components/runs/feed-entry";
 import { ModelBadge, RunStatusBadge } from "@/components/tasks/status-badge";
 import { Button } from "@/components/ui/button";
@@ -149,6 +150,10 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
     staleTime: Infinity,
   });
   const saving = runSaving(feed.context, terminal ? latest.context : null);
+  const commandsBlocked = feed.entries.some(
+    (entry) =>
+      entry.kind === "guard" && entry.item.source === "permission" && entry.item.tool === "Bash",
+  );
   const savingRatio = saving.kind === "estimate" ? (saving.net ?? saving.gross) : null;
   const model = feed.model ?? run.modelId;
 
@@ -230,6 +235,9 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             {formatSaving(saving.net)} after re-reads, {formatSaving(saving.gross)} before
             (estimate).
           </p>
+        ) : null}
+        {terminal && commandsBlocked ? (
+          <BlockedCommands runId={run.id} taskId={run.taskId} />
         ) : null}
       </div>
       <div

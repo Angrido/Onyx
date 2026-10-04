@@ -1,8 +1,14 @@
-import { normalizeStoredEvent, type RunDto, type RunEventsResponse } from "@onyx/contracts";
+import {
+  normalizeStoredEvent,
+  type BlockedCommandsResponse,
+  type RunDto,
+  type RunEventsResponse,
+} from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
 import { conflict, notFound } from "../errors";
 import type { StoredRunEvent } from "../infrastructure/ws-hub";
-import { RUN_INCLUDE, toRunDto } from "./mappers";
+import { suggestRules } from "../domain/command-rules";
+import { RUN_INCLUDE, toRunDto, toStringArray } from "./mappers";
 import type { RunScheduler } from "./run-scheduler";
 
 export class RunService {
@@ -44,6 +50,32 @@ export class RunService {
       ts: row.createdAt.toISOString(),
       items: normalizeStoredEvent(row.type, row.payload),
     }));
+  }
+
+  async blockedCommands(id: string): Promise<BlockedCommandsResponse> {
+    const run = await this.prisma.agentRun.findUnique({
+      where: { id },
+      select: { id: true, taskId: true, task: { select: { project: true } } },
+    });
+    if (!run) throw notFound("Run");
+    const commands: string[] = [];
+    for (const event of await this.storedEvents(id, 0, null)) {
+      for (const item of event.items) {
+        if (item.kind !== "guard" || item.source !== "permission" || item.tool !== "Bash") continue;
+        if (item.target !== null && !commands.includes(item.target)) commands.push(item.target);
+      }
+    }
+    const allowed = new Set(toStringArray(run.task.project.allowedTools));
+    return {
+      runId: run.id,
+      taskId: run.taskId,
+      projectId: run.task.project.id,
+      commands,
+      suggestions: suggestRules(commands).map((suggestion) => ({
+        ...suggestion,
+        allowed: allowed.has(suggestion.rule),
+      })),
+    };
   }
 
   async abort(id: string): Promise<RunDto> {

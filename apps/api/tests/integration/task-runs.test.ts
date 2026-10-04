@@ -1,4 +1,6 @@
 import type {
+  AllowedToolsResponse,
+  BlockedCommandsResponse,
   ProjectDetailDto,
   RunDto,
   RunEventsResponse,
@@ -210,6 +212,60 @@ describe("task execution", () => {
       status: "CLOSED",
       endReason: "ERROR",
     });
+  });
+
+  it("lets the operator allow blocked commands and continue the task", async () => {
+    const task = await createTask(
+      "Screenshots [stub:allowlist] bash:{python3 -c 1} bash:{git status}",
+    );
+    await runTask(task.id);
+    const first = await waitForTask(task.id, ["COMPLETED"]);
+    const blockedRun = first.runs[0] as RunDto;
+    expect(blockedRun.guardDenials).toBe(1);
+
+    const blocked = await api.get<BlockedCommandsResponse>(`/api/runs/${blockedRun.id}/blocked`);
+    expect(blocked.body).toMatchObject({
+      taskId: task.id,
+      projectId: project.id,
+      commands: ["python3 -c 1"],
+      suggestions: [{ rule: "Bash(python3 *)", program: "python3", risky: false, allowed: false }],
+    });
+
+    const invalid = await api.post(`/api/runs/${blockedRun.id}/allow`, { rules: ["rm -rf /"] });
+    expect(invalid.status).toBe(400);
+
+    const continued = await api.post<RunTaskResponse>(`/api/runs/${blockedRun.id}/allow`, {
+      rules: ["Bash(python3 *)"],
+      reply: "[stub:allowlist] bash:{python3 -c 1}",
+    });
+    expect(continued.status).toBe(202);
+    const second = await waitForTask(task.id, ["COMPLETED"]);
+    const next = second.runs[0] as RunDto;
+    expect(next.id).not.toBe(blockedRun.id);
+    expect(next.sessionId).toBe(blockedRun.sessionId);
+    expect(next.guardDenials).toBe(0);
+    expect(next.prompt).toBe(
+      "The commands you could not run before are now allowed: python3 *.\n\n[stub:allowlist] bash:{python3 -c 1}",
+    );
+    const args = (
+      await context.container.prisma.agentRun.findUniqueOrThrow({ where: { id: next.id } })
+    ).args as string[];
+    expect(args).toContain("Bash(python3 *)");
+
+    const detail = await api.get<ProjectDetailDto>(`/api/projects/${project.id}`);
+    expect(detail.body.allowedTools).toEqual(["Bash(python3 *)"]);
+    const again = await api.get<BlockedCommandsResponse>(`/api/runs/${blockedRun.id}/blocked`);
+    expect(again.body.suggestions[0]?.allowed).toBe(true);
+
+    const rejected = await api.put(`/api/projects/${project.id}/allowed-tools`, {
+      allowedTools: ["python3"],
+    });
+    expect(rejected.status).toBe(400);
+    const cleared = await api.put<AllowedToolsResponse>(
+      `/api/projects/${project.id}/allowed-tools`,
+      { allowedTools: [] },
+    );
+    expect(cleared.body).toEqual({ allowedTools: [] });
   });
 
   it("aborts a running task and kills the agent", async () => {

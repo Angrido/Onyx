@@ -12,6 +12,7 @@ import { GitPanel } from "@/components/git/git-panel";
 import { PageHeader } from "@/components/layout/page-header";
 import { PlanFeatureDialog } from "@/components/orchestration/plan-feature-dialog";
 import { PlanList } from "@/components/orchestration/plan-list";
+import { AllowedCommands } from "@/components/projects/allowed-commands";
 import { IndexCard } from "@/components/projects/index-card";
 import { WorkspaceGrid } from "@/components/projects/workspace-grid";
 import { CreateTaskDialog } from "@/components/tasks/create-task-dialog";
@@ -68,6 +69,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         <h2 className="text-sm font-semibold tracking-tight">Tasks</h2>
         <TaskList initial={tasks.items} projectId={project.id} emptyAction={createTask} />
       </section>
+      <AllowedCommands projectId={project.id} initial={project.allowedTools} />
     </>
   );
 }

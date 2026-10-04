@@ -21,6 +21,16 @@ function call(toolName: string, toolInput: Record<string, unknown>, cwd = ROOT) 
   return fence.evaluate({ toolName, toolInput, cwd });
 }
 
+describe("WriteFence outside the project", () => {
+  it("leaves files in the home directory alone", () => {
+    expect(call("Bash", { command: "mkdir -p ~/.cache/prisma/engines" }).allowed).toBe(true);
+    expect(
+      call("Write", { file_path: "~/.config/tool/prisma/x.json", content: "{}" }).allowed,
+    ).toBe(true);
+    expect(call("Bash", { command: "touch ~other/prisma/x" }).allowed).toBe(true);
+  });
+});
+
 describe("WriteFence", () => {
   it("lets a workspace change its own and shared files only", () => {
     expect(fence.verdict("apps/web/app/page.tsx")).toEqual({ allowed: true, owner: "Frontend" });

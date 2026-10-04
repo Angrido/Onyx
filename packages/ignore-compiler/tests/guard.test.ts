@@ -88,8 +88,30 @@ describe("PathGuard on shell commands", () => {
     "cp src/app.ts dist/app.ts",
     "echo hello > out.log",
     "cat fixtures/small.json",
+    "ls ~/.cache/ms-playwright",
+    "ls -a ~/.cache/",
+    "cat ~other/notes.log",
   ])("allows %s", (command) => {
     expect(call("Bash", { command }).allowed).toBe(true);
+  });
+
+  it("expands ~ to the home directory before matching", () => {
+    const inHome = new PathGuard(policy, ROOT, files, "/srv/onyx/projects");
+    expect(
+      inHome.evaluate({ toolName: "Bash", toolInput: { command: "cat ~/demo/.env" }, cwd: ROOT })
+        .allowed,
+    ).toBe(false);
+    expect(
+      inHome.evaluate({
+        toolName: "Read",
+        toolInput: { file_path: "~/demo/dist/app.js" },
+        cwd: ROOT,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      inHome.evaluate({ toolName: "Bash", toolInput: { command: "ls ~/.cache" }, cwd: ROOT })
+        .allowed,
+    ).toBe(true);
   });
 });
 

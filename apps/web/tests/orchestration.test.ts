@@ -2,6 +2,7 @@ import type { ApprovalDto, OrchestrationDto, OrchestrationNode } from "@onyx/con
 import { describe, expect, it } from "vitest";
 import { formatBytes } from "@/lib/format";
 import { isPaletteShortcut } from "@/lib/palette";
+import { defaultRules, ruleFor, ruleProgram } from "@/lib/permissions";
 import {
   budgetUsage,
   canResume,
@@ -166,5 +167,26 @@ describe("command palette shortcut", () => {
     expect(isPaletteShortcut({ ctrlKey: true, metaKey: false })).toBe(false);
     expect(isPaletteShortcut({ key: undefined, ctrlKey: true })).toBe(false);
     expect(isPaletteShortcut(new Event("keydown") as unknown as KeyboardEvent)).toBe(false);
+  });
+});
+
+describe("allowed commands", () => {
+  it("turns a command start into a rule and back", () => {
+    expect(ruleFor("npm install")).toBe("Bash(npm install *)");
+    expect(ruleFor("  npx * ")).toBe("Bash(npx *)");
+    expect(ruleFor("")).toBeNull();
+    expect(ruleFor("echo (x)")).toBeNull();
+    expect(ruleProgram("Bash(npm install *)")).toBe("npm install");
+    expect(ruleProgram("Bash(make)")).toBe("make");
+  });
+
+  it("preselects only safe rules that are not allowed yet", () => {
+    expect(
+      defaultRules([
+        { rule: "Bash(npx *)", program: "npx", risky: false, allowed: false },
+        { rule: "Bash(rm *)", program: "rm", risky: true, allowed: false },
+        { rule: "Bash(node *)", program: "node", risky: false, allowed: true },
+      ]),
+    ).toEqual(["Bash(npx *)"]);
   });
 });

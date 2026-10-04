@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 import picomatch from "picomatch";
 import { parse, type ParseEntry } from "shell-quote";
@@ -236,7 +237,9 @@ export class WriteFence {
 
   private check(rawPath: string, cwd: string, toolName: string): GuardDecision {
     if (rawPath.length === 0 || rawPath.startsWith("$")) return ALLOW;
-    const absolute = normalize(isAbsolute(rawPath) ? rawPath : resolve(cwd, rawPath));
+    if (rawPath.startsWith("~") && rawPath !== "~" && !rawPath.startsWith("~/")) return ALLOW;
+    const expanded = rawPath.startsWith("~") ? resolve(homedir(), rawPath.slice(2)) : rawPath;
+    const absolute = normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
     const inside = relative(this.projectRoot, absolute);
     if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const relPath = inside.split("\\").join("/");

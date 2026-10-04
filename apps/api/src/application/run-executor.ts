@@ -603,7 +603,12 @@ export class RunExecutor {
       contextPack: context.packText,
       agents: subagentsOf(agentConfig.subagents),
     });
-    const allowedTools = toStringArray(agentConfig.allowedTools);
+    const allowedTools = [
+      ...new Set([
+        ...toStringArray(agentConfig.allowedTools),
+        ...toStringArray(task.project.allowedTools),
+      ]),
+    ];
     const handoffText = plan.item.handoff?.text ?? null;
 
     const spec: RunSpec = {

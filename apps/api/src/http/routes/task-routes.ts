@@ -1,8 +1,10 @@
 import {
+  AllowAndContinueRequestSchema,
   CreateTaskRequestSchema,
   ListTasksQuerySchema,
   RunEventsQuerySchema,
   RunTaskRequestSchema,
+  type BlockedCommandsResponse,
   type RunDto,
   type RunEventsResponse,
   type RunTaskResponse,
@@ -12,10 +14,11 @@ import {
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
+import { continuePrompt, mergeRules } from "../../domain/command-rules";
 import { idParam } from "../params";
 
 export function registerTaskRoutes(app: FastifyInstance, container: Container): void {
-  const { tasks, runs } = container;
+  const { tasks, runs, projects } = container;
 
   app.get("/api/tasks", async (request): Promise<TaskListResponse> => ({
     items: await tasks.list(ListTasksQuerySchema.parse(request.query)),
@@ -62,4 +65,25 @@ export function registerTaskRoutes(app: FastifyInstance, container: Container): 
   app.post("/api/runs/:id/abort", async (request): Promise<RunDto> =>
     runs.abort(idParam(request.params)),
   );
+
+  app.get("/api/runs/:id/blocked", async (request): Promise<BlockedCommandsResponse> =>
+    runs.blockedCommands(idParam(request.params)),
+  );
+
+  app.post("/api/runs/:id/allow", async (request, reply): Promise<RunTaskResponse> => {
+    const body = AllowAndContinueRequestSchema.parse(request.body ?? {});
+    const blocked = await runs.blockedCommands(idParam(request.params));
+    const current = await projects.allowedTools(blocked.projectId);
+    await projects.setAllowedTools(
+      blocked.projectId,
+      mergeRules(current, body.rules),
+      request.user ? `user:${request.user.username}` : "user:unknown",
+    );
+    const response = await tasks.requestRun(blocked.taskId, {
+      prompt: continuePrompt(body.rules, body.reply),
+      newSession: false,
+    });
+    reply.status(202);
+    return response;
+  });
 }

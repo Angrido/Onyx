@@ -526,8 +526,29 @@ function simulateTool(attempt: ToolAttempt): string {
   return "(stub) tool not executed";
 }
 
-async function runGuardScenario(prompt: string): Promise<void> {
+function allowedBashRules(): string[] {
+  const start = argv.indexOf("--allowedTools");
+  if (start === -1) return [];
+  const rules: string[] = [];
+  for (const value of argv.slice(start + 1)) {
+    if (value.startsWith("--")) break;
+    const match = /^Bash\((.+)\)$/.exec(value);
+    if (match?.[1]) rules.push(match[1]);
+  }
+  return rules;
+}
+
+function bashAllowed(command: string, rules: readonly string[]): boolean {
+  return rules.some((rule) =>
+    rule.endsWith(" *")
+      ? command === rule.slice(0, -2) || command.startsWith(rule.slice(0, -1))
+      : command === rule,
+  );
+}
+
+async function runGuardScenario(prompt: string, enforceAllowlist = false): Promise<void> {
   const hook = readPreToolUseHook();
+  const bashRules = allowedBashRules();
   const attempts = parseAttempts(prompt);
   await writeLine(
     JSON.stringify({
@@ -551,7 +572,15 @@ async function runGuardScenario(prompt: string): Promise<void> {
         { type: "tool_use", id: toolUseId, name: attempt.tool, input: attempt.input },
       ]),
     );
-    const denial = hook ? await askHook(hook, attempt, toolUseId) : null;
+    const unlisted =
+      enforceAllowlist &&
+      attempt.tool === "Bash" &&
+      !bashAllowed(String(attempt.input.command), bashRules);
+    const denial = unlisted
+      ? "This command requires approval"
+      : hook
+        ? await askHook(hook, attempt, toolUseId)
+        : null;
     if (denial !== null)
       denials.push({ tool_name: attempt.tool, tool_use_id: toolUseId, tool_input: attempt.input });
     await writeLine(
@@ -1344,6 +1373,9 @@ async function main(): Promise<void> {
       return;
     case "guard":
       await runGuardScenario(prompt);
+      return;
+    case "allowlist":
+      await runGuardScenario(prompt, true);
       return;
     default:
       process.stderr.write(`unknown stub scenario: ${scenario}\n`);

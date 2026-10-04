@@ -11,6 +11,7 @@ export const queryKeys = {
   paletteTasks: ["tasks", "palette"] as const,
   task: (id: string) => ["task", id] as const,
   run: (id: string) => ["run", id] as const,
+  runBlocked: (id: string) => ["run", id, "blocked"] as const,
   tddLoops: (taskId: string) => ["tdd", taskId] as const,
   tddDefaults: (taskId: string) => ["tdd", taskId, "defaults"] as const,
   sessions: (workspaceId: string) => ["sessions", workspaceId] as const,

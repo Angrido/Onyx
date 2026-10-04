@@ -5,7 +5,8 @@ import { Prisma, type PrismaClient } from "@onyx/db";
 import type { z } from "zod";
 import { DEFAULT_WORKSPACES } from "../domain/workspace-templates";
 import { badRequest, conflict, notFound } from "../errors";
-import { toProjectDto, toWorkspaceDto } from "./mappers";
+import { mergeRules } from "../domain/command-rules";
+import { toProjectDto, toStringArray, toWorkspaceDto } from "./mappers";
 
 type CreateProjectInput = z.output<typeof CreateProjectRequestSchema>;
 
@@ -36,7 +37,32 @@ export class ProjectService {
       include: { ...COUNT_INCLUDE, workspaces: { orderBy: { position: "asc" } } },
     });
     if (!project) throw notFound("Project");
-    return { ...toProjectDto(project), workspaces: project.workspaces.map(toWorkspaceDto) };
+    return {
+      ...toProjectDto(project),
+      workspaces: project.workspaces.map(toWorkspaceDto),
+      allowedTools: toStringArray(project.allowedTools),
+    };
+  }
+
+  async allowedTools(id: string): Promise<string[]> {
+    const project = await this.prisma.project.findUnique({
+      where: { id },
+      select: { allowedTools: true },
+    });
+    if (!project) throw notFound("Project");
+    return toStringArray(project.allowedTools);
+  }
+
+  async setAllowedTools(id: string, rules: readonly string[], actor: string): Promise<string[]> {
+    const allowedTools = mergeRules([], rules);
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.project.updateMany({ where: { id }, data: { allowedTools } });
+      if (updated.count === 0) throw notFound("Project");
+      await tx.auditLog.create({
+        data: { actor, action: "project.allowed-tools", target: id, meta: { allowedTools } },
+      });
+    });
+    return allowedTools;
   }
 
   async create(input: CreateProjectInput): Promise<ProjectDetailDto> {

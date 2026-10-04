@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { parse, type ParseEntry } from "shell-quote";
 import type { ContextPolicy, Explanation } from "./policy";
@@ -126,8 +127,16 @@ export class PathGuard {
     private readonly policy: ContextPolicy,
     private readonly projectRoot: string,
     private readonly files: readonly string[] = [],
+    private readonly home: string = homedir(),
   ) {
     this.knownFiles = new Set(files);
+  }
+
+  private absolutePath(path: string, cwd: string): string | null {
+    if (path === "~") return this.home;
+    if (path.startsWith("~/")) return resolve(this.home, path.slice(2));
+    if (path.startsWith("~")) return null;
+    return isAbsolute(path) ? path : resolve(cwd, path);
   }
 
   evaluate(call: ToolCall): GuardDecision {
@@ -255,7 +264,8 @@ export class PathGuard {
     toolName: string,
     quantifier: "any" | "all",
   ): GuardDecision {
-    const absolute = isAbsolute(rawPath) ? rawPath : resolve(cwd, rawPath);
+    const absolute = this.absolutePath(rawPath, cwd);
+    if (absolute === null) return ALLOW;
     const inside = relative(this.projectRoot, absolute).split("\\").join("/");
     if (inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const matcher = globToRegExp(inside);
@@ -305,7 +315,9 @@ export class PathGuard {
     }
     const cleaned = staticPrefix(rawPath);
     if (cleaned.length === 0 && rawPath.search(GLOB_CHARS) === 0) return ALLOW;
-    const absolute = normalize(isAbsolute(cleaned) ? cleaned : resolve(cwd, cleaned || "."));
+    const resolved = this.absolutePath(cleaned || ".", cwd);
+    if (resolved === null) return ALLOW;
+    const absolute = normalize(resolved);
     const inside = relative(this.projectRoot, absolute);
     if (inside.startsWith("..") || isAbsolute(inside)) return ALLOW;
     const relPath = inside.split("\\").join("/");
