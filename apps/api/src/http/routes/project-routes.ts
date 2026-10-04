@@ -13,6 +13,7 @@ import {
   type SessionListResponse,
   type WorkspaceDto,
   type WorkspaceProposalResponse,
+  type WorkspaceRefListResponse,
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
@@ -59,6 +60,10 @@ export function registerProjectRoutes(app: FastifyInstance, container: Container
       UpdateAllowedToolsRequestSchema.parse(request.body).allowedTools,
       request.user ? `user:${request.user.username}` : "user:unknown",
     ),
+  }));
+
+  app.get("/api/workspaces", async (): Promise<WorkspaceRefListResponse> => ({
+    items: await workspaces.all(),
   }));
 
   app.get("/api/projects/:id/workspaces", async (request): Promise<{ items: WorkspaceDto[] }> => ({

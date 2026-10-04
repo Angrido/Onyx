@@ -3,6 +3,7 @@ import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_pro
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -916,6 +917,13 @@ function runStatusLine(command: string, payload: object): Promise<string> {
   });
 }
 
+function rememberTranscript(id: string): void {
+  const transcripts = process.env.CLAUDE_STUB_TRANSCRIPTS;
+  if (!transcripts) return;
+  mkdirSync(transcripts, { recursive: true });
+  writeFileSync(join(transcripts, id), "");
+}
+
 async function runInteractive(): Promise<void> {
   const baseTokens = Number(process.env.CLAUDE_STUB_BASE_TOKENS ?? "4000");
   const perMessage = Number(process.env.CLAUDE_STUB_TOKENS_PER_MESSAGE ?? "1500");
@@ -944,6 +952,11 @@ async function runInteractive(): Promise<void> {
     });
     if (status) say(`[status] ${status}`);
   };
+  const transcripts = process.env.CLAUDE_STUB_TRANSCRIPTS;
+  if (transcripts && argv.includes("--resume") && !existsSync(join(transcripts, current))) {
+    process.stderr.write(`No conversation found with session ID: ${current}\n`);
+    process.exit(1);
+  }
   say(`Claude Code stub · ${model} · session ${current}`);
   showContext(
     await interactiveSessionStart(argv.includes("--resume") ? "resume" : "startup", current),
@@ -951,7 +964,15 @@ async function runInteractive(): Promise<void> {
   await reportStatus();
   process.stdout.write("> ");
   const lines = createInterface({ input: process.stdin, terminal: false });
-  for await (const line of lines) {
+  let pasted: string[] | null = null;
+  for await (const raw of lines) {
+    let line = raw;
+    if (pasted !== null || line.includes("\u001b[200~")) {
+      pasted = [...(pasted ?? []), line];
+      if (!line.includes("\u001b[201~")) continue;
+      line = pasted.join(" ").replaceAll("\u001b[200~", "").replaceAll("\u001b[201~", "");
+      pasted = null;
+    }
     const text = line.trim();
     if (text === "/exit") process.exit(0);
     if (text === "/clear") {
@@ -973,6 +994,7 @@ async function runInteractive(): Promise<void> {
           prompt: text,
         });
       contextTokens += perMessage;
+      rememberTranscript(current);
       say(`Stub reply: ${text}`);
     }
     await reportStatus();
@@ -1558,6 +1580,7 @@ async function main(): Promise<void> {
   if (!argv.includes("-p")) return runInteractive();
   const prompt = await readPrompt();
   if (flagValue("--input-format") === "stream-json" && prompt.length === 0) return;
+  rememberTranscript(sessionId);
   if (process.env.CLAUDE_STUB_USAGE === "model")
     usageModel = new UsageModel(estimateTokens(prompt));
   if (missingCredentials()) {

@@ -31,6 +31,7 @@ import {
   terminalHooks,
 } from "../domain/permission-rules";
 import { wantsHandoff } from "../domain/session-policy";
+import { bracketedPaste, taskContextText } from "../domain/task-context";
 import { badRequest, conflict, notFound } from "../errors";
 import {
   buildMcpConfig,
@@ -119,6 +120,8 @@ interface TerminalRecord {
   sessionId: string;
   sessionStartedAt: Date;
   claudeSessionId: string | null;
+  resumed: boolean;
+  confirmed: boolean;
   startupNote: string | null;
   terminal: ClaudeTerminal;
   state: "running" | "exited";
@@ -142,6 +145,7 @@ interface TerminalRecord {
 }
 
 const OUTPUT_TAIL_CHARS = 256 * 1024;
+const LOST_SESSION_WINDOW_MS = 5_000;
 const PUMP_INTERVAL_MS = 100;
 const SUBMIT_DELAY_MS = 150;
 const MAX_PROMPTS = 10;
@@ -400,6 +404,8 @@ export class TerminalService {
         sessionId: session.id,
         sessionStartedAt: session.startedAt,
         claudeSessionId: resume ? (session.claudeSessionId ?? session.id) : null,
+        resumed: resume,
+        confirmed: false,
         startupNote: plan.item.handoff?.text ?? null,
         terminal,
         state: "running",
@@ -455,6 +461,27 @@ export class TerminalService {
     record.inputDirty = inputLeavesDraft(record.inputDirty, data);
     record.lastInputAt = Date.now();
     record.terminal.write(data);
+  }
+
+  async injectTaskContext(terminalId: string, taskId: string, actor: string): Promise<TerminalDto> {
+    const record = this.requireRunning(terminalId);
+    const task = await this.deps.prisma.task.findUnique({ where: { id: taskId } });
+    if (!task || task.projectId !== record.projectId)
+      throw badRequest("Pick a task of the same project as the terminal");
+    record.terminal.write(
+      bracketedPaste(
+        taskContextText({
+          title: task.title,
+          prompt: task.prompt,
+          acceptance: toStringArray(task.acceptance),
+          targetPaths: toStringArray(task.targetPaths),
+        }),
+      ),
+    );
+    record.inputDirty = true;
+    record.lastInputAt = Date.now();
+    await this.audit(actor, "terminal.task-context", terminalId, { taskId: task.id });
+    return this.toDto(record);
   }
 
   resize(terminalId: string, cols: number, rows: number): void {
@@ -513,6 +540,7 @@ export class TerminalService {
   async sessionStart(terminalId: string, input: SessionStartInput): Promise<string | null> {
     const record = this.records.get(terminalId);
     if (!record) return null;
+    record.confirmed = true;
     const { prisma, compartments, logger } = this.deps;
     switch (input.source) {
       case "clear": {
@@ -756,8 +784,19 @@ export class TerminalService {
     runTokens.revoke(record.id);
     record.release();
     const endedAt = new Date();
+    const lost =
+      record.resumed &&
+      (!record.confirmed ||
+        (exit.exitCode !== 0 &&
+          record.prompts.length === 0 &&
+          endedAt.getTime() - record.startedAt.getTime() < LOST_SESSION_WINDOW_MS));
+    if (lost)
+      logger.warn(
+        { terminalId: record.id, sessionId: record.sessionId },
+        "The resumed Claude Code session no longer exists: the next terminal starts a new one",
+      );
     try {
-      if (record.claudeSessionId !== null) {
+      if (record.claudeSessionId !== null && !lost) {
         await prisma.session.update({
           where: { id: record.sessionId },
           data: { status: "IDLE", lastActivityAt: endedAt, contextTokens: record.contextTokens },

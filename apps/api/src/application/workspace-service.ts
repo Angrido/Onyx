@@ -2,6 +2,7 @@ import type {
   CreateWorkspaceRequestSchema,
   UpdateWorkspaceRequestSchema,
   WorkspaceDto,
+  WorkspaceRef,
 } from "@onyx/contracts";
 import { Prisma, type PrismaClient } from "@onyx/db";
 import type { z } from "zod";
@@ -13,6 +14,19 @@ type UpdateWorkspaceInput = z.output<typeof UpdateWorkspaceRequestSchema>;
 
 export class WorkspaceService {
   constructor(private readonly prisma: PrismaClient) {}
+
+  async all(): Promise<WorkspaceRef[]> {
+    const workspaces = await this.prisma.workspace.findMany({
+      select: { id: true, name: true, projectId: true, project: { select: { name: true } } },
+      orderBy: [{ project: { name: "asc" } }, { position: "asc" }],
+    });
+    return workspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      projectId: workspace.projectId,
+      projectName: workspace.project.name,
+    }));
+  }
 
   async list(projectId: string): Promise<WorkspaceDto[]> {
     const workspaces = await this.prisma.workspace.findMany({

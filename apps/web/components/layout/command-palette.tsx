@@ -9,6 +9,7 @@ import {
   FolderGit2,
   Inbox,
   LayoutDashboard,
+  LayoutGrid,
   ListTodo,
   LogOut,
   PiggyBank,
@@ -27,8 +28,9 @@ import { queryKeys } from "@/lib/api/keys";
 import { isPaletteShortcut, OPEN_PALETTE_EVENT } from "@/lib/palette";
 
 const PAGES = [
-  { href: "/", label: "Console", icon: LayoutDashboard },
+  { href: "/", label: "Mission control", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderGit2 },
+  { href: "/agents", label: "Agent grid", icon: LayoutGrid },
   { href: "/approvals", label: "Approvals", icon: Inbox },
   { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },

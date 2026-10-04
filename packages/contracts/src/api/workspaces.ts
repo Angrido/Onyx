@@ -87,3 +87,14 @@ export const ResetWorkspaceResponseSchema = z.object({
   session: SessionDtoSchema.nullable(),
 });
 export type ResetWorkspaceResponse = z.infer<typeof ResetWorkspaceResponseSchema>;
+
+export const WorkspaceRefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  projectId: z.string(),
+  projectName: z.string(),
+});
+export type WorkspaceRef = z.infer<typeof WorkspaceRefSchema>;
+
+export const WorkspaceRefListResponseSchema = z.object({ items: z.array(WorkspaceRefSchema) });
+export type WorkspaceRefListResponse = z.infer<typeof WorkspaceRefListResponseSchema>;

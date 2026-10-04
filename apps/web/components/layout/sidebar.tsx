@@ -9,6 +9,7 @@ import {
   Gauge,
   Inbox,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   PiggyBank,
   Route,
@@ -30,8 +31,9 @@ import { cn } from "@/lib/utils";
 import { useChannel, useConnectionState } from "@/lib/ws/context";
 
 const NAV = [
-  { href: "/", label: "Console", icon: LayoutDashboard },
+  { href: "/", label: "Mission control", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderGit2 },
+  { href: "/agents", label: "Agent grid", icon: LayoutGrid },
   { href: "/approvals", label: "Approvals", icon: Inbox },
   { href: "/router", label: "Router", icon: Route },
   { href: "/telemetry", label: "Telemetry", icon: Activity },

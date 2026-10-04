@@ -48,6 +48,11 @@ export const InjectTerminalRequestSchema = z.object({
 });
 export type InjectTerminalRequest = z.input<typeof InjectTerminalRequestSchema>;
 
+export const TerminalTaskContextRequestSchema = z.object({
+  taskId: z.string().min(1),
+});
+export type TerminalTaskContextRequest = z.input<typeof TerminalTaskContextRequestSchema>;
+
 export const TerminalListResponseSchema = z.object({ items: z.array(TerminalDtoSchema) });
 export type TerminalListResponse = z.infer<typeof TerminalListResponseSchema>;
 
