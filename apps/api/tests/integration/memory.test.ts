@@ -188,6 +188,7 @@ describe("project memory", () => {
     const row = report.ledger.find((entry) => entry.source === "project-memory");
     expect(row?.evidence).toBe("ESTIMATED");
     expect(row?.detail).toContain("new sessions started with it");
+    expect(row?.detail).toContain("collecting runs: 1 with and 1 without, 10 each needed");
     expect(
       (
         await api.put("/api/settings/memory", {

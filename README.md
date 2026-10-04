@@ -21,6 +21,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 2 | Limiti di Claude Max (avvisi, task che possono aspettare trattenuti fino al reset), comandi consentiti e workspace proposti dal progetto | **Completata** (manca la conferma del formato dei limiti con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 3 | Agenti in un utente di sistema separato, guard e recinto più precisi con verifica a fine run, *Allow and continue* con regole strette, per task o per agente e con scadenza | **Completata** (manca la prova dello script di sandbox sulla macchina vera, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 4 | Mission control con una scheda per progetto, coda globale con priorità e limite per progetto, griglia degli agenti, notifiche (browser, ntfy, Telegram), ricerca globale, prestazioni con molti progetti | **Completata** (manca la prova delle notifiche push via HTTPS su un telefono vero, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 5 | Memoria di progetto: fatti stabili raccolti dalle run, curati da una pagina, sotto un limite di token, nel prompt delle sessioni nuove e misurabili con un A/B | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -133,6 +134,15 @@ Dettagli in [docs/operations.md §12](docs/operations.md#12-isolare-gli-agenti).
 - Con 20 progetti, 20.000 run e 2 milioni di righe di token, Mission control risponde in 181 ms (56 ms con git in cache) e Savings in 400 ms (`pnpm --filter @onyx/api bench:telemetry`).
 
 Dettagli in [docs/operations.md §13–15](docs/operations.md#13-coda-e-limite-per-progetto).
+
+### Memoria di progetto (2.0, milestone 5)
+
+- Dopo ogni run Onyx annota, con la run da cui vengono: i comandi utili che hanno funzionato (test, build, lint, type check), i file letti in almeno tre run, il comando dei test di un TDD finito in verde e i fallimenti che si ripetono. Le insidie restano da confermare, perché il loro testo viene dall'output dei comandi.
+- **Memory** nella pagina del progetto mostra cosa ricevono le sessioni nuove (entro 800 token, regolabili) e permette di confermare, fissare, correggere, dimenticare e ripristinare i fatti, e di aggiungere note. I fatti non rivisti per 30 giorni si dimenticano, tranne quelli fissati.
+- La memoria entra nel prompt di sistema delle sessioni nuove, run e terminali, e resta la stessa per tutte le riprese: la cache dei prompt non si rompe.
+- **Settings → Project memory → Measure it**: metà delle sessioni nuove parte senza memoria e **Savings** confronta token di input, file letti e turni. Finché non ci sono 10 run per gruppo la riga del registro resta *stimata* e riporta i token che la memoria aggiunge.
+
+Dettagli in [docs/operations.md §16](docs/operations.md#16-memoria-di-progetto).
 
 ### Comandi bloccati
 

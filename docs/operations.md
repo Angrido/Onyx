@@ -313,3 +313,26 @@ Le chiavi VAPID si creano al primo uso; la chiave privata e le sottoscrizioni so
 Se un terminale ripreso si chiude subito (Claude Code non aveva salvato la sessione, per esempio dopo un `/clear` senza messaggi), Onyx chiude quella sessione e il terminale successivo ne apre una nuova.
 
 **Ricerca**: la palette (Ctrl K o **Search** nella barra laterale) cerca da due caratteri in titoli, prompt e riassunti dei task, negli errori delle run e nei percorsi dei file di tutti i progetti; gli accenti non contano. L'indice (tabella `SearchEntry`) contiene solo testi brevi e si aggiorna da solo; l'API lo crea al primo avvio della versione 2.0 · 4 e lo ricostruisce solo dopo un aggiornamento che ne cambia il formato.
+
+## 16. Memoria di progetto
+
+Ogni progetto ha una memoria di fatti raccolti dalle sue run: **Memory** nella pagina del progetto.
+
+| Fatto | Quando entra | Esempio |
+|---|---|---|
+| Comando | Un comando di test, build, lint, type check o simile è riuscito in una run | `pnpm --filter web test` works (3 runs) |
+| File chiave | Lo stesso file è stato letto in almeno tre run | `apps/api/src/server.ts` is read often (4 runs) |
+| Test | Un TDD loop è finito in verde | Tests pass with `pnpm vitest run` |
+| Insidia | Lo stesso comando è fallito con lo stesso errore in almeno due run | `pnpm build` has failed with: "Cannot find module …" |
+| Nota | La scrivi tu | Prices are stored in cents |
+
+- Le insidie restano in **To confirm** finché non le confermi: il loro testo viene dall'output dei comandi, che un file del progetto può influenzare.
+- **Forget** toglie un fatto e impedisce che torni; **Restore** in *Forgotten* lo riporta. La matita cambia il testo che vedono gli agenti; la puntina lo tiene sempre in cima e non lo fa scadere.
+- La memoria entra nel prompt di sistema delle sessioni **nuove** (run e terminali) fino al limite di token. Una sessione ripresa tiene quella con cui è partita: per far vedere una modifica agli agenti serve una sessione nuova (*Reset* del workspace o *Fresh context*).
+- **Settings → Project memory**: interruttore, limite (400–2000 token), scadenza dei fatti (14–90 giorni) ed esperimento. Con l'esperimento metà delle sessioni nuove parte senza memoria; **Savings → Project memory experiment** confronta i due gruppi dopo 10 run ciascuno. Se il risultato è *costs more* o *no difference*, conviene spegnere la memoria.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| La pagina dice *Nothing yet* | Nessuna run conclusa dopo l'aggiornamento | Fai girare qualche task; i comandi compaiono dopo la prima run |
+| Un fatto sbagliato continua a comparire | È ancora attivo | **Forget**: non verrà più raccolto |
+| Gli agenti non vedono una nota appena aggiunta | La sessione era già partita | Apri una sessione nuova |

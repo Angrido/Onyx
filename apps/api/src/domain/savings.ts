@@ -533,7 +533,11 @@ export function memoryRow(input: LedgerInput["memory"]): SavingsLedgerRow {
     tokens: null,
     usd: null,
     runs: sessions,
-    detail: `Expected 10–30% fewer files read and turns in new sessions that start with the project memory; not measured yet. Turn on the memory experiment in Settings to measure it.${cost}`,
+    detail: `Expected 10–30% fewer files read and turns in new sessions that start with the project memory; not measured yet. ${
+      experiment.state === "COLLECTING"
+        ? `The experiment is collecting runs: ${experiment.withMemory.runs} with and ${experiment.without.runs} without, ${experiment.minRunsPerArm} each needed.`
+        : "Turn on the memory experiment in Settings to measure it."
+    }${cost}`,
   };
 }
 

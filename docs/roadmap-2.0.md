@@ -176,8 +176,8 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–4 | **Fatte** (vedi sotto) |
-| 5–11 | Da fare, nell'ordine concordato |
+| 1–5 | **Fatte** (vedi sotto) |
+| 6–11 | Da fare, nell'ordine concordato |
 
 ### Milestone 1 — esito
 
@@ -230,3 +230,15 @@ Effetto sui token: nessuno diretto, come previsto. Le regole strette e per task 
 Effetto sui token: nessuno diretto, quindi niente righe nuove in Savings. Il limite per progetto e la coda ordinata distribuiscono meglio la finestra di 5 ore, e la griglia mostra quanti agenti la stanno consumando.
 
 Da verificare sulla macchina vera: Web Push via HTTPS con la CA interna di Caddy su un telefono (operations.md §14) e un bot Telegram reale.
+
+### Milestone 5 — esito
+
+| Voce | Stato | Risparmio |
+|---|---|---|
+| 5.1 Fatti stabili dalle run | Fatta (ADR-069): comandi riusciti, file letti spesso, comando dei test di un TDD verde, fallimenti ripetuti, ognuno con run e data. Le convenzioni non si ricavano in modo deterministico: restano alle note dell'operatore | — |
+| 5.2 Curatela e limite | Fatta: pagina Memory, limite di 800 token, scadenza di 30 giorni, fissaggio, modifica, note, ripristino | — |
+| 5.3 Iniezione nel primer | Fatta: nelle sessioni nuove di run e terminali, congelata per sessione | **Stimato**: −10/−30% di file letti e turni nelle sessioni nuove, finché l'esperimento non ha 10 run per gruppo; **misurato**: i token che la memoria aggiunge e, con l'esperimento, il confronto di token, file letti e turni |
+
+Effetto sui token: la memoria costa i suoi token (in media 50–150 nelle prove con lo stub) a ogni sessione nuova e ne risparmia solo se evita esplorazione. Lo dice l'esperimento; se risulta *costs more* o *no difference*, conviene spegnerla.
+
+Da verificare con Claude reale: accendere l'esperimento (Settings → Project memory → Measure it) e guardare Savings dopo una ventina di sessioni nuove.

@@ -102,7 +102,10 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
               Measure it: half of the new sessions start without memory
               <span className="block text-xs text-muted-foreground">
                 The result appears in{" "}
-                <Link href="/savings#memory-experiment" className="text-primary hover:underline">
+                <Link
+                  href="/savings#memory-experiment"
+                  className="text-primary underline underline-offset-2"
+                >
                   Savings
                 </Link>{" "}
                 after 10 runs per group.
