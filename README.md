@@ -27,6 +27,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 8 | Piani con QA: un revisore in sola lettura controlla ogni task prima del merge con prove dal diff; conflitti di merge risolti da Claude e applicati solo dopo la tua approvazione | **Completata** (manca la prova con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 9 | Insights: domande sul codice risposte dall'indice senza modello, Haiku solo se serve; Ideation: analisi statica gratuita di sicurezza e prestazioni, Claude solo sui punti sospetti, un task con un clic | **Completata** (manca la prova con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 10 | Console in italiano (inglese a scelta), anche nei messaggi prodotti dal server; stati vuoti che dicono cosa fare; guida al primo progetto; palette con creazione, impostazioni e lingua; errori con la soluzione; Lighthouse ≥ 90 e axe pulito su tutte le pagine con `scripts/ui-audit.mjs` | **Completata** |
+| 2.0 · 11 | Affidabilità: recupero automatico dopo un riavvio (piani, coda, follow-up, processi orfani, worktree), semaforo di salute per progetto, log nella console con i segreti mascherati, diagnostica in un file, aggiornamenti con ritorno alla release precedente | **Completata** (manca la prova di `release.sh` e di `onyx-update` da root sulla macchina vera) |
 
 ## Requisiti
 
@@ -203,6 +204,16 @@ Dettagli in [docs/operations.md §20](docs/operations.md#20-insights-e-ideation)
 - **Accessibilità**: `node scripts/ui-audit.mjs --cookie "onyx_sid=…"` controlla tutte le pagine su desktop e a 375 px (axe, overflow, Lighthouse ≥ 90).
 
 Dettagli in [docs/operations.md §21](docs/operations.md#21-lingua-primo-progetto-e-controllo-dellinterfaccia).
+
+### Affidabilità (2.0, milestone 11)
+
+- **Dopo un riavvio** Onyx ferma i processi degli agenti rimasti orfani, rimette in coda i task con la loro richiesta (anche il prompt di follow-up), fa ripartire i piani dai nodi non finiti e toglie i worktree che non servono più. Le run che erano in corso restano *interrotte*: le rilanci tu, perché avevano già speso token.
+- **Salute**: ogni progetto in Mission control ha un semaforo (indice, git, runner dei test, spazio su disco, credenziali), con i dettagli nella pagina del progetto.
+- **Log** (`/logs`): le ultime righe dell'API con filtri, senza segreti.
+- **Diagnostica** (Impostazioni): un file con versioni, configurazione senza segreti, errori recenti e numeri del database, da guardare in anteprima e poi scaricare.
+- **Aggiornamenti**: se la release nuova non parte si torna alla precedente con il backup del database; gli errori di git sono chiari e fermano l'aggiornamento.
+
+Dettagli in [docs/operations.md §22](docs/operations.md#22-affidabilità-recupero-salute-log-e-diagnostica).
 
 ### Comandi bloccati
 

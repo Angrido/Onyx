@@ -176,8 +176,7 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 |---|---|
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
-| 1–10 | **Fatte** (vedi sotto) |
-| 11 | Da fare |
+| 1–11 | **Fatte** (vedi sotto) |
 
 ### Milestone 1 — esito
 
@@ -305,4 +304,18 @@ Da verificare con Claude reale: qualità e costo delle risposte di Haiku con i t
 | 10.5 Mobile e accessibilità | Fatta (ADR-085): `scripts/ui-audit.mjs`, 36/36 con Lighthouse ≥ 90, accessibilità 100, axe senza violazioni, nessun overflow a 375 px | — |
 
 Nessun effetto sui token: la milestone non cambia nulla di quello che arriva a Claude.
+
+### Milestone 11 — esito
+
+| Voce | Stato | Token |
+|---|---|---|
+| 11.1 Recupero automatico | Fatta (ADR-086, ADR-087): A10, A11, M4, M9, M17 (lato codice), M26; registro dei processi e pulizia dei worktree. **Deviazione**: le run in corso al momento del riavvio non ripartono da sole (hanno già speso token e il loro stato a metà va guardato); i TDD loop si chiudono e se ne avvia uno nuovo | **Stimato**: meno run ripetute dopo un riavvio (nodi che ripartono con il loro prompt e worktree, follow-up non persi); non c'è una riga in Risparmi perché non c'è un confronto misurabile |
+| 11.2 Salute per progetto | Fatta (ADR-088) | Nessuno: nessun modello |
+| 11.3 Log nella UI | Fatta (ADR-089) | Nessuno |
+| 11.4 Diagnostica | Fatta (ADR-089) | Nessuno |
+| 11.5 Aggiornamento più robusto | Fatta (ADR-090): M15, M16, M18, B6–B9 | Nessuno |
+
+Resta aperto: il login con `claude setup-token` e il test delle credenziali non sono nel registro dei processi; una run in attesa dell'indice non mostra il motivo in coda; planner e roadmap occupano ancora il loro slot mentre aspettano l'indice.
+
+Da verificare sulla macchina vera: `release.sh` con systemd e un rollback reale, `onyx-update` da root su un checkout di un altro utente (`runuser`).
 

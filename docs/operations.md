@@ -469,3 +469,34 @@ Al primo avvio installa playwright-core, axe-core e Lighthouse in `~/.cache/onyx
 | Notifica arrivata in inglese | L'API è ripartita e nessuna pagina è stata ancora aperta | Apri la console una volta |
 | `ui-audit` segnala *overflow* | Un testo lungo allarga la pagina a 375 px | L'output dice la pagina e di quanti pixel: aprila a 375 px negli strumenti del browser |
 
+## 22. Affidabilità: recupero, salute, log e diagnostica
+
+**Dopo un riavvio o un crash** Onyx, all'avvio:
+
+| Cosa trova | Cosa fa |
+|---|---|
+| Processi di agenti, terminali o test lasciati da un Onyx precedente | Li ferma, ma solo se li aveva registrati lui e il processo è ancora lo stesso (PID e tempo di avvio) |
+| Run in corso | Le segna *interrotte*: hanno già speso token, quindi le rilanci tu dal task |
+| Task in coda | Li rimette in coda con la richiesta salvata (anche il prompt di follow-up o la risposta di *Consenti e continua*), se `AUTO_RESUME_QUEUED=true` |
+| Piani in esecuzione o in verifica | Ripartono dai nodi non uniti, con il prompt del nodo, se `AUTO_RESUME_QUEUED=true`; con `false` aspettano *Riprendi* |
+| Piani ancora in pianificazione, TDD loop | Si chiudono: il piano va rilanciato, il loop rimette a posto i file di test e se ne avvia uno nuovo |
+| Worktree di piani finiti, annullati o di nodi già uniti | Li rimuove; quelli di nodi non finiti restano |
+
+Il riepilogo dell'ultimo avvio è nella diagnostica (*recovery*).
+
+**Controlli di salute.** Ogni scheda di Mission control ha un semaforo e la pagina del progetto ha *Controlli di salute*: indice del codice, git, runner dei test (solo se il comando esiste, i test non vengono eseguiti), spazio su disco (errore sotto 1 GiB o 3% libero, attenzione sotto 5 GiB o 5%) e credenziali. I controlli si ripetono al massimo ogni 30 secondi; *Aggiorna i controlli* li rifà subito.
+
+**Log** (`/logs`, nella barra laterale o dalla palette; su mobile dalla palette o da Impostazioni → Diagnostica). Mostra le ultime 2.000 righe tenute in memoria dall'API, con filtri per livello minimo, run e testo e aggiornamento ogni 5 secondi. Le richieste andate a buon fine non vengono tenute. Prima di essere tenuta o scritta su stdout, ogni riga è ripulita da token (`sk-ant-…`, `ghp_…`, `github_pat_…`, bot Telegram, JWT, `Bearer`), password e segreti in URL, parametri e campi JSON, cookie e chiavi private. Dopo un riavvio l'elenco riparte vuoto: lo storico completo resta in `onyx-logs`.
+
+**Diagnostica** (Impostazioni → *Diagnostica*). *Mostra l'anteprima della diagnostica* prepara un file JSON con versione e commit di Onyx, Node, sistema, versione e compatibilità di Claude Code, configurazione senza segreti (per ogni segreto solo *impostato* o *non impostato*), readiness, riepilogo del recupero, ultimi 200 avvisi ed errori, dimensione e righe del database, migrazioni, coda e spazio su disco. *Scarica il file* salva esattamente quello che vedi. È il file da mandare quando chiedi aiuto.
+
+**Aggiornamenti.** `onyx-update` esegue git come proprietario del checkout anche quando lo lanci da root e si ferma con un messaggio chiaro su ogni errore di git (checkout illeggibile, HEAD staccato, nessun upstream, pull fallito) senza dire *Onyx updated*. In servizio, `release.sh` aspetta che la release nuova risponda su `/api/ready`; se non succede rimette la precedente e, se c'erano migrazioni, il backup `pre-update`, poi esce con errore. Chi sviluppa crea le migrazioni con `pnpm --filter @onyx/db migrate:new <nome>`, che le nomina dopo l'ultima; `pnpm --filter @onyx/db migrate:check` fallisce se schema e migrazioni non coincidono.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| Semaforo rosso su *Spazio su disco* | Meno di 1 GiB libero | Libera spazio o cancella backup vecchi (`onyx backups`) |
+| *Runner dei test* in attenzione | Dipendenze non installate nel progetto | Installa le dipendenze del progetto (`npm install` o simile) |
+| Una run è *Interrupted by Onyx restart* | Onyx si è fermato mentre girava | Rilancia il task: riparte nella stessa sessione se esiste ancora |
+| `onyx-update` dice *git cannot read the checkout* | Il checkout appartiene a un altro utente e git non è eseguibile come quell'utente | Esegui `onyx-update` come proprietario del checkout |
+| `release.sh` esce con *the update failed and was undone* | La release nuova non diventava pronta | Guarda `onyx-logs` e la diagnostica: Onyx gira ancora sulla release precedente |
+

@@ -43,6 +43,10 @@ Scala di gravità:
 | M20–M23 | Corretti nella milestone 4 (`6520ed9`): al massimo otto indici in memoria, riepilogo della run nelle liste, hub WebSocket con buffer in byte e output raggruppato, item normalizzati salvati con gli eventi |
 | B20 | Corretto nella milestone 4 (`6520ed9`): migrazione `20261013090000_performance`, più l'indice `TokenLog(runId, scope)` |
 | A12 | Corretto nella milestone 4 (`5381f6e`): un terminale ripreso che esce prima di `SessionStart` (o fallisce entro 5 s senza input) chiude la sua sessione (ADR-066) |
+| A10, A11 | Corretti nella milestone 11: nodi restituiti all'orchestratore dopo un riavvio, *Resume* che aspetta la run, annullamento durante la preparazione di planner e roadmap (ADR-086) |
+| M4, M9, M26 | Corretti nella milestone 11: pulizia di una preparazione fallita, richiesta salvata sul task (`Task.pendingRun`), nuovo tentativo del TDD su sessione persa (ADR-086) |
+| M17 | Lato codice corretto nella milestone 11: l'attesa della prima indicizzazione avviene prima di occupare uno slot (restano planner e roadmap) |
+| M15, M16, M18, B6–B9 | Corretti nella milestone 11: `migrate:new` e controllo dell'ordine, rollback di `release.sh`, errori di git in `onyx-update`, pulizia delle release, migrazione correttiva dei TDD loop, `migrate:check` in CI (ADR-090) |
 | Altri | Aperti; assegnati alle milestone di `docs/roadmap-2.0.md` |
 
 ## 2. Metodo
