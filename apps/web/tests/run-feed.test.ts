@@ -144,6 +144,7 @@ describe("context items", () => {
       baselineTokens: 2_000,
       deliveredTokens: 620,
       reusedTokens: 0,
+      signatureTokens: 0,
       mapFrozen: false,
       indexedAt: null,
       mcpEnabled: true,

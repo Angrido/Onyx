@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LeanAnalyzer } from "@onyx/lean-ctx";
+import { LeanAnalyzer, type SkeletonLevel } from "@onyx/lean-ctx";
 import {
   buildContextPack,
   indexProject,
@@ -186,6 +186,32 @@ describe("buildContextPack", () => {
     expect(pack?.text).not.toContain("unused");
     expect(pack?.text).not.toContain("total += options.retries");
     expect(pack?.baselineTokens ?? 0).toBeGreaterThan(pack?.deliveredTokens ?? Infinity);
+  });
+
+  it("sends the targets to edit as signatures when asked", () => {
+    const input = {
+      targets: ["src/service.ts", "src/main.ts"],
+      graph: index.graph,
+      files: packFiles(index),
+      readSource,
+      rank: rank(),
+      estimator: analyzer.estimator,
+      excerpt: (relPath: string, level: SkeletonLevel, names: readonly string[]) =>
+        analyzer.excerpt(relPath, readSource(relPath) ?? "", level, names),
+    };
+    const full = buildContextPack(input);
+    const signatures = buildContextPack({
+      ...input,
+      signatureTargets: new Set(["src/service.ts"]),
+    });
+    const levelOf = (pack: typeof full, relPath: string) =>
+      pack?.entries.find((entry) => entry.relPath === relPath)?.level;
+    expect(levelOf(full, "src/service.ts")).toBe(3);
+    expect(levelOf(signatures, "src/service.ts")).toBe(2);
+    expect(levelOf(signatures, "src/main.ts")).toBe(3);
+    expect(full?.signatureSavedTokens).toBe(0);
+    expect(signatures?.signatureSavedTokens ?? 0).toBeGreaterThan(0);
+    expect(signatures?.deliveredTokens ?? Infinity).toBeLessThan(full?.deliveredTokens ?? 0);
   });
 
   it("never ships the content of sensitive files", () => {

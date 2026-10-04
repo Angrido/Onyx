@@ -98,22 +98,34 @@ export class SavingsService {
   }
 
   private async compute(now: Date): Promise<SavingsReport> {
-    const [settings, pack, experimentRuns, other, sessions, current, previous, quota, memory] =
-      await Promise.all([
-        this.experimentSettings(),
-        this.accounting(now),
-        this.experimentSamples(now),
-        this.otherSavings(now),
-        this.sessionReuse(now),
-        this.continuations(now, 0),
-        this.continuations(now, 1),
-        this.quotaRuns(now),
-        this.memoryUse(now),
-      ]);
+    const [
+      settings,
+      pack,
+      experimentRuns,
+      other,
+      sessions,
+      current,
+      previous,
+      quota,
+      memory,
+      signatures,
+    ] = await Promise.all([
+      this.experimentSettings(),
+      this.accounting(now),
+      this.experimentSamples(now),
+      this.otherSavings(now),
+      this.sessionReuse(now),
+      this.continuations(now, 0),
+      this.continuations(now, 1),
+      this.quotaRuns(now),
+      this.memoryUse(now),
+      this.signatureUse(now),
+    ]);
     const experiment = compareArms({
       settings,
       pack: experimentRuns.pack,
       control: experimentRuns.control,
+      variant: experimentRuns.variant,
       windowDays: EXPERIMENT_DAYS,
       since: experimentRuns.since,
     });
@@ -134,6 +146,7 @@ export class SavingsService {
         continuations: { current, previous, windowDays: ACCOUNTING_DAYS },
         quota,
         memory,
+        signatures,
       }),
       cache: sessions.cache,
       memory: memory.experiment,
@@ -302,6 +315,22 @@ export class SavingsService {
     };
   }
 
+  private async signatureUse(now: Date) {
+    const result = await this.deps.prisma.agentRun.aggregate({
+      where: {
+        startedAt: { gte: new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS) },
+        ctxSignatureTokens: { not: null },
+      },
+      _sum: { ctxSignatureTokens: true },
+      _count: { _all: true },
+    });
+    return {
+      runs: result._count._all,
+      tokens: result._sum.ctxSignatureTokens ?? 0,
+      windowDays: ACCOUNTING_DAYS,
+    };
+  }
+
   private async memoryUse(now: Date) {
     const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
     const [rows, experiment] = await Promise.all([
@@ -318,9 +347,12 @@ export class SavingsService {
     };
   }
 
-  private async experimentSamples(
-    now: Date,
-  ): Promise<{ pack: ArmSample[]; control: ArmSample[]; since: string | null }> {
+  private async experimentSamples(now: Date): Promise<{
+    pack: ArmSample[];
+    control: ArmSample[];
+    variant: ArmSample[];
+    since: string | null;
+  }> {
     const runs = await experimentRuns(
       this.deps.prisma,
       new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS),
@@ -328,6 +360,7 @@ export class SavingsService {
     );
     const pack: ArmSample[] = [];
     const control: ArmSample[] = [];
+    const variant: ArmSample[] = [];
     for (const run of runs) {
       if (run.inputTokens === null) continue;
       const sample: ArmSample = {
@@ -339,10 +372,15 @@ export class SavingsService {
         turns: run.numTurns,
         readFiles: run.ctxReadFiles ?? 0,
       };
-      (run.contextArm === "CONTROL" ? control : pack).push(sample);
+      (run.contextArm === "CONTROL"
+        ? control
+        : run.contextArm === "TARGET_L2"
+          ? variant
+          : pack
+      ).push(sample);
     }
     const first = runs[0]?.startedAt;
-    return { pack, control, since: first ? new Date(first).toISOString() : null };
+    return { pack, control, variant, since: first ? new Date(first).toISOString() : null };
   }
 
   private async otherSavings(now: Date): Promise<OtherSavings> {

@@ -29,7 +29,8 @@ export const TASK_KINDS = [
   "CHORE",
 ] as const;
 export const TEST_RUNNERS = ["VITEST", "JEST"] as const;
-export const CONTEXT_ARMS = ["PACK", "CONTROL"] as const;
+export const CONTEXT_ARMS = ["PACK", "CONTROL", "TARGET_L2"] as const;
+export const CONTEXT_VARIANTS = ["TARGET_L2"] as const;
 export const SAVINGS_EVIDENCE = ["MEASURED", "ESTIMATED"] as const;
 export const QUOTA_LEVELS = ["UNKNOWN", "OK", "WARNING", "HOLDING", "LIMITED"] as const;
 export const RULE_SAFETY = ["SAFE", "REVIEW"] as const;
@@ -69,6 +70,7 @@ export const SAVINGS_SOURCES = [
   "stack-commands",
   "quota",
   "project-memory",
+  "target-signatures",
 ] as const;
 export const CACHE_LOSSES = [
   "NEW_SESSION",

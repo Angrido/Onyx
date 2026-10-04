@@ -112,6 +112,7 @@ export const SOURCE_LABELS: Record<SavingsSource, string> = {
   "stack-commands": "Commands allowed for the stack",
   quota: "Tasks held near the Claude limit",
   "project-memory": "Project memory in new sessions",
+  "target-signatures": "Files to edit sent as signatures",
 };
 
 export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {

@@ -486,6 +486,8 @@ export class RunExecutor {
             ctxRereadPaths: audit.rereadPaths,
             ctxReusedTokens:
               prepared.context.reusedTokens > 0 ? prepared.context.reusedTokens : null,
+            ctxSignatureTokens:
+              prepared.context.signatureTokens > 0 ? prepared.context.signatureTokens : null,
             cacheLoss: cache.reason,
             cacheReadTokens: cache.readTokens,
             cacheWriteTokens: cache.writeTokens,
@@ -963,6 +965,7 @@ export class RunExecutor {
         baselineTokens: 0,
         deliveredTokens: 0,
         reusedTokens: 0,
+        signatureTokens: 0,
         mapFrozen: false,
         indexedAt: null,
         mcpEnabled: false,
@@ -997,6 +1000,7 @@ export class RunExecutor {
       budgetTokens: config.context.packBudgetTokens,
       policy,
       delivered: session.delivered,
+      editTargetsAsSignatures: arm === "TARGET_L2",
     });
     const mcpEnabled =
       config.context.mcpServerPath !== null && isReadableFile(config.context.mcpServerPath);
@@ -1027,6 +1031,7 @@ export class RunExecutor {
         baselineTokens: pack?.baselineTokens ?? 0,
         deliveredTokens: map.tokens + packTokens,
         reusedTokens: pack?.reusedTokens ?? 0,
+        signatureTokens: pack?.signatureSavedTokens ?? 0,
         mapFrozen: session.frozenMap !== null,
         indexedAt: project.indexedAt?.toISOString() ?? null,
         mcpEnabled,

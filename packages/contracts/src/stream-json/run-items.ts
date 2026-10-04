@@ -137,6 +137,7 @@ export const ContextItemSchema = z.object({
   baselineTokens: z.number().int(),
   deliveredTokens: z.number().int(),
   reusedTokens: z.number().int().default(0),
+  signatureTokens: z.number().int().default(0),
   mapFrozen: z.boolean().default(false),
   indexedAt: z.string().nullable(),
   mcpEnabled: z.boolean(),

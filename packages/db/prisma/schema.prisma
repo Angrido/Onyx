@@ -111,6 +111,7 @@ enum CacheLoss {
 enum ContextArm {
   PACK
   CONTROL
+  TARGET_L2
 }
 
 enum TokenScope {
@@ -497,6 +498,7 @@ model AgentRun {
   ctxMissedFiles     Int?
   ctxRereadPaths     Json?
   ctxReusedTokens    Int?
+  ctxSignatureTokens Int?
   cachePrefixHash    String?
   cacheReadTokens    Int?
   cacheWriteTokens   Int?

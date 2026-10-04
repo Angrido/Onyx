@@ -48,6 +48,7 @@ export interface PackRequest {
   budgetTokens: number;
   policy?: ContextPolicy;
   delivered?: ReadonlyMap<string, string>;
+  editTargetsAsSignatures?: boolean;
 }
 
 export interface PackResult {
@@ -273,6 +274,7 @@ export class ProjectContext {
       estimator: this.analyzer.estimator,
       budgetTokens: request.budgetTokens,
       ...(request.delivered ? { delivered: request.delivered } : {}),
+      ...(request.editTargetsAsSignatures ? { signatureTargets: new Set(explicit) } : {}),
       excerpt: (relPath, level, names) => {
         const content = this.readSource(relPath);
         return content === null ? null : this.analyzer.excerpt(relPath, content, level, names);

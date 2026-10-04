@@ -21,6 +21,7 @@ const item: ContextItem = {
   baselineTokens: 4_000,
   deliveredTokens: 1_000,
   reusedTokens: 0,
+  signatureTokens: 0,
   mapFrozen: false,
   indexedAt: null,
   mcpEnabled: true,

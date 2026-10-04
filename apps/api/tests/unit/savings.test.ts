@@ -51,13 +51,50 @@ function accounting(overrides: Partial<PackAccounting> = {}): PackAccounting {
 
 describe("experiment arms", () => {
   it("draws an arm only for fresh sessions while the experiment is on", () => {
-    const on = { enabled: true, controlShare: 0.25 };
+    const on = { enabled: true, controlShare: 0.25, variant: null };
     const base = { settings: on, freshSession: true, contextEnabled: true };
     expect(drawArm({ ...base, random: () => 0.1 })).toBe("CONTROL");
     expect(drawArm({ ...base, random: () => 0.9 })).toBe("PACK");
     expect(drawArm({ ...base, freshSession: false, random: () => 0.1 })).toBeNull();
     expect(drawArm({ ...base, contextEnabled: false, random: () => 0.1 })).toBeNull();
     expect(drawArm({ ...base, settings: DEFAULT_EXPERIMENT, random: () => 0.1 })).toBeNull();
+    const three = { ...base, settings: { ...on, variant: "TARGET_L2" as const } };
+    expect(drawArm({ ...three, random: () => 0.1 })).toBe("CONTROL");
+    expect(drawArm({ ...three, random: () => 0.5 })).toBe("PACK");
+    expect(drawArm({ ...three, random: () => 0.7 })).toBe("TARGET_L2");
+  });
+
+  it("compares the variant with the current pack", () => {
+    const sample = (contextTokens: number): ArmSample => ({
+      completed: true,
+      contextTokens,
+      outputTokens: 100,
+      costUsd: 0.01,
+      turns: 3,
+      readFiles: 2,
+    });
+    const settings = { enabled: true, controlShare: 0.2, variant: "TARGET_L2" as const };
+    const result = compareArms({
+      settings,
+      pack: Array.from({ length: 12 }, (_, index) => sample(10_000 + index)),
+      control: Array.from({ length: 12 }, (_, index) => sample(14_000 + index)),
+      variant: Array.from({ length: 12 }, (_, index) => sample(8_000 + index)),
+      windowDays: 90,
+      since: null,
+    });
+    expect(result.state).toBe("SAVING");
+    expect(result.variant?.runs).toBe(12);
+    expect(result.variantState).toBe("SAVING");
+    expect(result.variantTokenChange).toBeCloseTo(-0.2, 2);
+    const without = compareArms({
+      ...{ settings: { ...settings, variant: null } },
+      pack: [],
+      control: [],
+      windowDays: 90,
+      since: null,
+    });
+    expect(without.variant).toBeNull();
+    expect(without.variantState).toBe("OFF");
   });
 });
 
@@ -143,7 +180,7 @@ describe("statistics", () => {
 });
 
 describe("experiment verdict", () => {
-  const on = { enabled: true, controlShare: 0.3 };
+  const on = { enabled: true, controlShare: 0.3, variant: null };
   const pack = Array.from({ length: 12 }, (_, index) => sample(20_000 + index * 500));
   const control = Array.from({ length: 12 }, (_, index) => sample(40_000 + index * 500));
 

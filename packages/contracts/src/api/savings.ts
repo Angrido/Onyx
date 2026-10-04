@@ -5,6 +5,7 @@ import {
   SAVINGS_EVIDENCE,
   SAVINGS_SOURCES,
   SAVINGS_VERDICTS,
+  CONTEXT_VARIANTS,
   EXPERIMENT_STATES,
 } from "../client";
 import { CacheLossSchema, ContextArmSchema } from "../domain";
@@ -12,9 +13,13 @@ import { CacheLossSchema, ContextArmSchema } from "../domain";
 export const MIN_CONTROL_SHARE = 0.1;
 export const MAX_CONTROL_SHARE = 0.5;
 
+export const ContextVariantSchema = z.enum(CONTEXT_VARIANTS);
+export type ContextVariant = z.infer<typeof ContextVariantSchema>;
+
 export const ContextExperimentSettingsSchema = z.object({
   enabled: z.boolean(),
   controlShare: z.number().min(MIN_CONTROL_SHARE).max(MAX_CONTROL_SHARE),
+  variant: ContextVariantSchema.nullable().default(null),
 });
 export type ContextExperimentSettings = z.infer<typeof ContextExperimentSettingsSchema>;
 
@@ -47,6 +52,10 @@ export const ExperimentResultSchema = z.object({
   costChange: z.number().nullable(),
   pValue: z.number().nullable(),
   successGap: z.number().nullable(),
+  variant: ArmStatsSchema.nullable(),
+  variantState: ExperimentStateSchema,
+  variantTokenChange: z.number().nullable(),
+  variantPValue: z.number().nullable(),
 });
 export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
 

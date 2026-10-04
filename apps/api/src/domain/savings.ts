@@ -13,7 +13,11 @@ import type {
   SavingsVerdict,
 } from "@onyx/contracts";
 
-export const DEFAULT_EXPERIMENT: ContextExperimentSettings = { enabled: false, controlShare: 0.25 };
+export const DEFAULT_EXPERIMENT: ContextExperimentSettings = {
+  enabled: false,
+  controlShare: 0.25,
+  variant: null,
+};
 export const MIN_RUNS_PER_ARM = 10;
 export const SIGNIFICANCE = 0.05;
 export const MAX_REREAD_PATHS = 50;
@@ -30,7 +34,27 @@ export function drawArm(input: {
   random: () => number;
 }): ContextArm | null {
   if (!input.settings.enabled || !input.freshSession || !input.contextEnabled) return null;
-  return input.random() < input.settings.controlShare ? "CONTROL" : "PACK";
+  const draw = input.random();
+  const { controlShare, variant } = input.settings;
+  if (draw < controlShare) return "CONTROL";
+  if (variant === null) return "PACK";
+  return draw < controlShare + (1 - controlShare) / 2 ? "PACK" : variant;
+}
+
+function pairState(input: {
+  enabled: boolean;
+  treated: ArmStats;
+  reference: ArmStats;
+  change: number | null;
+  pValue: number | null;
+  minRunsPerArm: number;
+}): ExperimentState {
+  const enough =
+    input.treated.runs >= input.minRunsPerArm && input.reference.runs >= input.minRunsPerArm;
+  if (!enough) return input.enabled ? "COLLECTING" : "OFF";
+  if (input.pValue !== null && input.pValue < SIGNIFICANCE && input.change !== null)
+    return input.change < 0 ? "SAVING" : "COSTS_MORE";
+  return "NO_DIFFERENCE";
 }
 
 export interface PackEntryRef {
@@ -173,6 +197,7 @@ export function compareArms(input: {
   settings: ContextExperimentSettings;
   pack: readonly ArmSample[];
   control: readonly ArmSample[];
+  variant?: readonly ArmSample[];
   windowDays: number;
   since: string | null;
   minRunsPerArm?: number;
@@ -185,15 +210,28 @@ export function compareArms(input: {
     input.pack.map((sample) => sample.contextTokens),
     input.control.map((sample) => sample.contextTokens),
   );
-  const enough = pack.runs >= minRunsPerArm && control.runs >= minRunsPerArm;
-  let state: ExperimentState;
-  if (!enough) state = input.settings.enabled ? "COLLECTING" : "OFF";
-  else if (pValue !== null && pValue < SIGNIFICANCE && tokenChange !== null)
-    state = tokenChange < 0 ? "SAVING" : "COSTS_MORE";
-  else state = "NO_DIFFERENCE";
+  const variantSamples = input.variant ?? [];
+  const variantArm = input.settings.variant ?? (variantSamples.length > 0 ? "TARGET_L2" : null);
+  const variant = variantArm === null ? null : armStats(variantArm, variantSamples);
+  const variantTokenChange = variant
+    ? relativeChange(variant.medianContextTokens, pack.medianContextTokens)
+    : null;
+  const variantPValue = variant
+    ? mannWhitneyP(
+        variantSamples.map((sample) => sample.contextTokens),
+        input.pack.map((sample) => sample.contextTokens),
+      )
+    : null;
   return {
     settings: input.settings,
-    state,
+    state: pairState({
+      enabled: input.settings.enabled,
+      treated: pack,
+      reference: control,
+      change: tokenChange,
+      pValue,
+      minRunsPerArm,
+    }),
     windowDays: input.windowDays,
     minRunsPerArm,
     since: input.since,
@@ -206,6 +244,19 @@ export function compareArms(input: {
       pack.successRate !== null && control.successRate !== null
         ? pack.successRate - control.successRate
         : null,
+    variant,
+    variantState: variant
+      ? pairState({
+          enabled: input.settings.enabled && input.settings.variant !== null,
+          treated: variant,
+          reference: pack,
+          change: variantTokenChange,
+          pValue: variantPValue,
+          minRunsPerArm,
+        })
+      : "OFF",
+    variantTokenChange,
+    variantPValue,
   };
 }
 
@@ -441,6 +492,7 @@ export interface LedgerInput {
   continuations: { current: RunTokens; previous: RunTokens; windowDays: number };
   quota: { deferredRuns: number; limitedRuns: number; windowDays: number };
   memory: { experiment: MemoryExperiment; sessions: number; tokens: number; windowDays: number };
+  signatures: { runs: number; tokens: number; windowDays: number };
 }
 
 export interface RunTokens {
@@ -506,6 +558,39 @@ function contextPackRow(pack: PackAccounting, experiment: ExperimentResult): Sav
     runs: pack.runsWithPack,
     detail:
       "Reading every target and direct dependency in full, minus what Onyx delivered and the files the agent read again anyway. Turn on the experiment to measure it.",
+  };
+}
+
+export function signaturesRow(
+  experiment: ExperimentResult,
+  signatures: LedgerInput["signatures"],
+): SavingsLedgerRow {
+  const variant = experiment.variant;
+  if (
+    variant &&
+    MEASURED_STATES.has(experiment.variantState) &&
+    experiment.variantTokenChange !== null
+  ) {
+    const change = Math.round(experiment.variantTokenChange * 100);
+    return {
+      source: "target-signatures",
+      evidence: "MEASURED",
+      tokens: null,
+      usd: null,
+      runs: variant.runs + experiment.pack.runs,
+      detail: `A/B against the current pack: ${change > 0 ? "+" : ""}${change}% input tokens per run when the files to edit arrive as signatures (median over ${variant.runs} and ${experiment.pack.runs} runs, ${pText(experiment.variantPValue)}).`,
+    };
+  }
+  return {
+    source: "target-signatures",
+    evidence: "ESTIMATED",
+    tokens: signatures.runs > 0 ? signatures.tokens : null,
+    usd: null,
+    runs: signatures.runs,
+    detail:
+      signatures.runs > 0
+        ? `In the last ${signatures.windowDays} days ${plural(signatures.runs, "run")} of the variant received the files to edit as signatures: ${compactTokens(signatures.tokens)} tokens not sent (counted at delivery). Claude reads a file before editing it anyway; the experiment says whether it explores more.`
+        : "Not tried yet: choose the variant in the experiment to send the files a task will edit as signatures instead of in full.",
   };
 }
 
@@ -589,5 +674,6 @@ export function savingsLedger(input: LedgerInput): SavingsLedgerRow[] {
     stackCommandsRow(input.continuations),
     quotaRow(input.quota),
     memoryRow(input.memory),
+    signaturesRow(input.experiment, input.signatures),
   ];
 }

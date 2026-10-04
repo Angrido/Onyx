@@ -303,7 +303,7 @@ describe("savings measurement", () => {
 
   it("validates the experiment settings", async () => {
     const initial = await api.get<ContextExperimentSettings>("/api/telemetry/savings/experiment");
-    expect(initial.body).toEqual({ enabled: false, controlShare: 0.25 });
+    expect(initial.body).toEqual({ enabled: false, controlShare: 0.25, variant: null });
     const invalid = await api.put("/api/telemetry/savings/experiment", {
       enabled: true,
       controlShare: 0.9,
@@ -313,7 +313,7 @@ describe("savings measurement", () => {
       enabled: true,
       controlShare: 0.5,
     });
-    expect(saved.body).toEqual({ enabled: true, controlShare: 0.5 });
+    expect(saved.body).toEqual({ enabled: true, controlShare: 0.5, variant: null });
   });
 
   it("withholds the Onyx context from control runs of the experiment", async () => {
@@ -365,5 +365,54 @@ describe("savings measurement", () => {
     expect(report.verdict.state).toBe("COLLECTING");
     expect(report.pack.controlRuns).toBe(1);
     await api.put("/api/telemetry/savings/experiment", { enabled: false, controlShare: 0.5 });
+  }, 90_000);
+
+  it("sends the files to edit as signatures in the variant arm", async () => {
+    await api.put("/api/telemetry/savings/experiment", {
+      enabled: true,
+      controlShare: 0.1,
+      variant: "TARGET_L2",
+    });
+    nextDraw = 0.9;
+    const variant = await runTask({
+      title: "Variant run",
+      prompt: "Change the total.",
+      targetPaths: ["src/cart.ts"],
+      newSession: true,
+    });
+    const item = variant.items.find((entry) => entry.kind === "context");
+    expect(item).toMatchObject({ arm: "TARGET_L2" });
+    const target =
+      item?.kind === "context"
+        ? item.entries.find((entry) => entry.relPath === "src/cart.ts")
+        : null;
+    expect(target).toMatchObject({ role: "target" });
+    expect(target?.level).toBeLessThan(3);
+    const stored = await context.container.prisma.agentRun.findUnique({
+      where: { id: variant.run.id },
+    });
+    expect(stored?.contextArm).toBe("TARGET_L2");
+    expect(stored?.ctxSignatureTokens ?? 0).toBeGreaterThan(0);
+
+    nextDraw = 0.3;
+    const packed = await runTask({
+      title: "Pack run with the variant on",
+      prompt: "Change the total.",
+      targetPaths: ["src/cart.ts"],
+      newSession: true,
+    });
+    expect(packed.run.context.arm).toBe("PACK");
+    context.container.savings.forget();
+    const report = (await api.get<SavingsReport>("/api/telemetry/savings")).body;
+    expect(report.experiment.variant).toMatchObject({ arm: "TARGET_L2", runs: 1 });
+    expect(report.experiment.variantState).toBe("COLLECTING");
+    const row = report.ledger.find((entry) => entry.source === "target-signatures");
+    expect(row).toMatchObject({ evidence: "ESTIMATED", runs: 1 });
+    expect(row?.tokens ?? 0).toBeGreaterThan(0);
+    await api.put("/api/telemetry/savings/experiment", {
+      enabled: false,
+      controlShare: 0.5,
+      variant: null,
+    });
   }, 90_000);
 });

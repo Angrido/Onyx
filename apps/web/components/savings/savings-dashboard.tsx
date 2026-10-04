@@ -168,7 +168,10 @@ function VerdictCard({ verdict }: { verdict: SavingsReport["verdict"] }) {
 function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(settings);
-  const dirty = draft.enabled !== settings.enabled || draft.controlShare !== settings.controlShare;
+  const dirty =
+    draft.enabled !== settings.enabled ||
+    draft.controlShare !== settings.controlShare ||
+    draft.variant !== settings.variant;
   const save = useMutation({
     mutationFn: () =>
       api.put<ContextExperimentSettings>("/api/telemetry/savings/experiment", draft),
@@ -208,6 +211,24 @@ function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
               {formatPercent(share)}
             </option>
           ))}
+        </Select>
+      </label>
+      <label className="flex items-center gap-2 text-sm text-muted-foreground sm:ml-4">
+        Variant
+        <Select
+          aria-label="Variant tried against the current context"
+          className="h-8 w-auto"
+          value={draft.variant ?? ""}
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              variant: event.target.value === "" ? null : "TARGET_L2",
+            }))
+          }
+          data-testid="experiment-variant"
+        >
+          <option value="">None</option>
+          <option value="TARGET_L2">Files to edit as signatures</option>
         </Select>
       </label>
       <Button
@@ -251,39 +272,57 @@ function armValue(stats: ArmStats, pick: (stats: ArmStats) => string): string {
 }
 
 function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
-  const { pack, control } = experiment;
-  const rows: { label: string; pack: string; control: string; change?: string }[] = [
-    { label: "Finished runs", pack: String(pack.runs), control: String(control.runs) },
+  const { pack, control, variant } = experiment;
+  const variantOf = (pick: (stats: ArmStats) => string) => (variant ? armValue(variant, pick) : "");
+  const rows: {
+    label: string;
+    pack: string;
+    control: string;
+    variant?: string;
+    change?: string;
+  }[] = [
+    {
+      label: "Finished runs",
+      pack: String(pack.runs),
+      control: String(control.runs),
+      variant: variant ? String(variant.runs) : "",
+    },
     {
       label: "Succeeded",
       pack: armValue(pack, (stats) => formatPercent(stats.successRate ?? 0)),
+      variant: variantOf((stats) => formatPercent(stats.successRate ?? 0)),
       control: armValue(control, (stats) => formatPercent(stats.successRate ?? 0)),
     },
     {
       label: "Input tokens per run",
       pack: armValue(pack, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
+      variant: variantOf((stats) => formatTokens(stats.medianContextTokens ?? 0)),
       control: armValue(control, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
       change: formatChange(experiment.tokenChange),
     },
     {
       label: "Output tokens per run",
       pack: armValue(pack, (stats) => formatTokens(stats.medianOutputTokens ?? 0)),
+      variant: variantOf((stats) => formatTokens(stats.medianOutputTokens ?? 0)),
       control: armValue(control, (stats) => formatTokens(stats.medianOutputTokens ?? 0)),
     },
     {
       label: "Cost per run",
       pack: armValue(pack, (stats) => formatUsd(stats.medianCostUsd)),
+      variant: variantOf((stats) => formatUsd(stats.medianCostUsd)),
       control: armValue(control, (stats) => formatUsd(stats.medianCostUsd)),
       change: formatChange(experiment.costChange),
     },
     {
       label: "Turns per run",
       pack: armValue(pack, (stats) => String(stats.medianTurns ?? "—")),
+      variant: variantOf((stats) => String(stats.medianTurns ?? "—")),
       control: armValue(control, (stats) => String(stats.medianTurns ?? "—")),
     },
     {
       label: "Files read per run",
       pack: armValue(pack, (stats) => String(stats.medianReadFiles ?? "—")),
+      variant: variantOf((stats) => String(stats.medianReadFiles ?? "—")),
       control: armValue(control, (stats) => String(stats.medianReadFiles ?? "—")),
     },
   ];
@@ -321,6 +360,13 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
             runs={control.runs}
             min={experiment.minRunsPerArm}
           />
+          {variant ? (
+            <ArmProgress
+              label="Files to edit as signatures"
+              runs={variant.runs}
+              min={experiment.minRunsPerArm}
+            />
+          ) : null}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -336,6 +382,11 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
                 <th scope="col" className="pb-2 pl-3 text-right font-medium">
                   Without
                 </th>
+                {variant ? (
+                  <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                    Signatures
+                  </th>
+                ) : null}
                 <th scope="col" className="pb-2 pl-3 text-right font-medium">
                   Change
                 </th>
@@ -352,6 +403,7 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
                   </th>
                   <td className="py-1.5 pl-3 text-right">{row.pack}</td>
                   <td className="py-1.5 pl-3 text-right">{row.control}</td>
+                  {variant ? <td className="py-1.5 pl-3 text-right">{row.variant}</td> : null}
                   <td className="py-1.5 pl-3 text-right font-medium">{row.change ?? ""}</td>
                 </tr>
               ))}
@@ -360,8 +412,11 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
         </div>
         <p className="text-[11px] text-muted-foreground">
           Mann–Whitney test on input tokens per run: {formatPValue(experiment.pValue)} (a difference
-          counts below 0.05) · {experiment.minRunsPerArm} runs per arm needed · last{" "}
-          {experiment.windowDays} days
+          counts below 0.05)
+          {variant
+            ? ` · signatures against the current context: ${formatChange(experiment.variantTokenChange) || "n/a"}, ${formatPValue(experiment.variantPValue)}`
+            : ""}{" "}
+          · {experiment.minRunsPerArm} runs per arm needed · last {experiment.windowDays} days
           {experiment.since ? (
             <>
               {" "}

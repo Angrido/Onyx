@@ -43,6 +43,7 @@ export interface ContextPack {
   baselineTokens: number;
   deliveredTokens: number;
   reusedTokens: number;
+  signatureSavedTokens: number;
   budgetTokens: number;
 }
 
@@ -56,6 +57,7 @@ export interface ContextPackInput {
   budgetTokens?: number;
   excerpt?: (relPath: string, level: SkeletonLevel, names: readonly string[]) => Excerpt | null;
   delivered?: ReadonlyMap<string, string>;
+  signatureTargets?: ReadonlySet<string>;
 }
 
 export function packFingerprint(level: ContextLevel, content: string): string {
@@ -209,7 +211,7 @@ function collectCandidates(input: ContextPackInput, targets: readonly string[]):
     relPath,
     role: "target",
     distance: 0,
-    plannedLevel: 3,
+    plannedLevel: input.signatureTargets?.has(relPath) ? 2 : 3,
     names: [],
   }));
   const seen = new Set(targets);
@@ -391,6 +393,16 @@ export function buildContextPack(input: ContextPackInput): ContextPack | null {
     entries.reduce((sum, entry) => sum + (entry.reused ? 0 : entry.tokens), 0) +
     input.estimator.estimate(framing, "text");
   const reusedTokens = entries.reduce((sum, entry) => sum + (entry.reused ? entry.tokens : 0), 0);
+  const signatureSavedTokens = entries
+    .filter(
+      (entry) =>
+        entry.role === "target" && entry.level < 3 && input.signatureTargets?.has(entry.relPath),
+    )
+    .reduce(
+      (sum, entry) =>
+        sum + Math.max(0, (input.files.get(entry.relPath)?.rawTokens ?? 0) - entry.tokens),
+      0,
+    );
 
   return {
     text,
@@ -399,6 +411,7 @@ export function buildContextPack(input: ContextPackInput): ContextPack | null {
     baselineTokens,
     deliveredTokens,
     reusedTokens,
+    signatureSavedTokens,
     budgetTokens: budget,
   };
 }
