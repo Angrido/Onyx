@@ -204,3 +204,14 @@ Da verificare con Claude reale (lo fai tu, vedi il riassunto): una ripresa dopo 
 | 2.5 Workspace dalla struttura | Fatta (ADR-059, chiude M30) | Non quantificato in Savings: il guadagno passa per pacchetti più mirati e quindi entra nella riga del contesto Onyx. La misura prevista (quota di task "Auto" finiti nel workspace di default) resta da aggiungere |
 
 Da verificare con Claude reale: che `rate_limit_event` arrivi sul tuo account e con quali campi. La card *Claude subscription limits* deve passare da *Not reported* a un valore dopo la prima run.
+
+### Milestone 3 — esito
+
+| Voce | Stato | Note |
+|---|---|---|
+| 3.1 Utente separato | Fatta (ADR-060) | **Deviazione dal piano**: niente `AmbientCapabilities`. Un processo che passa da un utente non root a un altro conserva `CAP_SETUID`, quindi l'agente avrebbe potuto diventare root. Al loro posto sudo limitato al solo utente `onyx-agent`, che richiede di togliere `NoNewPrivileges` all'API con un drop-in. Provato in CI con un utente reale e non privilegiato |
+| 3.2 Guard robusto | Fatta (ADR-061) | Pochi falsi positivi: `rm -rf dist`, `tsc --outDir dist`, `git grep` passano |
+| 3.3 *Allow and continue* sicuro | Fatta (ADR-062) | Regole per task, agente o progetto, con scadenza; rifiuti distruttivi anche nell'hook |
+| 3.4 Verifica a posteriori del recinto | Fatta (ADR-063) | Basata su `git status`, non su hash di tutti i file; esclude i workspace attivi in parallelo |
+
+Effetto sui token: nessuno diretto, come previsto. Le regole strette e per task evitano run di continuazione inutili, e la riga *Commands allowed for the stack* di Savings ne misura l'andamento.

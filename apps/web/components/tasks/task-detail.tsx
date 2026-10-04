@@ -1,6 +1,8 @@
 "use client";
 
 import type {
+  BlockedCommandsResponse,
+  RunEventsResponse,
   CatalogResponse,
   RunDto,
   RunTaskResponse,
@@ -323,10 +325,14 @@ function RunHistory({
 export function TaskDetail({
   initial,
   initialLoops,
+  initialBlocked = null,
+  initialEvents = null,
   catalog,
 }: {
   initial: TaskDetailDto;
   initialLoops: TddLoopDto[];
+  initialBlocked?: BlockedCommandsResponse | null;
+  initialEvents?: RunEventsResponse | null;
   catalog: CatalogResponse;
 }) {
   useLiveTask(initial.id);
@@ -393,7 +399,13 @@ export function TaskDetail({
           </Card>
           {loops.length > 0 ? <TddLoopPanel taskId={task.id} loops={loops} /> : null}
           {selectedRun ? (
-            <RunConsole key={selectedRun.id} run={selectedRun} className="h-[70vh]" />
+            <RunConsole
+              key={selectedRun.id}
+              run={selectedRun}
+              blocked={initialBlocked?.runId === selectedRun.id ? initialBlocked : null}
+              events={selectedRun.id === initial.runs[0]?.id ? initialEvents : null}
+              className="h-[70vh]"
+            />
           ) : (
             <Card className="grid h-64 place-items-center text-sm text-muted-foreground">
               Dispatch the task to start an agent.

@@ -32,6 +32,11 @@ Scala di gravità:
 | B26 | Corretto nella milestone 1: aree scorrevoli di Telemetry raggiungibili da tastiera |
 | B27 | Corretto nella milestone 1: modello d'uso dei token e della cache nello stub (`CLAUDE_STUB_USAGE=model`) |
 | M30 | Corretto nella milestone 2: workspace proposti dalla struttura reale alla registrazione (ADR-059) |
+| A1 | Corretto nella milestone 3: agenti, terminali e test in un utente di sistema separato (ADR-060) |
+| A3–A7 | Corretti nella milestone 3: guard con glob sul disco, wrapper, logica invertita, variabili e letture ricorsive (ADR-061) |
+| A8 | Corretto nella milestone 3: recinto su cartelle e glob e verifica a fine run (ADR-063) |
+| A9, A15 | Corretti nella milestone 3: regole strette, sicure per lista, per task o agente e con scadenza; rifiuti distruttivi nell'hook (ADR-062) |
+| B13–B16 | Corretti nella milestone 3: rifiuto in caso di dubbio, `tee <`/`touch -r`, sottocomandi git, glob del tool Grep |
 | Altri | Aperti; assegnati alle milestone di `docs/roadmap-2.0.md` |
 
 ## 2. Metodo

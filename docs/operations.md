@@ -234,3 +234,32 @@ Con un account Claude Max, Claude Code riporta durante le run lo stato delle fin
 | Tutta la coda è ferma con *Limit reached* | Claude ha rifiutato una run per il limite | Aspetta il reset; con un altro account usa *Resume now* |
 | La card resta *Not reported* | La versione di Claude Code non manda l'evento, o non c'è ancora stata una run | Niente da fare: senza dati Onyx non trattiene nulla |
 
+## 12. Isolare gli agenti
+
+Di default gli agenti girano con l'utente di Onyx: il guard tiene fuori dal contesto i file esclusi, ma non è un confine di sicurezza. Con un utente separato il confine lo mette il sistema operativo.
+
+**Attivazione** (come root, una volta):
+
+```bash
+sudo /opt/onyx/current/deploy/scripts/agent-sandbox.sh --enable
+```
+
+Lo script crea il gruppo `onyx-work` e l'utente `onyx-agent`, aggiunge `onyx` al gruppo, scrive `/etc/sudoers.d/onyx-agent` (solo `onyx → onyx-agent`), un drop-in systemd che toglie `NoNewPrivileges` all'API (sudo ne ha bisogno), condivide con il gruppo progetti e worktree (`.git` resta in sola lettura), rende leggibili all'agente i file MCP del rilascio e il binario di Claude Code, imposta `ONYX_AGENT_USER` e riavvia l'API. Senza `--enable` prepara tutto ma non cambia `onyx.env`.
+
+**Verifica**: `curl -s http://127.0.0.1:4000/api/ready` deve riportare il controllo `agent-sandbox` con `"ok": true` e *agents run as onyx-agent*. Una run deve completarsi; nel terminale di un workspace `id` deve mostrare `onyx-agent`.
+
+**Cosa cambia**:
+
+- l'agente non legge `secret.key`, il database, i backup, `/etc/onyx` e l'ambiente dell'API; continua a leggere e scrivere i progetti;
+- il token di Claude passa comunque all'agente, che ne ha bisogno: resta leggibile nel suo ambiente;
+- i file che Onyx scrive nei progetti (checkout, merge, ripristini del TDD) restano modificabili dal gruppo;
+- i progetti di altri proprietari vanno condivisi: lo script lo fa per quelli in `/srv/onyx/projects`.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| `agent-sandbox` con `ok: false`: *sudo to onyx-agent failed* | Regola sudoers assente o `NoNewPrivileges` ancora attivo | Rilancia lo script; `systemctl cat onyx-api` deve mostrare il drop-in `agent-sandbox.conf` |
+| `agent-sandbox` con `ok: false`: *cannot share … with onyx-work* | `onyx` non è nel gruppo (serve un riavvio del servizio) o la cartella è di un altro utente | `systemctl restart onyx-api`; `chown onyx` sulla cartella |
+| Le run falliscono con *Permission denied* sul binario di Claude | Claude Code installato in una cartella non attraversabile | Rilancia lo script dopo ogni aggiornamento di Claude Code che cambia cartella |
+| Un progetto registrato a mano dà errori di scrittura | I file non sono del gruppo `onyx-work` | Rilancia lo script, oppure `chgrp -R onyx-work <cartella>` e `chmod -R g+rwX` (non su `.git`) |
+| Il feed mostra *Undone* dopo una run | La run ha cambiato file di un altro workspace | È voluto: il compito va affidato al workspace giusto, oppure i percorsi del workspace vanno allargati |
+

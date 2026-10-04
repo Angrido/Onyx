@@ -279,11 +279,19 @@ export function analyzeCommands(commands: readonly string[]): {
   for (const command of commands) {
     for (const invocation of invocations(command)) {
       const name = programName(invocation.words[0] ?? "");
-      const privileged =
-        REFUSED[name] ?? (invocation.wrapper ? REFUSED[invocation.wrapper] : undefined);
-      if (privileged) {
-        if (!refused.some((entry) => entry.command === command))
-          refused.push({ command: shortCommand(command), program: name, reason: privileged });
+      const refusedProgram =
+        REFUSED[name] !== undefined
+          ? name
+          : invocation.wrapper && REFUSED[invocation.wrapper] !== undefined
+            ? invocation.wrapper
+            : null;
+      if (refusedProgram) {
+        if (!refused.some((entry) => entry.command === shortCommand(command)))
+          refused.push({
+            command: shortCommand(command),
+            program: refusedProgram,
+            reason: REFUSED[refusedProgram] ?? "is never allowed",
+          });
         continue;
       }
       const { prefix, subcommand } = rulePrefix(invocation.words);

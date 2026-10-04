@@ -1,6 +1,11 @@
 "use client";
 
-import type { RunDto, RunEventsResponse, ServerMessage } from "@onyx/contracts";
+import type {
+  BlockedCommandsResponse,
+  RunDto,
+  RunEventsResponse,
+  ServerMessage,
+} from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DatabaseZap, FlaskConical, Loader2, Repeat2, ShieldX, Square } from "lucide-react";
@@ -45,6 +50,12 @@ function reducer(state: FeedState, action: FeedAction): FeedState {
   }
 }
 
+function initialFeed(events: RunEventsResponse | null): FeedState {
+  let state = INITIAL_FEED;
+  for (const event of events?.items ?? []) state = applyRunEvent(state, event.seq, event.items);
+  return state;
+}
+
 function useElapsed(startedAt: string, endedAt: string | null, running: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -77,17 +88,33 @@ function Metric({
   );
 }
 
-export function RunConsole({ run, className }: { run: RunDto; className?: string }) {
+export function RunConsole({
+  run,
+  blocked = null,
+  events = null,
+  className,
+}: {
+  run: RunDto;
+  blocked?: BlockedCommandsResponse | null;
+  events?: RunEventsResponse | null;
+  className?: string;
+}) {
   const queryClient = useQueryClient();
-  const [feed, dispatch] = useReducer(reducer, INITIAL_FEED);
+  const [feed, dispatch] = useReducer(reducer, events, initialFeed);
   const [bootstrapSeq, setBootstrapSeq] = useState<number | null>(null);
+  const initialEvents = useRef(events);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
-      let after = 0;
+      const preloaded = initialEvents.current;
+      let after = preloaded?.items.at(-1)?.seq ?? 0;
+      if (preloaded && preloaded.nextAfter === null) {
+        setBootstrapSeq(after);
+        return;
+      }
       for (;;) {
         const page = await api.get<RunEventsResponse>(
           `/api/runs/${run.id}/events?after=${after}&limit=500`,
@@ -254,8 +281,8 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             {cache.text}
           </p>
         ) : null}
-        {terminal && commandsBlocked ? (
-          <BlockedCommands runId={run.id} taskId={run.taskId} />
+        {terminal && (commandsBlocked || (blocked?.commands.length ?? 0) > 0) ? (
+          <BlockedCommands runId={run.id} taskId={run.taskId} initial={blocked} />
         ) : null}
       </div>
       <div

@@ -19,6 +19,7 @@ L'architettura completa (topologia, schema dati, rete, roadmap) è in [`architec
 | 2.0 · 0 | Audit (`docs/audit-2.0.md`), correzione dei bug critici, piano della 2.0 (`docs/roadmap-2.0.md`) | **Completata** |
 | 2.0 · 1 | Sprechi di token: mappa tenuta per la sessione, pacchetto non rimandato, telemetria della cache, registro dei risparmi, verifica dei piani sui test già rossi, falsi positivi del guard | **Completata** (manca la misura con Claude reale, vedi `docs/roadmap-2.0.md`) |
 | 2.0 · 2 | Limiti di Claude Max (avvisi, task che possono aspettare trattenuti fino al reset), comandi consentiti e workspace proposti dal progetto | **Completata** (manca la conferma del formato dei limiti con Claude reale, vedi `docs/roadmap-2.0.md`) |
+| 2.0 · 3 | Agenti in un utente di sistema separato, guard e recinto più precisi con verifica a fine run, *Allow and continue* con regole strette, per task o per agente e con scadenza | **Completata** (manca la prova dello script di sandbox sulla macchina vera, vedi `docs/roadmap-2.0.md`) |
 
 ## Requisiti
 
@@ -112,6 +113,14 @@ Dettagli in [docs/operations.md §10](docs/operations.md#10-il-risparmio-di-toke
 - La pagina del progetto propone i comandi precisi per lo stack rilevato (Node con il suo gestore e gli script, Python, Go, Rust, make, Docker). Install e build di immagini sono segnalati e non preselezionati; gli interpreti non vengono mai proposti.
 
 Dettagli in [docs/operations.md §11](docs/operations.md#11-limiti-dellabbonamento-claude).
+
+### Agenti isolati e comandi più sicuri (2.0, milestone 3)
+
+- **Utente separato per gli agenti**: `sudo deploy/scripts/agent-sandbox.sh --enable` crea l'utente `onyx-agent` e fa girare agenti, terminali e test con quello. Un agente ingannato da un file del progetto non legge più la chiave di cifratura, il database né i token delle altre run, e non cambia la configurazione git. Il controllo `agent-sandbox` di `/api/ready` deve risultare `ok`.
+- ***Allow and continue***: propone regole strette (`pnpm run build`, non `pnpm`), mostra il comando da cui nasce ognuna, preseleziona solo quelle sicure e spiega le altre; `sudo` e `git push` non si possono consentire. Si sceglie se valgono per il task, per il profilo d'agente o per tutto il progetto, e per quanto tempo; la pagina del progetto le elenca e le revoca.
+- **Recinti**: a fine run Onyx rimette a posto i file degli altri workspace che la run ha cambiato per vie traverse (script, `node -e`…) e lo segnala nel feed.
+
+Dettagli in [docs/operations.md §12](docs/operations.md#12-isolare-gli-agenti).
 
 ### Comandi bloccati
 

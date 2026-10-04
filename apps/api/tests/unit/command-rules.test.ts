@@ -83,7 +83,7 @@ describe("rule suggestions", () => {
       refused: [
         {
           command: "sudo apt install x",
-          program: "apt",
+          program: "sudo",
           reason: "runs commands as another user",
         },
         {

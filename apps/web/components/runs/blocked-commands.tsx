@@ -13,13 +13,22 @@ import { queryKeys } from "@/lib/api/keys";
 import { EXPIRY_OPTIONS, SCOPE_LABELS, defaultRules } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
-export function BlockedCommands({ runId, taskId }: { runId: string; taskId: string }) {
+export function BlockedCommands({
+  runId,
+  taskId,
+  initial,
+}: {
+  runId: string;
+  taskId: string;
+  initial?: BlockedCommandsResponse | null;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const queryClient = useQueryClient();
   const { data } = useQuery({
     queryKey: queryKeys.runBlocked(runId),
     queryFn: () => api.get<BlockedCommandsResponse>(`/api/runs/${runId}/blocked`),
+    ...(initial ? { initialData: initial } : {}),
   });
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [reply, setReply] = useState("");
