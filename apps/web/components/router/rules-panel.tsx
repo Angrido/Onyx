@@ -33,9 +33,12 @@ import { Field, Input, Label, Select, Textarea } from "@/components/ui/form-cont
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS } from "@/lib/domains";
+import { useT } from "@/lib/i18n/client";
 import { KIND_LABELS, describeMatcher, splitList } from "@/lib/router";
 import { TIER_STYLES } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
+
+const PATHS_PLACEHOLDER = "apps/web/**";
 
 interface RuleDraft {
   name: string;
@@ -139,6 +142,7 @@ function RuleDialog({
   projects: ProjectDto[];
   catalog: CatalogResponse;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<RuleDraft>(() => draftOf(rule));
   const update = (patch: Partial<RuleDraft>) => setDraft((current) => ({ ...current, ...patch }));
@@ -159,7 +163,7 @@ function RuleDialog({
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routingRules });
-      toast.success(rule ? "Rule updated" : "Rule created");
+      toast.success(rule ? t("Rule updated") : t("Rule created"));
       onOpenChange(false);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -170,16 +174,19 @@ function RuleDialog({
     save.mutate();
   }
 
-  const preview = describeMatcher(matcherOf(draft));
+  const preview = describeMatcher(matcherOf(draft), t);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(94vw,42rem)]">
         <DialogHeader>
-          <DialogTitle>{rule ? `Edit ${rule.name}` : "New routing rule"}</DialogTitle>
+          <DialogTitle>
+            {rule ? t("Edit {name}", { name: rule.name }) : t("New routing rule")}
+          </DialogTitle>
           <DialogDescription>
-            Every condition you set must hold. Rules run by ascending priority; on a tie, project
-            rules win over global ones.
+            {t(
+              "Every condition you set must hold. Rules run by ascending priority; on a tie, project rules win over global ones.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -187,7 +194,7 @@ function RuleDialog({
           onSubmit={submit}
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
-            <Field label="Name" htmlFor="rule-name">
+            <Field label={t("Name")} htmlFor="rule-name">
               <Input
                 id="rule-name"
                 value={draft.name}
@@ -195,7 +202,7 @@ function RuleDialog({
                 required
               />
             </Field>
-            <Field label="Priority" htmlFor="rule-priority">
+            <Field label={t("Priority")} htmlFor="rule-priority">
               <Input
                 id="rule-priority"
                 type="number"
@@ -207,14 +214,14 @@ function RuleDialog({
             </Field>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Scope" htmlFor="rule-scope">
+            <Field label={t("Scope")} htmlFor="rule-scope">
               <Select
                 id="rule-scope"
                 value={draft.projectId}
                 disabled={rule !== null}
                 onChange={(event) => update({ projectId: event.target.value })}
               >
-                <option value="">All projects</option>
+                <option value="">{t("All projects")}</option>
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
@@ -222,7 +229,7 @@ function RuleDialog({
                 ))}
               </Select>
             </Field>
-            <Field label="Tier" htmlFor="rule-tier">
+            <Field label={t("Tier")} htmlFor="rule-tier">
               <Select
                 id="rule-tier"
                 value={draft.targetTier}
@@ -232,23 +239,23 @@ function RuleDialog({
               >
                 {MODEL_TIERS.map((tier) => (
                   <option key={tier} value={tier}>
-                    {TIER_STYLES[tier].label}
+                    {t(TIER_STYLES[tier].label)}
                   </option>
                 ))}
               </Select>
             </Field>
-            <Field label="Model" htmlFor="rule-model">
+            <Field label={t("Model")} htmlFor="rule-model">
               <ModelSelect
                 id="rule-model"
                 models={catalog.models}
                 value={draft.modelId}
                 onChange={(modelId) => update({ modelId })}
-                defaultLabel="Tier default"
+                defaultLabel={t("Tier default")}
               />
             </Field>
           </div>
           <div className="space-y-2">
-            <Label>Task kinds</Label>
+            <Label>{t("Task kinds")}</Label>
             <div className="flex flex-wrap gap-1.5">
               {TASK_KINDS.map((kind) => (
                 <Chip
@@ -256,13 +263,13 @@ function RuleDialog({
                   active={draft.taskKinds.includes(kind)}
                   onClick={() => update({ taskKinds: toggle(draft.taskKinds, kind) })}
                 >
-                  {KIND_LABELS[kind]}
+                  {t(KIND_LABELS[kind])}
                 </Chip>
               ))}
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Workspace domains</Label>
+            <Label>{t("Workspace domains")}</Label>
             <div className="flex flex-wrap gap-1.5">
               {DOMAINS.map((domain) => (
                 <Chip
@@ -270,41 +277,41 @@ function RuleDialog({
                   active={draft.domains.includes(domain)}
                   onClick={() => update({ domains: toggle(draft.domains, domain) })}
                 >
-                  {DOMAIN_LABELS[domain]}
+                  {t(DOMAIN_LABELS[domain])}
                 </Chip>
               ))}
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
-              label="Path globs"
+              label={t("Path globs")}
               htmlFor="rule-paths"
-              hint="Every target path must match one of them."
+              hint={t("Every target path must match one of them.")}
             >
               <Textarea
                 id="rule-paths"
                 className="min-h-20 font-mono text-xs"
                 value={draft.pathGlobs}
                 onChange={(event) => update({ pathGlobs: event.target.value })}
-                placeholder="apps/web/**"
+                placeholder={PATHS_PLACEHOLDER}
               />
             </Field>
             <Field
-              label="Keywords"
+              label={t("Keywords")}
               htmlFor="rule-keywords"
-              hint="Any of them in the title or prompt."
+              hint={t("Any of them in the title or prompt.")}
             >
               <Textarea
                 id="rule-keywords"
                 className="min-h-20 text-xs"
                 value={draft.keywords}
                 onChange={(event) => update({ keywords: event.target.value })}
-                placeholder="migration, schema"
+                placeholder={t("migration, schema")}
               />
             </Field>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Max files" htmlFor="rule-max-files">
+            <Field label={t("Max files")} htmlFor="rule-max-files">
               <Input
                 id="rule-max-files"
                 type="number"
@@ -313,7 +320,7 @@ function RuleDialog({
                 onChange={(event) => update({ maxFilesTouched: event.target.value })}
               />
             </Field>
-            <Field label="Max blast radius" htmlFor="rule-max-blast">
+            <Field label={t("Max blast radius")} htmlFor="rule-max-blast">
               <Input
                 id="rule-max-blast"
                 type="number"
@@ -330,7 +337,7 @@ function RuleDialog({
                   checked={draft.styleOnly}
                   onChange={(event) => update({ styleOnly: event.target.checked })}
                 />
-                Style files only
+                {t("Style files only")}
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -339,17 +346,17 @@ function RuleDialog({
                   checked={draft.enabled}
                   onChange={(event) => update({ enabled: event.target.checked })}
                 />
-                Enabled
+                {t("Enabled")}
               </label>
             </div>
           </div>
           <p className="rounded-md bg-surface-2 px-3 py-2 text-xs text-muted-foreground">
-            Matches: <span className="text-foreground">{preview}</span>
+            {t("Matches:")} <span className="text-foreground">{preview}</span>
           </p>
           <DialogFooter>
             <Button type="submit" disabled={save.isPending || draft.name.trim().length === 0}>
               {save.isPending ? <Loader2 className="animate-spin" /> : null}
-              {rule ? "Save rule" : "Create rule"}
+              {rule ? t("Save rule") : t("Create rule")}
             </Button>
           </DialogFooter>
         </form>
@@ -367,6 +374,7 @@ export function RulesPanel({
   projects: ProjectDto[];
   catalog: CatalogResponse;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<RoutingRuleDto | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -389,7 +397,7 @@ export function RulesPanel({
     mutationFn: (id: string) => api.delete(`/api/routing-rules/${id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routingRules });
-      toast.success("Rule deleted");
+      toast.success(t("Rule deleted"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -406,15 +414,15 @@ export function RulesPanel({
         <div className="space-y-1.5">
           <CardTitle className="flex items-center gap-2">
             <ListChecks className="size-4 text-primary" />
-            Rules
+            {t("Rules")}
           </CardTitle>
           <CardDescription>
-            The first enabled rule that matches decides the tier, before the heuristic runs.
+            {t("The first enabled rule that matches decides the tier, before the heuristic runs.")}
           </CardDescription>
         </div>
         <Button size="sm" onClick={() => openEditor(null)}>
           <Plus />
-          New rule
+          {t("New rule")}
         </Button>
       </CardHeader>
       <CardContent>
@@ -434,14 +442,16 @@ export function RulesPanel({
                 <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                   {rule.name}
                   <Badge>
-                    {rule.projectId ? (projectNames.get(rule.projectId) ?? "project") : "global"}
+                    {rule.projectId
+                      ? (projectNames.get(rule.projectId) ?? t("project"))
+                      : t("global")}
                   </Badge>
                 </p>
                 <p
                   className="truncate text-xs text-muted-foreground"
-                  title={describeMatcher(rule.matcher)}
+                  title={describeMatcher(rule.matcher, t)}
                 >
-                  {describeMatcher(rule.matcher)}
+                  {describeMatcher(rule.matcher, t)}
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
@@ -454,17 +464,17 @@ export function RulesPanel({
                     type="checkbox"
                     className="size-3.5 accent-[var(--primary)]"
                     checked={rule.enabled}
-                    aria-label={`Enable ${rule.name}`}
+                    aria-label={t("Enable {name}", { name: rule.name })}
                     onChange={(event) =>
                       patch.mutate({ id: rule.id, enabled: event.target.checked })
                     }
                   />
-                  on
+                  {t("on")}
                 </label>
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={`Edit ${rule.name}`}
+                  aria-label={t("Edit {name}", { name: rule.name })}
                   onClick={() => openEditor(rule)}
                 >
                   <Pencil />
@@ -472,10 +482,11 @@ export function RulesPanel({
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={`Delete ${rule.name}`}
+                  aria-label={t("Delete {name}", { name: rule.name })}
                   disabled={remove.isPending}
                   onClick={() => {
-                    if (window.confirm(`Delete the rule ${rule.name}?`)) remove.mutate(rule.id);
+                    if (window.confirm(t("Delete the rule {name}?", { name: rule.name })))
+                      remove.mutate(rule.id);
                   }}
                 >
                   <Trash2 />
@@ -486,7 +497,7 @@ export function RulesPanel({
         </ul>
         {rules.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No rules: the heuristic routes everything.
+            {t("No rules: the heuristic routes everything.")}
           </p>
         ) : null}
       </CardContent>

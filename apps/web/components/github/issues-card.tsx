@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { toggleNumber } from "@/lib/github";
+import { useT } from "@/lib/i18n/client";
 
 export function IssuesCard({
   projectId,
@@ -25,6 +26,7 @@ export function IssuesCard({
   workspaces: WorkspaceDto[];
   initial: GitHubIssueListResponse | null;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number[]>([]);
@@ -45,9 +47,12 @@ export function IssuesCard({
       setSelected([]);
       if (result.items.length > 0)
         toast.success(
-          `${result.items.length} ${result.items.length === 1 ? "issue is" : "issues are"} now draft tasks`,
+          result.items.length === 1
+            ? t("1 issue is now a draft task")
+            : t("{count} issues are now draft tasks", { count: result.items.length }),
         );
-      for (const skipped of result.skipped) toast.info(`#${skipped.number}: ${skipped.reason}`);
+      for (const skipped of result.skipped)
+        toast.info(t("#{number}: {reason}", { number: skipped.number, reason: skipped.reason }));
       void queryClient.invalidateQueries({ queryKey: ["github", "issues", projectId] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
     },
@@ -60,12 +65,13 @@ export function IssuesCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CircleDot className="size-4 text-primary" />
-          Issues
+          {t("Issues")}
         </CardTitle>
         <CardDescription className="flex items-start gap-1.5">
           <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
-          Imported issues become draft tasks. Their text comes from GitHub, not from you: the prompt
-          tells the agent to treat it as a description, and you review it before running.
+          {t(
+            "Imported issues become draft tasks. Their text comes from GitHub, not from you: the prompt tells the agent to treat it as a description, and you review it before running.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -78,11 +84,13 @@ export function IssuesCard({
           <p className="text-sm text-destructive">{errorMessage(issues.error)}</p>
         ) : !data?.repo ? (
           <p className="text-sm text-muted-foreground">
-            The project has no GitHub remote: issues appear when <code>origin</code> points to
-            GitHub.
+            {t("The project has no GitHub remote: issues appear when")} <code>origin</code>{" "}
+            {t("points to GitHub.")}
           </p>
         ) : data.items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No open issues on {data.repo}.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("No open issues on {repo}.", { repo: data.repo })}
+          </p>
         ) : (
           <ul className="divide-y divide-border">
             {data.items.map((issue) => {
@@ -115,7 +123,8 @@ export function IssuesCard({
                     ) : null}
                     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>
-                        {issue.author ?? "unknown"} · updated <RelativeTime iso={issue.updatedAt} />
+                        {issue.author ?? t("unknown")} · {t("updated")}{" "}
+                        <RelativeTime iso={issue.updatedAt} />
                       </span>
                       <a
                         href={issue.url}
@@ -123,7 +132,7 @@ export function IssuesCard({
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 underline underline-offset-2"
                       >
-                        On GitHub
+                        {t("On GitHub")}
                         <ExternalLink className="size-3" />
                       </a>
                       {issue.importedTaskId ? (
@@ -131,7 +140,7 @@ export function IssuesCard({
                           href={`/tasks/${issue.importedTaskId}`}
                           className="text-primary underline underline-offset-2"
                         >
-                          Imported task
+                          {t("Imported task")}
                         </Link>
                       ) : null}
                     </p>
@@ -143,13 +152,13 @@ export function IssuesCard({
         )}
         {data?.repo ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-            <Field label="Workspace" htmlFor="issue-workspace">
+            <Field label={t("Workspace")} htmlFor="issue-workspace">
               <Select
                 id="issue-workspace"
                 value={workspaceId}
                 onChange={(event) => setWorkspaceId(event.target.value)}
               >
-                <option value="">Auto (from the issue)</option>
+                <option value="">{t("Auto (from the issue)")}</option>
                 {workspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.name}
@@ -163,7 +172,9 @@ export function IssuesCard({
               data-testid="issues-import"
             >
               {importing.isPending ? <Loader2 className="animate-spin" /> : <Download />}
-              Import {selected.length > 0 ? selected.length : ""} as tasks
+              {selected.length > 0
+                ? t("Import {count} as tasks", { count: selected.length })
+                : t("Import as tasks")}
             </Button>
             <div className="flex gap-2 sm:ml-auto">
               <Button
@@ -172,7 +183,7 @@ export function IssuesCard({
                 disabled={page === 1}
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
               >
-                Previous
+                {t("Previous")}
               </Button>
               <Button
                 variant="ghost"
@@ -180,7 +191,7 @@ export function IssuesCard({
                 disabled={!data.hasNext}
                 onClick={() => setPage((current) => current + 1)}
               >
-                Next
+                {t("Next")}
               </Button>
             </div>
           </div>

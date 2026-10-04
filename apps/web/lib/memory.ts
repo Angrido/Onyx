@@ -1,11 +1,12 @@
 import type { MemoryFactDto, MemoryFactKind } from "@onyx/contracts";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 export const FACT_KIND_LABELS: Record<MemoryFactKind, string> = {
-  TEST: "Tests",
-  COMMAND: "Command",
-  FILE: "Key file",
-  PITFALL: "Pitfall",
-  NOTE: "Note",
+  TEST: msg("Tests"),
+  COMMAND: msg("Command"),
+  FILE: msg("Key file"),
+  PITFALL: msg("Pitfall"),
+  NOTE: msg("Note"),
 };
 
 export const FACT_KIND_TONES: Record<
@@ -43,13 +44,14 @@ export function groupFacts(facts: readonly MemoryFactDto[]): FactGroups {
 
 export function factSource(
   fact: Pick<MemoryFactDto, "kind" | "evidence" | "sourceTaskTitle" | "lastSeenAt">,
+  t: Translate = english,
 ): string {
   const date = fact.lastSeenAt.slice(0, 10);
-  if (fact.kind === "NOTE") return `added by you · ${date}`;
-  const runs = `${fact.evidence} ${fact.evidence === 1 ? "run" : "runs"}`;
+  if (fact.kind === "NOTE") return t("added by you · {date}", { date });
+  const runs = fact.evidence === 1 ? t("1 run") : t("{count} runs", { count: fact.evidence });
   return fact.sourceTaskTitle
-    ? `${runs} · last in “${fact.sourceTaskTitle}” · ${date}`
-    : `${runs} · ${date}`;
+    ? t("{runs} · last in “{title}” · {date}", { runs, title: fact.sourceTaskTitle, date })
+    : t("{runs} · {date}", { runs, date });
 }
 
 export function budgetShare(tokens: number, budget: number): number {

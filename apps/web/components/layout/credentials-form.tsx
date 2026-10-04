@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
+import { useT } from "@/lib/i18n/client";
 
 export function CredentialsForm({ mode }: { mode: "login" | "setup" }) {
+  const t = useT();
   const router = useRouter();
   const [username, setUsername] = useState(mode === "setup" ? "admin" : "");
   const [password, setPassword] = useState("");
@@ -29,7 +31,7 @@ export function CredentialsForm({ mode }: { mode: "login" | "setup" }) {
       router.replace("/");
       router.refresh();
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(errorMessage(cause, t));
       setPending(false);
     }
   }
@@ -39,17 +41,17 @@ export function CredentialsForm({ mode }: { mode: "login" | "setup" }) {
       <Card className="glass">
         <CardHeader>
           <CardTitle className="text-base">
-            {mode === "login" ? "Sign in" : "Create the operator account"}
+            {mode === "login" ? t("Sign in") : t("Create the operator account")}
           </CardTitle>
           <CardDescription>
             {mode === "login"
-              ? "Access the Onyx control panel."
-              : "This account controls every agent running in this container."}
+              ? t("Access the Onyx control panel.")
+              : t("This account controls every agent running in this container.")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={submit}>
-            <Field label="Username" htmlFor="username">
+            <Field label={t("Username")} htmlFor="username">
               <Input
                 id="username"
                 autoComplete="username"
@@ -59,9 +61,9 @@ export function CredentialsForm({ mode }: { mode: "login" | "setup" }) {
               />
             </Field>
             <Field
-              label="Password"
+              label={t("Password")}
               htmlFor="password"
-              {...(mode === "setup" ? { hint: "At least 12 characters." } : {})}
+              {...(mode === "setup" ? { hint: t("At least 12 characters.") } : {})}
             >
               <Input
                 id="password"
@@ -83,7 +85,7 @@ export function CredentialsForm({ mode }: { mode: "login" | "setup" }) {
             ) : null}
             <Button type="submit" className="w-full" disabled={pending}>
               {pending ? <Loader2 className="animate-spin" /> : null}
-              {mode === "login" ? "Sign in" : "Create account"}
+              {mode === "login" ? t("Sign in") : t("Create account")}
             </Button>
           </form>
         </CardContent>

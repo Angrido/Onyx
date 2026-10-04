@@ -1,5 +1,8 @@
 import type {
   ApprovalListResponse,
+  ClaudeAccountDto,
+  ProjectDetailDto,
+  ProjectListResponse,
   MissionControlDto,
   QueueDto,
   TaskListResponse,
@@ -9,6 +12,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PendingApprovals } from "@/components/approvals/pending-approvals";
 import { NetworkCard } from "@/components/layout/network-card";
+import { GettingStarted } from "@/components/onboarding/getting-started";
 import { PageHeader } from "@/components/layout/page-header";
 import { MissionControl } from "@/components/mission/mission-control";
 import { QueuePanel } from "@/components/queue/queue-panel";
@@ -18,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { GitHubMark } from "@/components/ui/github-mark";
 import { serverFetch } from "@/lib/api/server";
 import { getT } from "@/lib/i18n/server";
+import { onboardingSteps } from "@/lib/onboarding";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
@@ -26,13 +31,30 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function ConsolePage() {
   const t = await getT();
-  const [telemetry, tasks, approvals, queue, mission] = await Promise.all([
+  const [telemetry, tasks, approvals, queue, mission, claude, projects] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
     serverFetch<TaskListResponse>("/api/tasks?limit=20"),
     serverFetch<ApprovalListResponse>("/api/approvals?status=PENDING&limit=4"),
     serverFetch<QueueDto>("/api/queue"),
     serverFetch<MissionControlDto>("/api/mission-control"),
+    serverFetch<ClaudeAccountDto>("/api/settings/claude"),
+    serverFetch<ProjectListResponse>("/api/projects"),
   ]);
+  const first = projects.items[0] ?? null;
+  const firstDetail = first
+    ? await serverFetch<ProjectDetailDto>(`/api/projects/${first.id}`).catch(() => null)
+    : null;
+  const steps = onboardingSteps({
+    claudeConfigured: claude.configured,
+    firstProject: first
+      ? {
+          id: first.id,
+          workspaceCount: first.workspaceCount,
+          allowedCommands: firstDetail?.allowedTools.length ?? 0,
+          taskCount: first.taskCount,
+        }
+      : null,
+  });
   return (
     <>
       <PageHeader
@@ -55,6 +77,7 @@ export default async function ConsolePage() {
           </>
         }
       />
+      <GettingStarted steps={steps} />
       <KpiTiles initial={telemetry} />
       <PendingApprovals initial={approvals} />
       <MissionControl

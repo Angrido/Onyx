@@ -29,13 +29,18 @@ import { Field, Input } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import type { Translate } from "@/lib/i18n/core";
+import { useT } from "@/lib/i18n/client";
 
-function credentialLabel(account: ClaudeAccountDto): string {
-  if (!account.configured) return "Not connected";
-  return account.kind === "oauth-token" ? "Claude subscription (Max or Pro)" : "Anthropic API key";
+function credentialLabel(account: ClaudeAccountDto, t: Translate): string {
+  if (!account.configured) return t("Not connected");
+  return account.kind === "oauth-token"
+    ? t("Claude subscription (Max or Pro)")
+    : t("Anthropic API key");
 }
 
 function SimulatorNotice({ claudeBin }: { claudeBin: string }) {
+  const t = useT();
   return (
     <div
       className="flex gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
@@ -43,14 +48,17 @@ function SimulatorNotice({ claudeBin }: { claudeBin: string }) {
     >
       <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
       <div className="min-w-0 space-y-1.5">
-        <p className="font-medium text-warning">Onyx is using the Claude Code simulator</p>
+        <p className="font-medium text-warning">{t("Onyx is using the Claude Code simulator")}</p>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Agents, the sign-in and the connection test are simulated, so nothing reaches your Claude
-          account and a sign-in link would be refused by claude.ai. On the Onyx machine run{" "}
+          {t(
+            "Agents, the sign-in and the connection test are simulated, so nothing reaches your Claude account and a sign-in link would be refused by claude.ai. On the Onyx machine run",
+          )}{" "}
           <code className="whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
-            onyx use-claude
+            {"onyx use-claude"}
           </code>{" "}
-          to install the real Claude Code and switch to it, then reload this page and sign in.
+          {t(
+            "to install the real Claude Code and switch to it, then reload this page and sign in.",
+          )}
         </p>
         <p className="break-all font-mono text-[11px] text-muted-foreground" title={claudeBin}>
           CLAUDE_BIN={claudeBin}
@@ -69,10 +77,11 @@ function CompatibilityNotice({
   checking: boolean;
   onCheck: () => void;
 }) {
+  const t = useT();
   const missing = [
-    ...compatibility.missingFlags.map((flag) => `option ${flag}`),
-    ...compatibility.missingModes.map((mode) => `permission mode ${mode}`),
-    ...compatibility.missingCommands.map((command) => `command ${command}`),
+    ...compatibility.missingFlags.map((flag) => t("option {flag}", { flag })),
+    ...compatibility.missingModes.map((mode) => t("permission mode {mode}", { mode })),
+    ...compatibility.missingCommands.map((command) => t("command {command}", { command })),
   ];
   return (
     <div
@@ -83,25 +92,29 @@ function CompatibilityNotice({
       <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
       <div className="min-w-0 space-y-1.5">
         <p className="font-medium text-destructive">
-          Claude Code {compatibility.version ?? ""} is not compatible with this Onyx
+          {t("Claude Code {version} is not compatible with this Onyx", {
+            version: compatibility.version ?? "",
+          })}
         </p>
         <p className="text-xs leading-relaxed text-muted-foreground">
           {missing.length > 0
-            ? `It does not accept the ${missing.join(", ")} that Onyx passes, so runs would fail.`
-            : (compatibility.error ?? "The check failed.")}{" "}
-          Update Onyx with{" "}
+            ? t("It does not accept the {missing} that Onyx passes, so runs would fail.", {
+                missing: missing.join(", "),
+              })
+            : (compatibility.error ?? t("The check failed."))}{" "}
+          {t("Update Onyx with")}{" "}
           <code className="whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
             onyx-update
           </code>{" "}
-          or install a version Onyx knows, for example{" "}
+          {t("or install a version Onyx knows, for example")}{" "}
           <code className="whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 font-mono text-foreground">
-            claude install 2.1.288
+            {"claude install 2.1.288"}
           </code>
           .
         </p>
         <Button variant="ghost" size="sm" onClick={onCheck} disabled={checking}>
           {checking ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          Check again
+          {t("Check again")}
         </Button>
       </div>
     </div>
@@ -119,6 +132,7 @@ function LoginPanel({
   onCancel: () => void;
   onSubmitted: (account: ClaudeAccountDto) => void;
 }) {
+  const t = useT();
   const [code, setCode] = useState("");
   const [showOutput, setShowOutput] = useState(false);
   const running = login.state === "running";
@@ -129,12 +143,12 @@ function LoginPanel({
       setCode("");
       onSubmitted(account);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const retry = useMutation({
     mutationFn: () => api.post<ClaudeAccountDto>("/api/settings/claude/login/retry"),
     onSuccess: onSubmitted,
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const failedAttempt = running && login.error !== null;
 
@@ -144,21 +158,23 @@ function LoginPanel({
       data-testid="claude-login"
     >
       <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-        <li>Open the sign-in page and log in with your Claude Max account.</li>
-        <li>Claude shows a code: copy all of it.</li>
-        <li>Paste it below and press Connect.</li>
+        <li>{t("Open the sign-in page and log in with your Claude Max account.")}</li>
+        <li>{t("Claude shows a code: copy all of it.")}</li>
+        <li>{t("Paste it below and press Connect.")}</li>
       </ol>
       <div className="flex flex-wrap items-center gap-2">
         {failedAttempt ? (
           <Button size="sm" onClick={() => retry.mutate()} disabled={retry.isPending}>
             {retry.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            Get a new sign-in link
+            {t("Get a new sign-in link")}
           </Button>
-        ) : simulator && login.signInUrl ? (
+        ) : null}
+        {!failedAttempt && simulator && login.signInUrl ? (
           <span className="text-xs text-warning" data-testid="claude-simulated-link">
-            Simulated sign-in: no real link. Type any code below to finish.
+            {t("Simulated sign-in: no real link. Type any code below to finish.")}
           </span>
-        ) : login.signInUrl ? (
+        ) : null}
+        {!failedAttempt && !simulator && login.signInUrl ? (
           <Button asChild size="sm">
             <a
               href={login.signInUrl}
@@ -167,25 +183,28 @@ function LoginPanel({
               data-testid="claude-sign-in-link"
             >
               <ExternalLink />
-              Open the Claude sign-in page
+              {t("Open the Claude sign-in page")}
             </a>
           </Button>
-        ) : running ? (
+        ) : null}
+        {!failedAttempt && !login.signInUrl && running ? (
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
-            Waiting for the sign-in link…
+            {t("Waiting for the sign-in link…")}
           </span>
         ) : null}
         {running ? (
           <Button size="sm" variant="ghost" onClick={onCancel}>
-            Cancel
+            {t("Cancel")}
           </Button>
         ) : null}
       </div>
       {failedAttempt ? (
         <p className="text-xs text-destructive" data-testid="claude-login-error">
-          {login.error}. The code was not accepted: get a new link, sign in again and paste the new
-          code.
+          {t(
+            "{error}. The code was not accepted: get a new link, sign in again and paste the new code.",
+            { error: login.error ?? "" },
+          )}
         </p>
       ) : null}
       {running && !failedAttempt && login.codeSubmittedAt ? (
@@ -194,7 +213,7 @@ function LoginPanel({
           data-testid="claude-login-checking"
         >
           <Loader2 className="size-3.5 animate-spin" />
-          Checking the code with Claude…
+          {t("Checking the code with Claude…")}
         </p>
       ) : null}
       {running && !failedAttempt ? (
@@ -206,16 +225,16 @@ function LoginPanel({
           }}
         >
           <Input
-            aria-label="Code from Claude"
+            aria-label={t("Code from Claude")}
             className="font-mono text-xs"
-            placeholder="Paste the code from the Claude page"
+            placeholder={t("Paste the code from the Claude page")}
             autoComplete="off"
             value={code}
             onChange={(event) => setCode(event.target.value)}
           />
           <Button type="submit" disabled={submit.isPending || code.trim().length === 0}>
             {submit.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
-            Connect
+            {t("Connect")}
           </Button>
         </form>
       ) : null}
@@ -226,7 +245,9 @@ function LoginPanel({
             onClick={() => setShowOutput((value) => !value)}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
-            {showOutput ? "Hide" : "Show"} the claude setup-token output
+            {showOutput
+              ? t("Hide the claude setup-token output")
+              : t("Show the claude setup-token output")}
           </button>
           {showOutput ? (
             <pre className="scrollbar-thin mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-md bg-surface-0 p-2 font-mono text-[11px] text-muted-foreground">
@@ -240,6 +261,7 @@ function LoginPanel({
 }
 
 export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const account = useQuery({
@@ -255,7 +277,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
   const login = useMutation({
     mutationFn: () => api.post<ClaudeLoginDto>("/api/settings/claude/login"),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.claudeAccount }),
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const cancel = useMutation({
     mutationFn: () => api.delete<ClaudeAccountDto>("/api/settings/claude/login"),
@@ -267,26 +289,29 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
     onSuccess: (next) => {
       store(next);
       setToken("");
-      toast.success("Claude account connected");
+      toast.success(t("Claude account connected"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const remove = useMutation({
     mutationFn: () => api.delete<ClaudeAccountDto>("/api/settings/claude/token"),
     onSuccess: (next) => {
       store(next);
-      toast.success("Claude account disconnected");
+      toast.success(t("Claude account disconnected"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const test = useMutation({
     mutationFn: () => api.post<ClaudeTestResult>("/api/settings/claude/test"),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.claudeAccount });
-      if (result.ok) toast.success(`Claude answered in ${(result.durationMs / 1000).toFixed(1)} s`);
+      if (result.ok)
+        toast.success(
+          t("Claude answered in {seconds} s", { seconds: (result.durationMs / 1000).toFixed(1) }),
+        );
       else toast.error(result.message);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   const check = useMutation({
@@ -294,9 +319,9 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
     onSuccess: (next) => {
       store(next);
       if (next.compatibility?.ok)
-        toast.success(`Claude Code ${next.cliVersion ?? ""} is compatible`);
+        toast.success(t("Claude Code {version} is compatible", { version: next.cliVersion ?? "" }));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   const lastTest = data.lastTest;
@@ -306,11 +331,12 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="size-4 text-primary" />
-          Claude account
+          {t("Claude account")}
         </CardTitle>
         <CardDescription>
-          Agents, terminals and roadmaps run Claude Code with this account. With Claude Max the
-          usage counts against your subscription instead of API credits.
+          {t(
+            "Agents, terminals and roadmaps run Claude Code with this account. With Claude Max the usage counts against your subscription instead of API credits.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -321,20 +347,20 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
             <XCircle className="size-4 text-muted-foreground" />
           )}
           <span className="text-sm font-medium" data-testid="claude-account-status">
-            {credentialLabel(data)}
+            {credentialLabel(data, t)}
           </span>
-          {data.source === "env" ? <Badge>from onyx.env</Badge> : null}
+          {data.source === "env" ? <Badge>{t("from onyx.env")}</Badge> : null}
           {data.hint ? (
             <span className="font-mono text-xs text-muted-foreground">{data.hint}</span>
           ) : null}
           {data.savedAt ? (
             <span className="text-xs text-muted-foreground">
-              saved <RelativeTime iso={data.savedAt} />
+              {t("saved")} <RelativeTime iso={data.savedAt} />
             </span>
           ) : null}
           <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-            Claude Code {data.cliVersion ?? "not found"}
-            {data.simulator ? <Badge tone="warning">simulator</Badge> : null}
+            Claude Code {data.cliVersion ?? t("not found")}
+            {data.simulator ? <Badge tone="warning">{t("simulator")}</Badge> : null}
           </span>
         </div>
 
@@ -352,8 +378,10 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
             className={lastTest.ok ? "text-xs text-success" : "text-xs text-destructive"}
             data-testid="claude-last-test"
           >
-            Last test <RelativeTime iso={lastTest.at} />: {lastTest.ok ? "working" : "failed"}
-            {lastTest.model ? ` on ${lastTest.model}` : ""} — {lastTest.message}
+            {t("Last test")} <RelativeTime iso={lastTest.at} />:{" "}
+            {lastTest.ok ? t("working") : t("failed")}
+            {lastTest.model ? ` ${t("on {model}", { model: lastTest.model })}` : ""} —{" "}
+            {lastTest.message}
           </p>
         ) : null}
 
@@ -364,7 +392,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
               disabled={login.isPending || data.login?.state === "running"}
             >
               {login.isPending ? <Loader2 className="animate-spin" /> : <LogIn />}
-              {data.configured ? "Sign in again" : "Sign in with Claude"}
+              {data.configured ? t("Sign in again") : t("Sign in with Claude")}
             </Button>
           ) : null}
           <Button
@@ -373,12 +401,12 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
             disabled={test.isPending || !data.configured}
           >
             {test.isPending ? <Loader2 className="animate-spin" /> : <Stethoscope />}
-            Test connection
+            {t("Test connection")}
           </Button>
           {data.source === "settings" ? (
             <Button variant="ghost" onClick={() => remove.mutate()} disabled={remove.isPending}>
               <LogOut />
-              Disconnect
+              {t("Disconnect")}
             </Button>
           ) : null}
         </div>
@@ -394,7 +422,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
         ) : null}
         {data.login?.state === "failed" ? (
           <p className="text-xs text-destructive">
-            The sign-in did not produce a token. Try again, or paste a token below.
+            {t("The sign-in did not produce a token. Try again, or paste a token below.")}
           </p>
         ) : null}
 
@@ -407,9 +435,11 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
             }}
           >
             <Field
-              label="Or paste a token"
+              label={t("Or paste a token")}
               htmlFor="claude-token"
-              hint="Run claude setup-token on any computer where you are signed in with Claude Max and paste the sk-ant-oat01-… token. An Anthropic API key (sk-ant-api03-…) works too."
+              hint={t(
+                "Run claude setup-token on any computer where you are signed in with Claude Max and paste the sk-ant-oat01-… token. An Anthropic API key (sk-ant-api03-…) works too.",
+              )}
             >
               <div className="flex gap-2">
                 <Input
@@ -417,7 +447,7 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
                   type="password"
                   autoComplete="off"
                   className="font-mono text-xs"
-                  placeholder="sk-ant-oat01-…"
+                  placeholder={"sk-ant-oat01-…"}
                   value={token}
                   onChange={(event) => setToken(event.target.value)}
                 />
@@ -427,15 +457,16 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
                   disabled={save.isPending || token.trim().length < 20}
                 >
                   {save.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
-                  Save
+                  {t("Save")}
                 </Button>
               </div>
             </Field>
           </form>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Remove ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN from onyx.env to manage the account
-            from this page.
+            {t(
+              "Remove ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN from onyx.env to manage the account from this page.",
+            )}
           </p>
         )}
       </CardContent>

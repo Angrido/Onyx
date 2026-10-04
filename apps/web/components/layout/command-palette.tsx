@@ -32,18 +32,20 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
+import { msg } from "@/lib/i18n/core";
 import { isPaletteShortcut, OPEN_PALETTE_EVENT } from "@/lib/palette";
 import { SEARCH_PREFIX, searchHint, searchMinLength, snippetParts } from "@/lib/search";
 
 const PAGES = [
-  { href: "/", label: "Mission control", icon: LayoutDashboard },
-  { href: "/projects", label: "Projects", icon: FolderGit2 },
-  { href: "/agents", label: "Agent grid", icon: LayoutGrid },
-  { href: "/approvals", label: "Approvals", icon: Inbox },
-  { href: "/router", label: "Router", icon: Route },
-  { href: "/telemetry", label: "Telemetry", icon: Activity },
-  { href: "/savings", label: "Savings", icon: PiggyBank },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/", label: msg("Mission control"), icon: LayoutDashboard },
+  { href: "/projects", label: msg("Projects"), icon: FolderGit2 },
+  { href: "/agents", label: msg("Agent grid"), icon: LayoutGrid },
+  { href: "/approvals", label: msg("Approvals"), icon: Inbox },
+  { href: "/router", label: msg("Router"), icon: Route },
+  { href: "/telemetry", label: msg("Telemetry"), icon: Activity },
+  { href: "/savings", label: msg("Savings"), icon: PiggyBank },
+  { href: "/settings", label: msg("Settings"), icon: Settings },
 ] as const;
 
 function Item({
@@ -93,12 +95,17 @@ function paletteFilter(value: string, search: string, keywords?: string[]): numb
   return defaultFilter(value, search, keywords);
 }
 
+function statusText(status: string): string {
+  return status.charAt(0) + status.slice(1).toLowerCase().replaceAll("_", " ");
+}
+
 const SEARCH_ICONS = { TASK: ListTodo, RUN: Play, FILE: FileCode2 } as const;
 
 const GROUP =
   "px-1 py-1.5 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground";
 
 export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
+  const t = useT();
   const router = useRouter();
   const [open, setOpen] = useState(initiallyOpen);
   const [input, setInput] = useState("");
@@ -159,14 +166,17 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
     [router],
   );
 
-  const run = useCallback(async (label: string, action: () => Promise<string>) => {
-    setOpen(false);
-    try {
-      toast.success(await action());
-    } catch (error) {
-      toast.error(`${label}: ${errorMessage(error)}`);
-    }
-  }, []);
+  const run = useCallback(
+    async (label: string, action: () => Promise<string>) => {
+      setOpen(false);
+      try {
+        toast.success(await action());
+      } catch (error) {
+        toast.error(t("{action}: {error}", { action: label, error: errorMessage(error, t) }));
+      }
+    },
+    [t],
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -174,27 +184,27 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
         className="top-[18%] w-[min(94vw,36rem)] translate-y-0 gap-0 overflow-hidden p-0"
         data-testid="command-palette"
       >
-        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <DialogTitle className="sr-only">{t("Command palette")}</DialogTitle>
         <DialogDescription className="sr-only">
-          Search pages, projects and tasks, or run an action
+          {t("Search pages, projects and tasks, or run an action")}
         </DialogDescription>
-        <Command label="Command palette" loop filter={paletteFilter}>
+        <Command label={t("Command palette")} loop filter={paletteFilter}>
           <div className="flex items-center gap-2 border-b border-border px-4">
             <Search className="size-4 text-muted-foreground" />
             <Command.Input
               autoFocus
               value={input}
               onValueChange={setInput}
-              placeholder="Search tasks, runs and files, or go to a page…"
+              placeholder={t("Search tasks, runs and files, or go to a page…")}
               className="h-12 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
           <Command.List className="max-h-[min(60vh,26rem)] overflow-y-auto p-1">
             <Command.Empty className="px-4 py-6 text-center text-sm text-muted-foreground">
-              Nothing matches.
+              {t("Nothing matches.")}
             </Command.Empty>
             {results.length > 0 ? (
-              <Command.Group heading="Search" className={GROUP} data-testid="palette-search">
+              <Command.Group heading={t("Search")} className={GROUP} data-testid="palette-search">
                 {results.map((result) => {
                   const Icon = SEARCH_ICONS[result.kind];
                   return (
@@ -203,7 +213,7 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                       value={`${SEARCH_PREFIX}${result.kind} ${result.id}`}
                       onSelect={() => go(result.href)}
                       icon={<Icon />}
-                      hint={searchHint(result)}
+                      hint={searchHint(result, t)}
                     >
                       <span className="block truncate">{result.title}</span>
                       {result.snippet ? <Snippet text={result.snippet} /> : null}
@@ -212,23 +222,23 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                 })}
               </Command.Group>
             ) : null}
-            <Command.Group heading="Pages" className={GROUP}>
+            <Command.Group heading={t("Pages")} className={GROUP}>
               {PAGES.map((page) => (
                 <Item
                   key={page.href}
-                  value={`page ${page.label}`}
+                  value={`page ${page.label} ${t(page.label)}`}
                   onSelect={() => go(page.href)}
                   icon={<page.icon />}
                   {...(page.href === "/approvals" && approvals.data
-                    ? { hint: `${approvals.data} waiting` }
+                    ? { hint: t("{count} waiting", { count: approvals.data }) }
                     : {})}
                 >
-                  {page.label}
+                  {t(page.label)}
                 </Item>
               ))}
             </Command.Group>
             {projects.data && projects.data.items.length > 0 ? (
-              <Command.Group heading="Projects" className={GROUP}>
+              <Command.Group heading={t("Projects")} className={GROUP}>
                 {projects.data.items.map((project) => (
                   <Item
                     key={project.id}
@@ -246,55 +256,57 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                     onSelect={() => go(`/projects/${project.id}/roadmap`)}
                     icon={<MapIcon />}
                   >
-                    Roadmap · {project.name}
+                    {t("Roadmap")} · {project.name}
                   </Item>
                 ))}
               </Command.Group>
             ) : null}
             {tasks.data && tasks.data.items.length > 0 ? (
-              <Command.Group heading="Recent tasks" className={GROUP}>
+              <Command.Group heading={t("Recent tasks")} className={GROUP}>
                 {tasks.data.items.map((task) => (
                   <Item
                     key={task.id}
                     value={`task ${task.title} ${task.id}`}
                     onSelect={() => go(`/tasks/${task.id}`)}
                     icon={<ListTodo />}
-                    hint={task.status.toLowerCase().replaceAll("_", " ")}
+                    hint={t(statusText(task.status))}
                   >
                     {task.title}
                   </Item>
                 ))}
               </Command.Group>
             ) : null}
-            <Command.Group heading="Actions" className={GROUP}>
+            <Command.Group heading={t("Actions")} className={GROUP}>
               <Item
                 value="action back up the database now"
                 onSelect={() =>
-                  void run("Backup", async () => {
+                  void run(t("Backup"), async () => {
                     const backup = await api.post<{ name: string }>("/api/backups");
-                    return `Backup written: ${backup.name}`;
+                    return t("Backup written: {name}", { name: backup.name });
                   })
                 }
                 icon={<DatabaseBackup />}
               >
-                Back up the database now
+                {t("Back up the database now")}
               </Item>
               <Item
                 value="action check claude code compatibility"
                 onSelect={() =>
-                  void run("Check", async () => {
+                  void run(t("Check"), async () => {
                     const account = await api.post<{
                       cliVersion: string | null;
                       compatibility: { ok: boolean } | null;
                     }>("/api/settings/claude/check");
                     return account.compatibility?.ok
-                      ? `Claude Code ${account.cliVersion ?? ""} is compatible`
-                      : "Claude Code is not compatible: see Settings";
+                      ? t("Claude Code {version} is compatible", {
+                          version: account.cliVersion ?? "",
+                        })
+                      : t("Claude Code is not compatible: see Settings");
                   })
                 }
                 icon={<Stethoscope />}
               >
-                Check Claude Code compatibility
+                {t("Check Claude Code compatibility")}
               </Item>
               <Item
                 value="action sign out"
@@ -308,7 +320,7 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                 }
                 icon={<LogOut />}
               >
-                Sign out
+                {t("Sign out")}
               </Item>
             </Command.Group>
           </Command.List>

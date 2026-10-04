@@ -1,3 +1,6 @@
+"use client";
+
+import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 export function OnyxMark({ className }: { className?: string }) {
@@ -27,13 +30,14 @@ export function OnyxMark({ className }: { className?: string }) {
 }
 
 export function Wordmark({ condensed = false }: { condensed?: boolean }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-2.5">
       <OnyxMark />
       <div className={cn("leading-none", condensed && "max-[479px]:sr-only")}>
         <p className="text-sm font-semibold tracking-[0.18em]">ONYX</p>
         <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Agent control
+          {t("Agent control")}
         </p>
       </div>
     </div>

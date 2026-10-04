@@ -2,6 +2,7 @@
 
 import type { ModelTier, RunStatus } from "@onyx/contracts";
 import { motion, useReducedMotion, type TargetAndTransition, type Transition } from "motion/react";
+import { useT } from "@/lib/i18n/client";
 import { toolFamily, type ToolFamily } from "@/lib/run-feed";
 import { TIER_STYLES } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
@@ -98,6 +99,7 @@ export function AgentOrb({
   size?: number;
   className?: string;
 }) {
+  const t = useT();
   const reduced = useReducedMotion() ?? false;
   const signature = SIGNATURES[status ?? "IDLE"];
   const color = signature.tint ?? TIER_STYLES[tier].color;
@@ -110,7 +112,12 @@ export function AgentOrb({
     return flat as TargetAndTransition;
   };
   const transition = reduced ? { duration: 0 } : signature.transition;
-  const label = [status ?? "idle", tool ? `using ${tool}` : null].filter(Boolean).join(", ");
+  const label = [
+    status === null ? t("Agent idle") : t(status.charAt(0) + status.slice(1).toLowerCase()),
+    tool ? t("using {tool}", { tool }) : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <div
       className={cn(

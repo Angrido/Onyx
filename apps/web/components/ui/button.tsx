@@ -28,7 +28,10 @@ export const buttonVariants = cva(
   },
 );
 
-export interface ButtonProps extends ComponentProps<"button">, VariantProps<typeof buttonVariants> {
+type NativeButtonProps = ComponentProps<"button">;
+type ButtonVariantProps = VariantProps<typeof buttonVariants>;
+
+export interface ButtonProps extends NativeButtonProps, ButtonVariantProps {
   asChild?: boolean;
 }
 

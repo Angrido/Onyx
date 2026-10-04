@@ -74,7 +74,6 @@ export const context: Record<string, string> = {
     "{cost} di input {model} risparmiati per ogni lettura completa",
   "No changes against the saved profile ({tokens} excluded).":
     "Nessuna modifica rispetto al profilo salvato ({tokens} esclusi).",
-  "{count} tokens": "{count} token",
   "vs saved · {excluded} excluded, {restored} restored":
     "rispetto al salvato · {excluded} esclusi, {restored} ripristinati",
   "1 central file is out of context": "1 file centrale è fuori dal contesto",
@@ -152,7 +151,7 @@ export const context: Record<string, string> = {
   "This view costs {count} tokens ({percent}% of the file).":
     "Questa vista costa {count} token ({percent}% del file).",
   "This view costs {count} tokens.": "Questa vista costa {count} token.",
-  Imports: "Importa",
+  Imports: "Import",
   "Imported by": "Importato da",
   "External:": "Esterni:",
   "in memory": "in memoria",

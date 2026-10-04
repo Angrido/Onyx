@@ -24,6 +24,8 @@ import { Wordmark } from "@/components/layout/brand";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { msg } from "@/lib/i18n/core";
 import { openCommandPalette } from "@/lib/palette";
 import { useQuota } from "@/lib/live";
 import { QUOTA_LEVEL_STYLES, isQuotaAlert, peakUtilization } from "@/lib/quota";
@@ -31,14 +33,14 @@ import { cn } from "@/lib/utils";
 import { useChannel, useConnectionState } from "@/lib/ws/context";
 
 const NAV = [
-  { href: "/", label: "Mission control", icon: LayoutDashboard },
-  { href: "/projects", label: "Projects", icon: FolderGit2 },
-  { href: "/agents", label: "Agent grid", icon: LayoutGrid },
-  { href: "/approvals", label: "Approvals", icon: Inbox },
-  { href: "/router", label: "Router", icon: Route },
-  { href: "/telemetry", label: "Telemetry", icon: Activity },
-  { href: "/savings", label: "Savings", icon: PiggyBank },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/", label: msg("Mission control"), icon: LayoutDashboard },
+  { href: "/projects", label: msg("Projects"), icon: FolderGit2 },
+  { href: "/agents", label: msg("Agent grid"), icon: LayoutGrid },
+  { href: "/approvals", label: msg("Approvals"), icon: Inbox },
+  { href: "/router", label: msg("Router"), icon: Route },
+  { href: "/telemetry", label: msg("Telemetry"), icon: Activity },
+  { href: "/savings", label: msg("Savings"), icon: PiggyBank },
+  { href: "/settings", label: msg("Settings"), icon: Settings },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
@@ -46,9 +48,9 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 const CONNECTION_STYLES = {
-  open: { dot: "bg-success", label: "Live" },
-  connecting: { dot: "bg-warning animate-pulse", label: "Connecting" },
-  closed: { dot: "bg-destructive", label: "Offline" },
+  open: { dot: "bg-success", label: msg("Live") },
+  connecting: { dot: "bg-warning animate-pulse", label: msg("Connecting") },
+  closed: { dot: "bg-destructive", label: msg("Offline") },
 } as const;
 
 function usePendingApprovals(): number {
@@ -99,11 +101,13 @@ const QUOTA_TEXT = {
 } as const;
 
 function QuotaIndicator({ compact }: { compact: boolean }) {
+  const t = useT();
   const { data: quota } = useQuota();
   if (!quota || !isQuotaAlert(quota.level)) return null;
   const style = QUOTA_LEVEL_STYLES[quota.level];
   const peak = peakUtilization(quota);
-  const label = `Claude limit: ${style.label}${peak === null ? "" : ` (${formatPercent(peak)} used)`}`;
+  const used = peak === null ? null : t("{percent} used", { percent: formatPercent(peak) });
+  const label = `${t("Claude limit: {status}", { status: t(style.label) })}${used === null ? "" : ` (${used})`}`;
   if (compact)
     return (
       <Link
@@ -127,9 +131,10 @@ function QuotaIndicator({ compact }: { compact: boolean }) {
     >
       <Gauge className="size-4 shrink-0" />
       <span className="min-w-0">
-        <span className="block font-medium">{style.label}</span>
+        <span className="block font-medium">{t(style.label)}</span>
         <span className="block text-muted-foreground">
-          Claude limit{peak === null ? "" : ` · ${formatPercent(peak)} used`}
+          {t("Claude limit")}
+          {used === null ? "" : ` · ${used}`}
         </span>
       </span>
     </Link>
@@ -137,6 +142,7 @@ function QuotaIndicator({ compact }: { compact: boolean }) {
 }
 
 export function Sidebar({ user }: { user: UserDto }) {
+  const t = useT();
   const pathname = usePathname();
   const router = useRouter();
   const connection = CONNECTION_STYLES[useConnectionState()];
@@ -157,7 +163,7 @@ export function Sidebar({ user }: { user: UserDto }) {
             <Link
               key={item.href}
               href={item.href}
-              aria-label={item.label}
+              aria-label={t(item.label)}
               className={cn(
                 "relative rounded-md p-1.5 transition-colors min-[400px]:p-2",
                 isActive(pathname, item.href)
@@ -173,13 +179,13 @@ export function Sidebar({ user }: { user: UserDto }) {
         <QuotaIndicator compact />
         <span
           className={cn("size-2 shrink-0 rounded-full", connection.dot)}
-          title={connection.label}
+          title={t(connection.label)}
         />
         <button
           type="button"
           onClick={() => void logout()}
           className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
-          aria-label="Sign out"
+          aria-label={t("Sign out")}
         >
           <LogOut className="size-4" />
         </button>
@@ -195,9 +201,9 @@ export function Sidebar({ user }: { user: UserDto }) {
           data-testid="open-palette"
         >
           <Search className="size-4" />
-          Search
+          {t("Search")}
           <kbd className="ml-auto rounded border border-border-strong bg-surface-2 px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground">
-            Ctrl K
+            {"Ctrl K"}
           </kbd>
         </button>
         <nav className="mt-4 flex flex-col gap-1">
@@ -220,7 +226,7 @@ export function Sidebar({ user }: { user: UserDto }) {
                   />
                 ) : null}
                 <item.icon className="relative size-4" />
-                <span className="relative">{item.label}</span>
+                <span className="relative">{t(item.label)}</span>
                 {item.href === "/approvals" ? <PendingDot count={pending} compact={false} /> : null}
               </Link>
             );
@@ -230,18 +236,18 @@ export function Sidebar({ user }: { user: UserDto }) {
           <QuotaIndicator compact={false} />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className={cn("size-2 rounded-full", connection.dot)} />
-            {connection.label}
+            {t(connection.label)}
           </div>
           <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-3 py-2">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{user.username}</p>
-              <p className="text-[11px] text-muted-foreground">Operator</p>
+              <p className="text-[11px] text-muted-foreground">{t("Operator")}</p>
             </div>
             <button
               type="button"
               onClick={() => void logout()}
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
-              aria-label="Sign out"
+              aria-label={t("Sign out")}
             >
               <LogOut className="size-4" />
             </button>

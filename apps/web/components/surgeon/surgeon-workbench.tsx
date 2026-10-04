@@ -23,6 +23,7 @@ import { EmptyState, Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS } from "@/lib/domains";
+import { useT } from "@/lib/i18n/client";
 import {
   centralWarnings,
   composePolicy,
@@ -66,6 +67,7 @@ function Workbench({
   layerLabel: string;
   scopeSelect: (dirty: boolean) => ReactNode;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projectId = state.projectId;
   const savedEditable = useMemo<PolicyRule[]>(
@@ -134,7 +136,7 @@ function Workbench({
       queryClient.setQueryData(queryKeys.surgeon(projectId, workspaceId), next);
       setDraft(null);
       const profile = workspaceId === null ? next.base : next.overlay;
-      toast.success(`Context profile saved · v${profile?.version ?? 1}`);
+      toast.success(t("Context profile saved · v{version}", { version: profile?.version ?? 1 }));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -148,7 +150,9 @@ function Workbench({
         : includeTarget(scope, editable, node.path, node.directory);
     if (!result.exact) {
       toast.warning(
-        `Rules changed, but ${node.path} could not be isolated exactly. Check the diff.`,
+        t("Rules changed, but {path} could not be isolated exactly. Check the diff.", {
+          path: node.path,
+        }),
       );
     }
     setDraft(result.rules);
@@ -157,11 +161,11 @@ function Workbench({
   const onAdd = (raw: string): boolean => {
     const rule = parseRuleInput(raw);
     if (rule === null) {
-      toast.error("Not a valid rule");
+      toast.error(t("Not a valid rule"));
       return false;
     }
     if (editable.some((existing) => ruleLabel(existing) === ruleLabel(rule))) {
-      toast.error("That rule is already in this layer");
+      toast.error(t("That rule is already in this layer"));
       return false;
     }
     setDraft([...editable, rule]);
@@ -179,12 +183,12 @@ function Workbench({
       <div className="flex flex-wrap items-center gap-2">
         {scopeSelect(dirty)}
         <span className="text-xs text-muted-foreground">
-          {profile && profile.version > 0 ? `v${profile.version}` : "not saved yet"}
+          {profile && profile.version > 0 ? `v${profile.version}` : t("not saved yet")}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {dirty ? (
             <Badge tone="warning" data-testid="surgeon-dirty">
-              unsaved changes
+              {t("unsaved changes")}
             </Badge>
           ) : null}
           <Button
@@ -194,7 +198,7 @@ function Workbench({
             onClick={() => setDraft(null)}
           >
             <RotateCcw />
-            Reset
+            {t("Reset")}
           </Button>
           <Button
             size="sm"
@@ -202,7 +206,7 @@ function Workbench({
             onClick={() => save.mutate(editable)}
           >
             {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-            Save profile
+            {t("Save profile")}
           </Button>
         </div>
       </div>
@@ -219,11 +223,13 @@ function Workbench({
         ) : (
           <EmptyState
             icon={<ScanSearch className="size-5" />}
-            title="Not indexed yet"
-            description="The tree, heatmap and savings come from the code index. Rules can still be edited."
+            title={t("Not indexed yet")}
+            description={t(
+              "The tree, heatmap and savings come from the code index. Rules can still be edited.",
+            )}
             action={
               <Button asChild size="sm" variant="secondary">
-                <Link href={`/projects/${projectId}`}>Open the project to index it</Link>
+                <Link href={`/projects/${projectId}`}>{t("Open the project to index it")}</Link>
               </Button>
             }
           />
@@ -275,6 +281,7 @@ export function SurgeonWorkbench({
   workspaces: readonly Pick<WorkspaceDto, "id" | "name" | "domain">[];
   initial: SurgeonStateDto;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const { data, error } = useQuery({
@@ -295,25 +302,28 @@ export function SurgeonWorkbench({
 
   const workspace = workspaces.find((candidate) => candidate.id === workspaceId) ?? null;
   const layerLabel = workspace
-    ? `${workspace.name} overlay · on top of the project profile`
-    : "Project profile · every agent";
+    ? t("{name} overlay · on top of the project profile", { name: workspace.name })
+    : t("Project profile · every agent");
 
   const scopeSelect = (dirty: boolean) => (
     <Select
       value={workspaceId ?? ""}
-      aria-label="Profile scope"
+      aria-label={t("Profile scope")}
       className="h-8 w-auto min-w-56 text-xs"
       onChange={(event) => {
-        if (dirty && !window.confirm("Discard the unsaved changes?")) return;
+        if (dirty && !window.confirm(t("Discard the unsaved changes?"))) return;
         setWorkspaceId(event.target.value === "" ? null : event.target.value);
       }}
     >
-      <option value="">Project profile (all workspaces)</option>
+      <option value="">{t("Project profile (all workspaces)")}</option>
       {workspaces.map((candidate) => (
         <option key={candidate.id} value={candidate.id}>
           {candidate.name === DOMAIN_LABELS[candidate.domain]
-            ? `${candidate.name} overlay`
-            : `${candidate.name} overlay · ${DOMAIN_LABELS[candidate.domain]}`}
+            ? t("{name} overlay", { name: candidate.name })
+            : t("{name} overlay · {domain}", {
+                name: candidate.name,
+                domain: t(DOMAIN_LABELS[candidate.domain]),
+              })}
         </option>
       ))}
     </Select>

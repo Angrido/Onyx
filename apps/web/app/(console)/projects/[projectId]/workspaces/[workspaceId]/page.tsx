@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { WorkspaceConsole } from "@/components/workspaces/workspace-console";
 import { serverFetch } from "@/lib/api/server";
 import { DOMAIN_LABELS } from "@/lib/domains";
+import { getT } from "@/lib/i18n/server";
 
 export default async function WorkspacePage({
   params,
@@ -17,6 +18,7 @@ export default async function WorkspacePage({
   params: Promise<{ projectId: string; workspaceId: string }>;
 }) {
   const { projectId, workspaceId } = await params;
+  const t = await getT();
   const [project, sessions, terminals, catalog] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<SessionListResponse>(`/api/workspaces/${workspaceId}/sessions`),
@@ -39,7 +41,7 @@ export default async function WorkspacePage({
         title={workspace.name}
         description={
           <>
-            {DOMAIN_LABELS[workspace.domain]} compartment ·{" "}
+            {t("{domain} compartment", { domain: t(DOMAIN_LABELS[workspace.domain]) })} ·{" "}
             <span className="font-mono text-xs">{workspace.pathGlobs.join(", ")}</span>
           </>
         }

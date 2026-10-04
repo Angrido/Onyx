@@ -6,6 +6,7 @@ import type {
   PullRequestDto,
   PullRequestState,
 } from "@onyx/contracts";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 export const GITHUB_TOKEN_URL =
   "https://github.com/settings/personal-access-tokens/new?name=Onyx&description=Clone+repositories+and+open+pull+requests+from+Onyx&contents=write&pull_requests=write&issues=read&checks=read&statuses=read";
@@ -38,10 +39,10 @@ export function formatRepoSize(sizeKb: number): string {
 type Tone = "neutral" | "primary" | "success" | "warning" | "danger";
 
 export const CHECKS_LABELS: Record<ChecksState, string> = {
-  NONE: "No checks",
-  PENDING: "Checks running",
-  SUCCESS: "Checks passed",
-  FAILURE: "Checks failed",
+  NONE: msg("No checks"),
+  PENDING: msg("Checks running"),
+  SUCCESS: msg("Checks passed"),
+  FAILURE: msg("Checks failed"),
 };
 
 export const CHECKS_TONES: Record<ChecksState, Tone> = {
@@ -52,10 +53,10 @@ export const CHECKS_TONES: Record<ChecksState, Tone> = {
 };
 
 export const CHECK_RESULT_LABELS: Record<CheckResult, string> = {
-  PENDING: "running",
-  SUCCESS: "passed",
-  FAILURE: "failed",
-  NEUTRAL: "skipped",
+  PENDING: msg("running"),
+  SUCCESS: msg("passed"),
+  FAILURE: msg("failed"),
+  NEUTRAL: msg("skipped"),
 };
 
 export const CHECK_RESULT_TONES: Record<CheckResult, Tone> = {
@@ -66,9 +67,9 @@ export const CHECK_RESULT_TONES: Record<CheckResult, Tone> = {
 };
 
 export const PULL_STATE_LABELS: Record<PullRequestState, string> = {
-  OPEN: "Open",
-  CLOSED: "Closed",
-  MERGED: "Merged",
+  OPEN: msg("Opened"),
+  CLOSED: msg("Closed"),
+  MERGED: msg("Merged"),
 };
 
 export const PULL_STATE_TONES: Record<PullRequestState, Tone> = {
@@ -78,22 +79,37 @@ export const PULL_STATE_TONES: Record<PullRequestState, Tone> = {
 };
 
 export const CHANGELOG_SECTION_LABELS: Record<ChangelogSection, string> = {
-  BREAKING: "Breaking",
-  FEATURES: "Feature",
-  FIXES: "Fix",
-  PERFORMANCE: "Performance",
-  REFACTORING: "Refactoring",
-  DOCS: "Docs",
-  OTHER: "Other",
+  BREAKING: msg("Breaking"),
+  FEATURES: msg("Feature"),
+  FIXES: msg("Fix"),
+  PERFORMANCE: msg("Performance"),
+  REFACTORING: msg("Refactoring"),
+  DOCS: msg("Docs"),
+  OTHER: msg("Other"),
 };
 
-export function checksCount(pull: Pick<PullRequestDto, "passed" | "failed" | "pending">): string {
+export function checksCount(
+  pull: Pick<PullRequestDto, "passed" | "failed" | "pending">,
+  t: Translate = english,
+): string {
   const parts = [
-    pull.failed > 0 ? `${pull.failed} failed` : null,
-    pull.pending > 0 ? `${pull.pending} running` : null,
-    pull.passed > 0 ? `${pull.passed} passed` : null,
+    pull.failed > 0
+      ? pull.failed === 1
+        ? t("1 failed")
+        : t("{count} failed", { count: pull.failed })
+      : null,
+    pull.pending > 0
+      ? pull.pending === 1
+        ? t("1 running")
+        : t("{count} running", { count: pull.pending })
+      : null,
+    pull.passed > 0
+      ? pull.passed === 1
+        ? t("1 passed")
+        : t("{count} passed", { count: pull.passed })
+      : null,
   ].filter((part): part is string => part !== null);
-  return parts.length > 0 ? parts.join(" · ") : "no checks reported";
+  return parts.length > 0 ? parts.join(" · ") : t("no checks reported");
 }
 
 export function toggleNumber(selected: readonly number[], number: number): number[] {

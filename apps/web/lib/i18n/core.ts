@@ -36,6 +36,10 @@ export function setActiveLocale(locale: Locale): void {
   activeLocale = locale;
 }
 
+export function currentLocale(): Locale {
+  return activeLocale;
+}
+
 export function activeTranslator(): Translate {
   return translator(activeLocale);
 }

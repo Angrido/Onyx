@@ -201,7 +201,7 @@ export const plans: Record<string, string> = {
   "QA found problems": "La QA ha trovato problemi",
   Merging: "Merge in corso",
   "Merge conflict": "Conflitto di merge",
-  Failed: "Fallito",
+  Failed: "In errore",
   Blocked: "Bloccato",
   "QA passed": "QA superata",
   "QA did not finish": "La QA non è terminata",

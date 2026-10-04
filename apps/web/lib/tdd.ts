@@ -1,5 +1,6 @@
 import type { TddIterationDto, TddLoopDto, TddPhase, TddScope, TddStatus } from "@onyx/contracts";
 import type { BadgeProps } from "@/components/ui/badge";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 type Tone = NonNullable<BadgeProps["tone"]>;
 
@@ -14,30 +15,30 @@ export const TDD_STATUS_TONES: Record<TddStatus, Tone> = {
 };
 
 export const TDD_STATUS_LABELS: Record<TddStatus, string> = {
-  PENDING: "Starting",
-  RUNNING: "Running",
-  GREEN: "Green",
-  EXHAUSTED: "Out of attempts",
-  STALLED: "Stalled",
-  ABORTED: "Stopped",
-  FAILED: "Failed",
+  PENDING: msg("Starting"),
+  RUNNING: msg("Running"),
+  GREEN: msg("Green"),
+  EXHAUSTED: msg("Out of attempts"),
+  STALLED: msg("Stalled"),
+  ABORTED: msg("Stopped"),
+  FAILED: msg("Failed"),
 };
 
 export const TDD_PHASE_LABELS: Record<TddPhase, string> = {
-  preparing: "Protecting the test files",
-  tests: "Running the tests",
-  gates: "Checking types and lint",
-  agent: "The agent is fixing the code",
-  guard: "Checking the test files",
+  preparing: msg("Protecting the test files"),
+  tests: msg("Running the tests"),
+  gates: msg("Checking types and lint"),
+  agent: msg("The agent is fixing the code"),
+  guard: msg("Checking the test files"),
 };
 
 export const TDD_SCOPE_LABELS: Record<TddScope, string> = {
-  related: "Related tests",
-  full: "Full suite",
-  typecheck: "Type check",
-  lint: "Lint",
-  run: "Runner error",
-  guard: "Tests restored",
+  related: msg("Related tests"),
+  full: msg("Full suite"),
+  typecheck: msg("Type check"),
+  lint: msg("Lint"),
+  run: msg("Runner error"),
+  guard: msg("Tests restored"),
 };
 
 export type IterationOutcome = "green" | "red" | "reverted";
@@ -62,8 +63,8 @@ export function attemptsLabel(loop: Pick<TddLoopDto, "iterationCount" | "maxIter
   return `${loop.iterationCount}/${loop.maxIterations}`;
 }
 
-export function runnerLabel(runner: string | null): string {
+export function runnerLabel(runner: string | null, t: Translate = english): string {
   if (runner === "VITEST") return "Vitest";
   if (runner === "JEST") return "Jest";
-  return "none found";
+  return t("none found");
 }

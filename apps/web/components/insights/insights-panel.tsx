@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import { formatTokens, formatUsd } from "@/lib/format";
 import { EXAMPLE_QUESTIONS, INTENT_LABELS, MODE_LABELS, MODE_TONES } from "@/lib/insights";
 
@@ -25,15 +26,22 @@ function InsightCard({
   asking: boolean;
   onAskModel: () => void;
 }) {
+  const t = useT();
   return (
     <li className="space-y-2 border-b border-border py-4 last:border-b-0" data-testid="insight">
       <div className="flex flex-wrap items-center gap-2">
         <p className="font-medium">{insight.question}</p>
-        <Badge tone={MODE_TONES[insight.mode]}>{MODE_LABELS[insight.mode]}</Badge>
-        <Badge>{INTENT_LABELS[insight.intent]}</Badge>
+        <Badge tone={MODE_TONES[insight.mode]}>{t(MODE_LABELS[insight.mode])}</Badge>
+        <Badge>{t(INTENT_LABELS[insight.intent])}</Badge>
         <span className="text-xs text-muted-foreground">
           {insight.mode === "MODEL"
-            ? `${insight.costUsd !== null ? formatUsd(insight.costUsd) : "cost unknown"}${insight.tokens !== null ? ` · ${formatTokens(insight.tokens)} tokens` : ""} · `
+            ? [
+                insight.costUsd !== null ? formatUsd(insight.costUsd) : t("cost unknown"),
+                ...(insight.tokens !== null
+                  ? [t("{count} tokens", { count: formatTokens(insight.tokens) })]
+                  : []),
+                "",
+              ].join(" · ")
             : ""}
           <RelativeTime iso={insight.createdAt} />
         </span>
@@ -42,7 +50,7 @@ function InsightCard({
       {insight.mode === "INDEX" ? (
         <Button size="sm" variant="ghost" onClick={onAskModel} disabled={asking}>
           {asking ? <Loader2 className="animate-spin" /> : <Sparkles />}
-          Ask Claude instead
+          {t("Ask Claude instead")}
         </Button>
       ) : null}
     </li>
@@ -56,6 +64,7 @@ export function InsightsPanel({
   projectId: string;
   initial: InsightListResponse;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [question, setQuestion] = useState("");
   const { data } = useQuery({
@@ -69,7 +78,7 @@ export function InsightsPanel({
     onSuccess: (answer) => {
       setQuestion("");
       if (answer.mode === "MODEL")
-        toast.success(`Claude answered for ${formatUsd(answer.costUsd ?? 0)}`);
+        toast.success(t("Claude answered for {cost}", { cost: formatUsd(answer.costUsd ?? 0) }));
       void queryClient.invalidateQueries({ queryKey: queryKeys.insights(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.savings });
     },
@@ -87,25 +96,27 @@ export function InsightsPanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageSquareText className="size-4 text-primary" />
-          Ask about the code
+          {t("Ask about the code")}
         </CardTitle>
         <CardDescription>
-          Definitions, usages, imports, central and large files and import cycles are answered from
-          the project index, for free and with their sources. Other questions go to Claude Haiku in
-          read-only mode, with the cost shown.
-          {total > 0 ? ` ${data.indexAnswers} of ${total} answers so far came from the index.` : ""}
+          {t(
+            "Definitions, usages, imports, central and large files and import cycles are answered from the project index, for free and with their sources. Other questions go to Claude Haiku in read-only mode, with the cost shown.",
+          )}
+          {total > 0
+            ? ` ${t("{count} of {total} answers so far came from the index.", { count: data.indexAnswers, total })}`
+            : ""}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submit}>
           <label htmlFor="insight-question" className="sr-only">
-            Question
+            {t("Question")}
           </label>
           <Input
             id="insight-question"
             value={question}
             maxLength={500}
-            placeholder="Where is `formatPrice` used?"
+            placeholder={t("Where is `formatPrice` used?")}
             onChange={(event) => setQuestion(event.target.value)}
           />
           <Button
@@ -114,26 +125,28 @@ export function InsightsPanel({
             data-testid="insight-ask"
           >
             {ask.isPending ? <Loader2 className="animate-spin" /> : <Search />}
-            Ask
+            {t("Ask")}
           </Button>
         </form>
         {!data.indexed ? (
           <p className="text-sm text-warning">
-            The project is not indexed yet: every question goes to Claude until the index is ready.
+            {t(
+              "The project is not indexed yet: every question goes to Claude until the index is ready.",
+            )}
           </p>
         ) : null}
         {data.items.length === 0 ? (
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            Try:
+            {t("Try:")}
             {EXAMPLE_QUESTIONS.map((example) => (
               <Button
                 key={example}
                 size="sm"
                 variant="secondary"
-                onClick={() => ask.mutate({ question: example, useModel: false })}
+                onClick={() => ask.mutate({ question: t(example), useModel: false })}
                 disabled={ask.isPending}
               >
-                {example.replaceAll("`", "")}
+                {t(example).replaceAll("`", "")}
               </Button>
             ))}
           </div>

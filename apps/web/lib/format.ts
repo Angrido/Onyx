@@ -1,3 +1,5 @@
+import type { Locale } from "@/lib/i18n/core";
+
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const integer = new Intl.NumberFormat("en-US");
 
@@ -26,7 +28,10 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${minutes}m ${Math.round(seconds % 60)}s`;
 }
 
-const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const relative = {
+  it: new Intl.RelativeTimeFormat("it", { numeric: "auto" }),
+  en: new Intl.RelativeTimeFormat("en", { numeric: "auto" }),
+};
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["day", 86_400_000],
   ["hour", 3_600_000],
@@ -34,14 +39,14 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["second", 1_000],
 ];
 
-export function formatRelative(iso: string, now = Date.now()): string {
+export function formatRelative(iso: string, now = Date.now(), locale: Locale = "en"): string {
   const delta = new Date(iso).getTime() - now;
   for (const [unit, size] of UNITS) {
     if (Math.abs(delta) >= size || unit === "second") {
-      return relative.format(Math.round(delta / size), unit);
+      return relative[locale].format(Math.round(delta / size), unit);
     }
   }
-  return "now";
+  return relative[locale].format(0, "second");
 }
 
 export function formatBytes(bytes: number): string {

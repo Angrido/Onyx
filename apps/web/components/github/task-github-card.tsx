@@ -7,8 +7,10 @@ import { PullRequestStatus } from "@/components/github/pull-request-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useT } from "@/lib/i18n/client";
 
 export function TaskGitHubCard({ task }: { task: TaskDetailDto }) {
+  const t = useT();
   if (!task.issue && !task.pullRequest && !task.branchName) return null;
   return (
     <Card data-testid="task-github">
@@ -27,7 +29,7 @@ export function TaskGitHubCard({ task }: { task: TaskDetailDto }) {
               rel="noreferrer"
               className="inline-flex items-center gap-1 font-medium hover:underline"
             >
-              Issue #{task.issue.number} · {task.issue.repo}
+              {t("Issue #{number} · {repo}", { number: task.issue.number, repo: task.issue.repo })}
               <ExternalLink className="size-3.5 text-muted-foreground" />
             </a>
             {task.issue.labels.length > 0 ? (
@@ -44,15 +46,15 @@ export function TaskGitHubCard({ task }: { task: TaskDetailDto }) {
         ) : task.branchName ? (
           <div className="space-y-2">
             <p className="text-muted-foreground">
-              Published on <span className="font-mono">{task.branchName}</span>, no pull request
-              yet.
+              {t("Published on")} <span className="font-mono">{task.branchName}</span>
+              {t(", no pull request yet.")}
             </p>
             <Button asChild size="sm" variant="secondary">
               <Link
                 href={`/projects/${task.projectId}/github?branch=${encodeURIComponent(task.branchName)}#pull-requests`}
               >
                 <GitPullRequest />
-                Open a pull request
+                {t("Open a pull request")}
               </Link>
             </Button>
           </div>

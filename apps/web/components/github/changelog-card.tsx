@@ -13,8 +13,10 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { CHANGELOG_SECTION_LABELS } from "@/lib/github";
+import { useT } from "@/lib/i18n/client";
 
 function ReleaseForm({ projectId, preview }: { projectId: string; preview: ChangelogPreviewDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [version, setVersion] = useState(preview.version);
   const [markdown, setMarkdown] = useState(preview.markdown);
@@ -26,7 +28,10 @@ function ReleaseForm({ projectId, preview }: { projectId: string; preview: Chang
       }),
     onSuccess: (saved) => {
       toast.success(
-        `${saved.release.version} is in ${saved.file}: publish it with the next changes`,
+        t("{version} is in {file}: publish it with the next changes", {
+          version: saved.release.version,
+          file: saved.file,
+        }),
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.changelog(projectId) });
       void queryClient.invalidateQueries({ queryKey: ["git", projectId] });
@@ -41,7 +46,7 @@ function ReleaseForm({ projectId, preview }: { projectId: string; preview: Chang
 
   return (
     <form className="space-y-3" onSubmit={submit} data-testid="changelog-form">
-      <Field label="Version" htmlFor="changelog-version">
+      <Field label={t("Version")} htmlFor="changelog-version">
         <Input
           id="changelog-version"
           className="max-w-48 font-mono"
@@ -50,9 +55,15 @@ function ReleaseForm({ projectId, preview }: { projectId: string; preview: Chang
         />
       </Field>
       <Field
-        label="Release notes"
+        label={t("Release notes")}
         htmlFor="changelog-markdown"
-        hint={`Added at the top of ${preview.file}${preview.fileExists ? "" : ", which will be created"}. Edit freely.`}
+        hint={
+          preview.fileExists
+            ? t("Added at the top of {file}. Edit freely.", { file: preview.file })
+            : t("Added at the top of {file}, which will be created. Edit freely.", {
+                file: preview.file,
+              })
+        }
       >
         <Textarea
           id="changelog-markdown"
@@ -67,7 +78,7 @@ function ReleaseForm({ projectId, preview }: { projectId: string; preview: Chang
         data-testid="changelog-save"
       >
         {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-        Save to {preview.file}
+        {t("Save to {file}", { file: preview.file })}
       </Button>
     </form>
   );
@@ -80,6 +91,7 @@ export function ChangelogCard({
   projectId: string;
   initial: ChangelogPreviewDto;
 }) {
+  const t = useT();
   const preview = useQuery({
     queryKey: queryKeys.changelog(projectId),
     queryFn: () => api.get<ChangelogPreviewDto>(`/api/projects/${projectId}/changelog`),
@@ -92,13 +104,22 @@ export function ChangelogCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="size-4 text-primary" />
-          Changelog
+          {t("Changelog")}
         </CardTitle>
         <CardDescription>
-          {data.fromLabel ? `Since ${data.fromLabel}` : "From the first commit"}: {data.commits}{" "}
-          {data.commits === 1 ? "commit" : "commits"} and {data.tasks} completed{" "}
-          {data.tasks === 1 ? "task" : "tasks"}. Conventional Commits go under their section;
-          chores, CI and tests are left out.
+          {data.fromLabel
+            ? t("Since {label}", { label: data.fromLabel })
+            : t("From the first commit")}
+          :{" "}
+          {t("{commits} and {tasks}.", {
+            commits:
+              data.commits === 1 ? t("1 commit") : t("{count} commits", { count: data.commits }),
+            tasks:
+              data.tasks === 1
+                ? t("1 completed task")
+                : t("{count} completed tasks", { count: data.tasks }),
+          })}{" "}
+          {t("Conventional Commits go under their section; chores, CI and tests are left out.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -110,28 +131,30 @@ export function ChangelogCard({
             disabled={preview.isFetching}
           >
             {preview.isFetching ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            Read again
+            {t("Read again")}
           </Button>
           <span className="text-xs text-muted-foreground">
-            {data.entries.length} {data.entries.length === 1 ? "entry" : "entries"}
+            {data.entries.length === 1
+              ? t("1 entry")
+              : t("{count} entries", { count: data.entries.length })}
           </span>
         </div>
         {data.entries.length > 0 ? (
-          <ul className="space-y-1.5 text-sm" aria-label="Changelog entries">
+          <ul className="space-y-1.5 text-sm" aria-label={t("Changelog entries")}>
             {data.entries.map((entry) => (
               <li
                 key={`${entry.source}-${entry.ref}`}
                 className="flex flex-wrap items-center gap-2"
               >
                 <Badge tone={entry.section === "BREAKING" ? "danger" : "neutral"}>
-                  {CHANGELOG_SECTION_LABELS[entry.section]}
+                  {t(CHANGELOG_SECTION_LABELS[entry.section])}
                 </Badge>
                 <span>
                   {entry.scope ? <span className="font-medium">{entry.scope}: </span> : null}
                   {entry.text}
                 </span>
                 <span className="font-mono text-[11px] text-muted-foreground">
-                  {entry.source === "TASK" ? "task" : entry.ref}
+                  {entry.source === "TASK" ? t("task") : entry.ref}
                 </span>
               </li>
             ))}
@@ -144,12 +167,12 @@ export function ChangelogCard({
         />
         {data.releases.length > 0 ? (
           <div className="space-y-1.5 border-t border-border pt-4">
-            <h3 className="text-sm font-semibold">Saved releases</h3>
+            <h3 className="text-sm font-semibold">{t("Saved releases")}</h3>
             <ul className="space-y-1 text-xs text-muted-foreground">
               {data.releases.map((release) => (
                 <li key={release.id}>
-                  <span className="font-mono text-foreground">{release.version}</span> · up to{" "}
-                  <span className="font-mono">{release.toRef.slice(0, 7)}</span> ·{" "}
+                  <span className="font-mono text-foreground">{release.version}</span> ·{" "}
+                  {t("up to")} <span className="font-mono">{release.toRef.slice(0, 7)}</span> ·{" "}
                   <RelativeTime iso={release.createdAt} />
                 </li>
               ))}

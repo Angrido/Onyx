@@ -5,6 +5,7 @@ import type {
   TelemetrySummary,
   UsageWindow,
 } from "@onyx/contracts";
+import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
 import { RoutingSavings } from "@/components/router/routing-savings";
 import { ModelBadge } from "@/components/tasks/status-badge";
@@ -14,19 +15,24 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverFetch } from "@/lib/api/server";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import type { Translate } from "@/lib/i18n/core";
+import { getT } from "@/lib/i18n/server";
 import { TIER_STYLES } from "@/lib/tiers";
 
-export const metadata = { title: "Telemetry" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("Telemetry") };
+}
 
-function WindowCard({ title, window }: { title: string; window: UsageWindow }) {
+function WindowCard({ title, window, t }: { title: string; window: UsageWindow; t: Translate }) {
   const rows = [
-    ["Runs", String(window.runs)],
-    ["Cost", formatUsd(window.costUsd)],
-    ["Input tokens", formatTokens(window.usage.inputTokens)],
-    ["Output tokens", formatTokens(window.usage.outputTokens)],
-    ["Cache read", formatTokens(window.usage.cacheReadTokens)],
-    ["Cache write", formatTokens(window.usage.cacheCreationTokens)],
-    ["Cache hit ratio", formatPercent(window.cacheHitRatio)],
+    [t("Runs"), String(window.runs)],
+    [t("Cost"), formatUsd(window.costUsd)],
+    [t("Input tokens"), formatTokens(window.usage.inputTokens)],
+    [t("Output tokens"), formatTokens(window.usage.outputTokens)],
+    [t("Cache read"), formatTokens(window.usage.cacheReadTokens)],
+    [t("Cache write"), formatTokens(window.usage.cacheCreationTokens)],
+    [t("Cache hit ratio"), formatPercent(window.cacheHitRatio)],
   ];
   return (
     <Card>
@@ -48,6 +54,7 @@ function WindowCard({ title, window }: { title: string; window: UsageWindow }) {
 }
 
 export default async function TelemetryPage() {
+  const t = await getT();
   const [summary, catalog, routing, quota] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
     serverFetch<CatalogResponse>("/api/catalog"),
@@ -57,36 +64,43 @@ export default async function TelemetryPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Telemetry"
-        title="Tokens and spend"
-        description="Usage reported by Claude Code for every run. Costs come from the CLI result; with a subscription token they are notional."
+        eyebrow={t("Telemetry")}
+        title={t("Tokens and spend")}
+        description={t(
+          "Usage reported by Claude Code for every run. Costs come from the CLI result; with a subscription token they are notional.",
+        )}
       />
       <KpiTiles initial={summary} />
       <QuotaCard initial={quota} />
       <RoutingSavings telemetry={routing} />
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <WindowCard title="Today" window={summary.today} />
-        <WindowCard title="Last 7 days" window={summary.last7Days} />
+        <WindowCard title={t("Today")} window={summary.today} t={t} />
+        <WindowCard title={t("Last 7 days")} window={summary.last7Days} t={t} />
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Spend by model · last 7 days</CardTitle>
-          <CardDescription>The router decides which tier each run lands on.</CardDescription>
+          <CardTitle>{t("Spend by model · last 7 days")}</CardTitle>
+          <CardDescription>{t("The router decides which tier each run lands on.")}</CardDescription>
         </CardHeader>
         <CardContent>
           {summary.byModel.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No completed runs yet.</p>
+            <p className="text-sm text-muted-foreground">{t("No completed runs yet.")}</p>
           ) : (
-            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Spend by model">
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label={t("Spend by model")}
+            >
               <table className="w-full min-w-[30rem] text-sm">
                 <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="pb-2 font-medium">Model</th>
-                    <th className="pb-2 text-right font-medium">Runs</th>
-                    <th className="pb-2 text-right font-medium">Input</th>
-                    <th className="pb-2 text-right font-medium">Output</th>
-                    <th className="pb-2 text-right font-medium">Cache read</th>
-                    <th className="pb-2 text-right font-medium">Cost</th>
+                    <th className="pb-2 font-medium">{t("Model")}</th>
+                    <th className="pb-2 text-right font-medium">{t("Runs")}</th>
+                    <th className="pb-2 text-right font-medium">{t("Input")}</th>
+                    <th className="pb-2 text-right font-medium">{t("Output")}</th>
+                    <th className="pb-2 text-right font-medium">{t("Cache read")}</th>
+                    <th className="pb-2 text-right font-medium">{t("Cost")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -110,20 +124,25 @@ export default async function TelemetryPage() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Model catalog</CardTitle>
-          <CardDescription>Prices drive estimates and counterfactuals only.</CardDescription>
+          <CardTitle>{t("Model catalog")}</CardTitle>
+          <CardDescription>{t("Prices drive estimates and counterfactuals only.")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Model catalog">
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label={t("Model catalog")}
+          >
             <table className="w-full min-w-[30rem] text-sm">
               <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="pb-2 font-medium">Model</th>
-                  <th className="pb-2 font-medium">Tier</th>
-                  <th className="pb-2 text-right font-medium">Context</th>
-                  <th className="pb-2 text-right font-medium">Input $/MTok</th>
-                  <th className="pb-2 text-right font-medium">Output $/MTok</th>
-                  <th className="pb-2 text-right font-medium">Status</th>
+                  <th className="pb-2 font-medium">{t("Model")}</th>
+                  <th className="pb-2 font-medium">{t("Tier")}</th>
+                  <th className="pb-2 text-right font-medium">{t("Context")}</th>
+                  <th className="pb-2 text-right font-medium">{t("Input $/MTok")}</th>
+                  <th className="pb-2 text-right font-medium">{t("Output $/MTok")}</th>
+                  <th className="pb-2 text-right font-medium">{t("Status")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -136,14 +155,14 @@ export default async function TelemetryPage() {
                       </span>
                     </td>
                     <td className={`py-2 ${TIER_STYLES[model.tier].text}`}>
-                      {TIER_STYLES[model.tier].label}
+                      {t(TIER_STYLES[model.tier].label)}
                     </td>
                     <td className="py-2 text-right">{formatTokens(model.contextWindow)}</td>
                     <td className="py-2 text-right">${model.inputUsdPerMTok.toFixed(2)}</td>
                     <td className="py-2 text-right">${model.outputUsdPerMTok.toFixed(2)}</td>
                     <td className="py-2 text-right">
                       <Badge tone={model.enabled ? "success" : "neutral"}>
-                        {model.enabled ? "enabled" : "disabled"}
+                        {model.enabled ? t("enabled") : t("disabled")}
                       </Badge>
                     </td>
                   </tr>

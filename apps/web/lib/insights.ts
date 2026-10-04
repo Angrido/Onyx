@@ -5,6 +5,7 @@ import type {
   InsightIntent,
   InsightMode,
 } from "@onyx/contracts";
+import { msg } from "@/lib/i18n/core";
 
 type Tone = "neutral" | "primary" | "success" | "warning" | "danger" | "scout";
 
@@ -53,18 +54,18 @@ export function answerBlocks(text: string): AnswerBlock[] {
 }
 
 export const INTENT_LABELS: Record<InsightIntent, string> = {
-  DEFINITION: "Definition",
-  USAGES: "Usages",
-  IMPORTERS: "Imported by",
-  IMPORTS: "Imports",
-  CENTRAL: "Central files",
-  LARGEST: "Largest files",
-  CYCLES: "Import cycles",
-  OPEN: "Open question",
+  DEFINITION: msg("Definition"),
+  USAGES: msg("Usages"),
+  IMPORTERS: msg("Imported by"),
+  IMPORTS: msg("Imports"),
+  CENTRAL: msg("Central files"),
+  LARGEST: msg("Largest files"),
+  CYCLES: msg("Import cycles"),
+  OPEN: msg("Open question"),
 };
 
 export const MODE_LABELS: Record<InsightMode, string> = {
-  INDEX: "From the index · free",
+  INDEX: msg("From the index · free"),
   MODEL: "Claude",
 };
 
@@ -79,17 +80,23 @@ export const SEVERITY_TONES: Record<FindingSeverity, Tone> = {
   LOW: "neutral",
 };
 
+export const SEVERITY_LABELS: Record<FindingSeverity, string> = {
+  HIGH: msg("high"),
+  MEDIUM: msg("medium"),
+  LOW: msg("low"),
+};
+
 export const CATEGORY_LABELS: Record<FindingCategory, string> = {
-  SECURITY: "Security",
-  PERFORMANCE: "Performance",
-  MAINTAINABILITY: "Maintainability",
-  DEPENDENCY: "Dependencies",
+  SECURITY: msg("Security"),
+  PERFORMANCE: msg("Performance"),
+  MAINTAINABILITY: msg("Maintainability"),
+  DEPENDENCY: msg("Dependencies"),
 };
 
 export const VERDICT_LABELS: Record<FindingVerdict, string> = {
-  REAL: "Claude: real",
-  FALSE_POSITIVE: "Claude: false positive",
-  UNSURE: "Claude: unsure",
+  REAL: msg("Claude: real"),
+  FALSE_POSITIVE: msg("Claude: false positive"),
+  UNSURE: msg("Claude: unsure"),
 };
 
 export const VERDICT_TONES: Record<FindingVerdict, Tone> = {
@@ -99,7 +106,7 @@ export const VERDICT_TONES: Record<FindingVerdict, Tone> = {
 };
 
 export const EXAMPLE_QUESTIONS = [
-  "Which are the most central files?",
-  "Are there circular imports?",
-  "Where is `main` used?",
+  msg("Which are the most central files?"),
+  msg("Are there circular imports?"),
+  msg("Where is `main` used?"),
 ];

@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import {
   EVENT_LABELS,
   EVENT_ORDER,
@@ -56,10 +57,11 @@ function SectionTitle({ children }: { children: string }) {
 }
 
 function TestButton({ channel, disabled }: { channel: NotificationChannel; disabled: boolean }) {
+  const t = useT();
   const test = useMutation({
     mutationFn: () => api.post<TestNotificationResponse>("/api/notifications/test", { channel }),
     onSuccess: (result) => (result.ok ? toast.success(result.detail) : toast.error(result.detail)),
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   return (
     <Button
@@ -71,12 +73,13 @@ function TestButton({ channel, disabled }: { channel: NotificationChannel; disab
       data-testid={`notify-test-${channel}`}
     >
       {test.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-      Send a test
+      {t("Send a test")}
     </Button>
   );
 }
 
 function BrowserPush({ settings }: { settings: NotificationSettingsDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const support = usePushSupport();
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
@@ -110,7 +113,7 @@ function BrowserPush({ settings }: { settings: NotificationSettingsDto }) {
         return api.get<NotificationSettingsDto>("/api/settings/notifications");
       }
       if ((await Notification.requestPermission()) !== "granted")
-        throw new Error("Notifications were not allowed in this browser");
+        throw new Error(t("Notifications were not allowed in this browser"));
       const { publicKey } = await api.get<PushKeyResponse>("/api/notifications/push/key");
       const subscription =
         current ??
@@ -127,18 +130,18 @@ function BrowserPush({ settings }: { settings: NotificationSettingsDto }) {
       queryClient.setQueryData(queryKeys.notifications, next);
       setSubscribed(enable);
       toast.success(
-        enable ? "This browser will get notifications" : "Notifications turned off here",
+        enable ? t("This browser will get notifications") : t("Notifications turned off here"),
       );
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   return (
     <div className="space-y-2">
-      <SectionTitle>This browser</SectionTitle>
+      <SectionTitle>{t("This browser")}</SectionTitle>
       {support && !support.ok ? (
         <p className="text-xs text-muted-foreground" data-testid="push-unavailable">
-          {PUSH_SUPPORT_TEXT[support.reason]}
+          {t(PUSH_SUPPORT_TEXT[support.reason])}
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -149,28 +152,27 @@ function BrowserPush({ settings }: { settings: NotificationSettingsDto }) {
             disabled={support === null || subscribed === null || toggle.isPending}
             onClick={() => toggle.mutate(!subscribed)}
           >
-            {toggle.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : subscribed ? (
-              <BellOff />
-            ) : (
-              <Bell />
-            )}
-            {subscribed ? "Turn off on this device" : "Turn on for this device"}
+            {toggle.isPending ? <Loader2 className="animate-spin" /> : null}
+            {!toggle.isPending && subscribed ? <BellOff /> : null}
+            {!toggle.isPending && !subscribed ? <Bell /> : null}
+            {subscribed ? t("Turn off on this device") : t("Turn on for this device")}
           </Button>
           <TestButton channel="webpush" disabled={settings.webPush.devices === 0} />
         </div>
       )}
       <p className="text-xs text-muted-foreground">
         {settings.webPush.devices === 0
-          ? "No device subscribed."
-          : `${settings.webPush.devices} ${settings.webPush.devices === 1 ? "device" : "devices"} subscribed.`}
+          ? t("No device subscribed.")
+          : settings.webPush.devices === 1
+            ? t("1 device subscribed.")
+            : t("{count} devices subscribed.", { count: settings.webPush.devices })}
       </p>
     </div>
   );
 }
 
 export function NotificationsCard({ initial }: { initial: NotificationSettingsDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: settings = initial } = useQuery({
     queryKey: queryKeys.notifications,
@@ -193,9 +195,9 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
       queryClient.setQueryData(queryKeys.notifications, next);
       setNtfyToken("");
       setBotToken("");
-      toast.success("Notification settings saved");
+      toast.success(t("Notification settings saved"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -221,15 +223,15 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Bell className="size-4 text-primary" />
-          Notifications
+          {t("Notifications")}
         </CardTitle>
         <CardDescription>
-          Hear about runs, approvals, budgets and Claude limits away from the screen. Onyx only
-          sends: it never reads messages from these services. Everything is off until you turn it
-          on.
+          {t(
+            "Hear about runs, approvals, budgets and Claude limits away from the screen. Onyx only sends: it never reads messages from these services. Everything is off until you turn it on.",
+          )}{" "}
           {settings.linkBase
-            ? ` Links open ${settings.linkBase}.`
-            : " Set ONYX_PUBLIC_ORIGIN to add links."}
+            ? t("Links open {url}.", { url: settings.linkBase })
+            : t("Set ONYX_PUBLIC_ORIGIN to add links.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -237,7 +239,7 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
         <form className="space-y-5" onSubmit={submit}>
           <fieldset className="space-y-2">
             <legend className="mb-2">
-              <SectionTitle>Tell me when</SectionTitle>
+              <SectionTitle>{t("Tell me when")}</SectionTitle>
             </legend>
             {EVENT_ORDER.map((event) => (
               <label key={event} className="flex min-h-6 items-start gap-2.5 text-sm">
@@ -248,9 +250,9 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
                   onChange={(change) => setEvents({ ...events, [event]: change.target.checked })}
                 />
                 <span>
-                  {EVENT_LABELS[event].label}
+                  {t(EVENT_LABELS[event].label)}
                   <span className="block text-xs text-muted-foreground">
-                    {EVENT_LABELS[event].hint}
+                    {t(EVENT_LABELS[event].hint)}
                   </span>
                 </span>
               </label>
@@ -272,7 +274,7 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">Server</span>
+                <span className="text-muted-foreground">{t("Server")}</span>
                 <Input
                   type="url"
                   value={server}
@@ -282,11 +284,11 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
                 />
               </label>
               <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">Topic</span>
+                <span className="text-muted-foreground">{t("Topic")}</span>
                 <Input
                   value={topic}
                   onChange={(change) => setTopic(change.target.value)}
-                  placeholder="onyx-a7k2"
+                  placeholder={"onyx-a7k2"}
                   className="h-9"
                   data-testid="ntfy-topic"
                 />
@@ -294,21 +296,24 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
             </div>
             <label className="block space-y-1 text-xs">
               <span className="flex items-center gap-2 text-muted-foreground">
-                Access token (optional)
-                {settings.ntfy.hasToken ? <Badge tone="success">saved, encrypted</Badge> : null}
+                {t("Access token (optional)")}
+                {settings.ntfy.hasToken ? (
+                  <Badge tone="success">{t("saved, encrypted")}</Badge>
+                ) : null}
               </span>
               <Input
                 type="password"
                 autoComplete="off"
                 value={ntfyToken}
                 onChange={(change) => setNtfyToken(change.target.value)}
-                placeholder={settings.ntfy.hasToken ? "Leave empty to keep it" : "tk_…"}
+                placeholder={settings.ntfy.hasToken ? t("Leave empty to keep it") : "tk_…"}
                 className="h-9"
               />
             </label>
             <p className="text-xs text-muted-foreground">
-              On a public server anyone who knows the topic can read it: pick a long, random name or
-              use your own server.
+              {t(
+                "On a public server anyone who knows the topic can read it: pick a long, random name or use your own server.",
+              )}
             </p>
           </div>
           <div className="space-y-2 border-t border-border pt-4">
@@ -320,16 +325,16 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
                   checked={telegramEnabled}
                   onChange={(change) => setTelegramEnabled(change.target.checked)}
                 />
-                Telegram
+                {"Telegram"}
               </label>
               <TestButton channel="telegram" disabled={!settings.telegram.hasToken} />
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <label className="space-y-1 text-xs">
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  Bot token
+                  {t("Bot token")}
                   {settings.telegram.hasToken ? (
-                    <Badge tone="success">saved, encrypted</Badge>
+                    <Badge tone="success">{t("saved, encrypted")}</Badge>
                   ) : null}
                 </span>
                 <Input
@@ -338,13 +343,13 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
                   value={botToken}
                   onChange={(change) => setBotToken(change.target.value)}
                   placeholder={
-                    settings.telegram.hasToken ? "Leave empty to keep it" : "123456:ABC…"
+                    settings.telegram.hasToken ? t("Leave empty to keep it") : "123456:ABC…"
                   }
                   className="h-9"
                 />
               </label>
               <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">Chat id</span>
+                <span className="text-muted-foreground">{t("Chat id")}</span>
                 <Input
                   value={chatId}
                   onChange={(change) => setChatId(change.target.value)}
@@ -356,7 +361,7 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
           </div>
           <Button size="sm" variant="secondary" disabled={save.isPending}>
             {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-            Save
+            {t("Save")}
           </Button>
         </form>
       </CardContent>

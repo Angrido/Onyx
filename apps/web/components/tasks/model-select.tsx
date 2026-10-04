@@ -2,6 +2,7 @@
 
 import type { ModelProfileDto } from "@onyx/contracts";
 import { Select } from "@/components/ui/form-controls";
+import { useT } from "@/lib/i18n/client";
 import { TIER_STYLES } from "@/lib/tiers";
 
 export function ModelSelect({
@@ -17,6 +18,7 @@ export function ModelSelect({
   onChange: (value: string) => void;
   defaultLabel: string;
 }) {
+  const t = useT();
   return (
     <Select id={id} value={value} onChange={(event) => onChange(event.target.value)}>
       <option value="">{defaultLabel}</option>
@@ -24,7 +26,12 @@ export function ModelSelect({
         .filter((model) => model.enabled)
         .map((model) => (
           <option key={model.id} value={model.id}>
-            {`${model.displayName} · ${TIER_STYLES[model.tier].label} · $${model.inputUsdPerMTok}/$${model.outputUsdPerMTok} per MTok`}
+            {t("{name} · {tier} · ${input}/${output} per MTok", {
+              name: model.displayName,
+              tier: t(TIER_STYLES[model.tier].label),
+              input: model.inputUsdPerMTok,
+              output: model.outputUsdPerMTok,
+            })}
           </option>
         ))}
     </Select>

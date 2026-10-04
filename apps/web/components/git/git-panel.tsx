@@ -23,6 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/form-controls";
 import { GitHubMark } from "@/components/ui/github-mark";
 import { api, errorMessage } from "@/lib/api/client";
+import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 export const gitStatusKey = (projectId: string) => ["git", projectId] as const;
@@ -43,6 +44,7 @@ export function GitPanel({
   projectId: string;
   githubConnected: boolean;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: gitStatusKey(projectId),
@@ -73,8 +75,9 @@ export function GitPanel({
       setBranchDraft(null);
       setMessageDraft(null);
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
-      if (published.pushed) toast.success(`Pushed ${published.branch} to GitHub`);
-      else toast.error("Committed, but the push failed");
+      if (published.pushed)
+        toast.success(t("Pushed {branch} to GitHub", { branch: published.branch }));
+      else toast.error(t("Committed, but the push failed"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -85,7 +88,7 @@ export function GitPanel({
       setResult(null);
       setBranchDraft(null);
       setMessageDraft(null);
-      toast.success(`Back on ${next.defaultBranch}`);
+      toast.success(t("Back on {branch}", { branch: next.defaultBranch }));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -94,7 +97,7 @@ export function GitPanel({
     return (
       <Card className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
-        Reading the repository…
+        {t("Reading the repository…")}
       </Card>
     );
   }
@@ -102,7 +105,7 @@ export function GitPanel({
     return (
       <Card className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
         <GitBranch className="size-4" />
-        This project folder is not a git repository.
+        {t("This project folder is not a git repository.")}
       </Card>
     );
   }
@@ -116,12 +119,14 @@ export function GitPanel({
       <CardContent className="space-y-3 pt-5">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <GitBranch className="size-4 text-primary" />
-          <span className="font-medium">Branch</span>
+          <span className="font-medium">{t("Branch")}</span>
           <Badge tone={data.onDefaultBranch ? "neutral" : "primary"} data-testid="git-branch">
-            {data.branch ?? "detached"}
+            {data.branch ?? t("detached")}
           </Badge>
-          {data.ahead > 0 ? <Badge tone="warning">{data.ahead} to push</Badge> : null}
-          {data.behind > 0 ? <Badge>{data.behind} behind</Badge> : null}
+          {data.ahead > 0 ? (
+            <Badge tone="warning">{t("{count} to push", { count: data.ahead })}</Badge>
+          ) : null}
+          {data.behind > 0 ? <Badge>{t("{count} behind", { count: data.behind })}</Badge> : null}
           {data.githubRepo ? (
             <a
               href={`https://github.com/${data.githubRepo}`}
@@ -147,11 +152,15 @@ export function GitPanel({
                 <ChevronRight className="size-3.5 text-muted-foreground" />
               </motion.span>
               <span className="font-medium">
-                {data.changeCount} {data.changeCount === 1 ? "file" : "files"} changed
+                {data.changeCount === 1
+                  ? t("1 file changed")
+                  : t("{count} files changed", { count: data.changeCount })}
               </span>
               {data.unpublishedTasks.length > 0 ? (
                 <span className="truncate text-xs text-muted-foreground">
-                  by {data.unpublishedTasks.map((task) => task.title).join(", ")}
+                  {t("by {tasks}", {
+                    tasks: data.unpublishedTasks.map((task) => task.title).join(", "),
+                  })}
                 </span>
               ) : null}
             </button>
@@ -173,8 +182,10 @@ export function GitPanel({
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            No uncommitted changes.
-            {data.lastCommit ? ` Last commit: ${data.lastCommit.subject}` : ""}
+            {t("No uncommitted changes.")}
+            {data.lastCommit
+              ? ` ${t("Last commit: {subject}", { subject: data.lastCommit.subject })}`
+              : ""}
           </p>
         )}
 
@@ -188,9 +199,12 @@ export function GitPanel({
           >
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
               <Field
-                label="New branch"
+                label={t("New branch")}
                 htmlFor="git-branch"
-                hint={`Created from ${data.branch ?? data.defaultBranch}; ${data.defaultBranch} stays untouched.`}
+                hint={t("Created from {source}; {base} stays untouched.", {
+                  source: data.branch ?? data.defaultBranch,
+                  base: data.defaultBranch,
+                })}
               >
                 <Input
                   id="git-branch"
@@ -200,7 +214,7 @@ export function GitPanel({
                   required
                 />
               </Field>
-              <Field label="Commit message" htmlFor="git-message">
+              <Field label={t("Commit message")} htmlFor="git-message">
                 <Textarea
                   id="git-message"
                   className="min-h-16 text-xs"
@@ -213,19 +227,19 @@ export function GitPanel({
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" disabled={publish.isPending || data.busy}>
                 {publish.isPending ? <Loader2 className="animate-spin" /> : <Upload />}
-                {data.changeCount > 0 ? "Commit and push to GitHub" : "Push to GitHub"}
+                {data.changeCount > 0 ? t("Commit and push to GitHub") : t("Push to GitHub")}
               </Button>
               {data.busy ? (
                 <span className="text-xs text-warning">
-                  An agent is working: wait until it finishes.
+                  {t("An agent is working: wait until it finishes.")}
                 </span>
               ) : null}
               {!githubConnected && data.githubRepo ? (
                 <span className="text-xs text-muted-foreground">
                   <Link href="/settings" className="text-primary hover:underline">
-                    Connect GitHub
+                    {t("Connect GitHub")}
                   </Link>{" "}
-                  with write access to push.
+                  {t("with write access to push.")}
                 </span>
               ) : null}
             </div>
@@ -241,8 +255,11 @@ export function GitPanel({
         {result?.commit ? (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <GitCommitHorizontal className="size-3.5" />
-            Commit <span className="font-mono">{result.commit.slice(0, 8)}</span> on {result.branch}
-            {result.publishedTasks > 0 ? ` · ${result.publishedTasks} tasks published` : ""}
+            {t("Commit")} <span className="font-mono">{result.commit.slice(0, 8)}</span>{" "}
+            {t("on {branch}", { branch: result.branch })}
+            {result.publishedTasks > 0
+              ? ` · ${t("{count} tasks published", { count: result.publishedTasks })}`
+              : ""}
           </p>
         ) : null}
 
@@ -254,7 +271,7 @@ export function GitPanel({
                 data-testid="git-pull-request"
               >
                 <GitPullRequest />
-                Open a pull request
+                {t("Open a pull request")}
               </Link>
             </Button>
           ) : null}
@@ -262,7 +279,7 @@ export function GitPanel({
             <Button asChild size="sm" variant="secondary">
               <a href={compareUrl} target="_blank" rel="noreferrer" data-testid="git-compare">
                 <ExternalLink />
-                Compare on GitHub
+                {t("Compare on GitHub")}
               </a>
             </Button>
           ) : null}
@@ -274,7 +291,7 @@ export function GitPanel({
               disabled={back.isPending || data.busy}
             >
               {back.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeft />}
-              Back to {data.defaultBranch}
+              {t("Back to {branch}", { branch: data.defaultBranch })}
             </Button>
           ) : null}
         </div>

@@ -1,23 +1,28 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/providers";
+import { getLocale, getT } from "@/lib/i18n/server";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: { default: "Onyx", template: "%s · Onyx" },
-  description: "Orchestration console for Claude Code agents",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return {
+    title: { default: "Onyx", template: "%s · Onyx" },
+    description: t("Orchestration console for Claude Code agents"),
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#0b0b10",
   colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const locale = await getLocale();
   return (
-    <html lang="en" className="dark">
+    <html lang={locale} className="dark">
       <body>
-        <Providers>{children}</Providers>
+        <Providers locale={locale}>{children}</Providers>
       </body>
     </html>
   );

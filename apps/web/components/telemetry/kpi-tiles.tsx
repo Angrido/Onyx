@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { useLiveSystem } from "@/lib/live";
 
 function Tile({
@@ -54,6 +55,7 @@ function Tile({
 }
 
 export function KpiTiles({ initial }: { initial: TelemetrySummary }) {
+  const t = useT();
   useLiveSystem();
   const { data } = useQuery({
     queryKey: queryKeys.telemetry,
@@ -72,30 +74,32 @@ export function KpiTiles({ initial }: { initial: TelemetrySummary }) {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Tile
         icon={<Bot className="size-3.5" />}
-        label="Active agents"
+        label={t("Active agents")}
         value={String(data.activeRuns)}
-        detail={`${data.queuedTasks} queued`}
+        detail={t("{count} queued", { count: data.queuedTasks })}
         accent="var(--primary)"
       />
       <Tile
         icon={<Coins className="size-3.5" />}
-        label="Spend today"
+        label={t("Spend today")}
         value={formatUsd(today.costUsd)}
-        detail={`${today.runs} runs · ${formatUsd(data.last7Days.costUsd)} in 7 days`}
+        detail={`${today.runs === 1 ? t("1 run") : t("{count} runs", { count: today.runs })} · ${t("{amount} in 7 days", { amount: formatUsd(data.last7Days.costUsd) })}`}
         accent="var(--tier-builder)"
       />
       <Tile
         icon={<Database className="size-3.5" />}
-        label="Tokens today"
+        label={t("Tokens today")}
         value={formatTokens(totalTokens)}
-        detail={`${formatTokens(today.usage.outputTokens)} generated`}
+        detail={t("{tokens} generated", { tokens: formatTokens(today.usage.outputTokens) })}
         accent="var(--tier-scout)"
       />
       <Tile
         icon={<Gauge className="size-3.5" />}
-        label="Cache hit ratio"
+        label={t("Cache hit ratio")}
         value={formatPercent(today.cacheHitRatio)}
-        detail={`${formatTokens(today.usage.cacheReadTokens)} tokens from cache`}
+        detail={t("{tokens} tokens from cache", {
+          tokens: formatTokens(today.usage.cacheReadTokens),
+        })}
         accent="var(--success)"
       />
     </div>

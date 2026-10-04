@@ -20,9 +20,11 @@ import { CreateTaskDialog } from "@/components/tasks/create-task-dialog";
 import { TaskList } from "@/components/tasks/task-list";
 import { Button } from "@/components/ui/button";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 
 export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
+  const t = await getT();
   const [project, tasks, catalog, index, github, plans] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<TaskListResponse>(`/api/tasks?projectId=${encodeURIComponent(projectId)}`),
@@ -39,13 +41,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       <Button asChild variant="secondary">
         <Link href={`/projects/${project.id}/memory`}>
           <Brain />
-          Memory
+          {t("Memory")}
         </Link>
       </Button>
       <Button asChild variant="secondary">
         <Link href={`/projects/${project.id}/insights`}>
           <Lightbulb />
-          Insights
+          {t("Insights")}
         </Link>
       </Button>
       <Button asChild variant="secondary">
@@ -57,7 +59,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       <Button asChild variant="secondary">
         <Link href={`/projects/${project.id}/roadmap`}>
           <MapIcon />
-          Roadmap
+          {t("Roadmap")}
         </Link>
       </Button>
       <PlanFeatureDialog projectId={project.id} catalog={catalog} />
@@ -70,7 +72,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       <PageHeader
         eyebrow={
           <Link href="/projects" className="hover:text-foreground">
-            ← Projects
+            ← {t("Projects")}
           </Link>
         }
         title={project.name}
@@ -81,11 +83,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       <GitPanel projectId={project.id} githubConnected={github.connected} />
       <PlanList projectId={project.id} initial={plans.items} />
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">Workspaces</h2>
+        <h2 className="text-sm font-semibold tracking-tight">{t("Workspaces")}</h2>
         <WorkspaceGrid workspaces={project.workspaces} />
       </section>
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">Tasks</h2>
+        <h2 className="text-sm font-semibold tracking-tight">{t("Tasks")}</h2>
         <TaskList initial={tasks.items} projectId={project.id} emptyAction={createTask} />
       </section>
       <AllowedCommands

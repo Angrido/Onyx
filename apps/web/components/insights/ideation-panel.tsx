@@ -13,8 +13,15 @@ import { Field, Select } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import { formatTokens, formatUsd } from "@/lib/format";
-import { CATEGORY_LABELS, SEVERITY_TONES, VERDICT_LABELS, VERDICT_TONES } from "@/lib/insights";
+import {
+  CATEGORY_LABELS,
+  SEVERITY_LABELS,
+  SEVERITY_TONES,
+  VERDICT_LABELS,
+  VERDICT_TONES,
+} from "@/lib/insights";
 import { cn } from "@/lib/utils";
 
 function FindingRow({
@@ -28,6 +35,7 @@ function FindingRow({
   onTask: () => void;
   onDismiss: () => void;
 }) {
+  const t = useT();
   const open = finding.state === "OPEN";
   return (
     <li
@@ -39,14 +47,16 @@ function FindingRow({
       data-rule={finding.rule}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={SEVERITY_TONES[finding.severity]}>{finding.severity.toLowerCase()}</Badge>
-        <Badge>{CATEGORY_LABELS[finding.category]}</Badge>
+        <Badge tone={SEVERITY_TONES[finding.severity]}>
+          {t(SEVERITY_LABELS[finding.severity])}
+        </Badge>
+        <Badge>{t(CATEGORY_LABELS[finding.category])}</Badge>
         <span className="text-sm font-medium">{finding.title}</span>
         {finding.verdict ? (
-          <Badge tone={VERDICT_TONES[finding.verdict]}>{VERDICT_LABELS[finding.verdict]}</Badge>
+          <Badge tone={VERDICT_TONES[finding.verdict]}>{t(VERDICT_LABELS[finding.verdict])}</Badge>
         ) : null}
         <span className="text-xs text-muted-foreground">
-          confidence {Math.round(finding.confidence * 100)}%
+          {t("confidence {percent}%", { percent: Math.round(finding.confidence * 100) })}
         </span>
       </div>
       {finding.file ? (
@@ -60,24 +70,28 @@ function FindingRow({
           className="overflow-x-auto rounded border border-border bg-surface-2 px-2 py-1 font-mono text-xs"
           tabIndex={0}
           role="region"
-          aria-label={`Flagged code in ${finding.file ?? "the project"}`}
+          aria-label={
+            finding.file
+              ? t("Flagged code in {file}", { file: finding.file })
+              : t("Flagged code in the project")
+          }
         >
           {finding.excerpt}
         </pre>
       ) : null}
       <p className="text-sm text-muted-foreground">{finding.explanation}</p>
-      {finding.fix ? <p className="text-sm">Fix: {finding.fix}</p> : null}
+      {finding.fix ? <p className="text-sm">{t("Fix: {fix}", { fix: finding.fix })}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         {finding.state === "TASKED" && finding.taskId ? (
           <Link
             href={`/tasks/${finding.taskId}`}
             className="text-sm text-primary underline underline-offset-2"
           >
-            Open the task
+            {t("Open the task")}
           </Link>
         ) : finding.state === "DISMISSED" ? (
           <span className="text-xs text-muted-foreground">
-            Dismissed: hidden from the next analyses
+            {t("Dismissed: hidden from the next analyses")}
           </span>
         ) : (
           <>
@@ -89,11 +103,11 @@ function FindingRow({
               data-testid="finding-task"
             >
               <ListPlus />
-              Create a task
+              {t("Create a task")}
             </Button>
             <Button size="sm" variant="ghost" onClick={onDismiss} disabled={busy}>
               <EyeOff />
-              Dismiss
+              {t("Dismiss")}
             </Button>
           </>
         )}
@@ -111,6 +125,7 @@ export function IdeationPanel({
   workspaces: WorkspaceDto[];
   initial: IdeationDto;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [workspaceId, setWorkspaceId] = useState("");
   const { data } = useQuery({
@@ -131,7 +146,7 @@ export function IdeationPanel({
     onSuccess: (next) => {
       store(next);
       void queryClient.invalidateQueries({ queryKey: queryKeys.savings });
-      toast.success("Claude checked the suspicious points");
+      toast.success(t("Claude checked the suspicious points"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -144,7 +159,7 @@ export function IdeationPanel({
     mutationFn: (id: string) =>
       api.post<TaskDto>(`/api/ideation/findings/${id}/task`, workspaceId ? { workspaceId } : {}),
     onSuccess: (created) => {
-      toast.success(`Draft task created: ${created.title}`);
+      toast.success(t("Draft task created: {title}", { title: created.title }));
       void queryClient.invalidateQueries({ queryKey: queryKeys.ideation(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
     },
@@ -159,18 +174,19 @@ export function IdeationPanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Lightbulb className="size-4 text-primary" />
-          Ideation: security and performance
+          {t("Ideation: security and performance")}
         </CardTitle>
         <CardDescription>
-          Rules on the code, the dependency audit and the import graph run without a model. Claude
-          then reads only the suspicious snippets, if you ask, and each finding can become a task.
+          {t(
+            "Rules on the code, the dependency audit and the import graph run without a model. Claude then reads only the suspicious snippets, if you ask, and each finding can become a task.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
           <Button onClick={() => start.mutate()} disabled={running} data-testid="ideation-run">
             {running ? <Loader2 className="animate-spin" /> : <Play />}
-            {run ? "Analyse again" : "Analyse the project"}
+            {run ? t("Analyse again") : t("Analyse the project")}
           </Button>
           <Button
             variant="secondary"
@@ -179,16 +195,17 @@ export function IdeationPanel({
             data-testid="ideation-review"
           >
             {review.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            Ask Claude about {data.reviewable} suspicious{" "}
-            {data.reviewable === 1 ? "point" : "points"}
+            {data.reviewable === 1
+              ? t("Ask Claude about 1 suspicious point")
+              : t("Ask Claude about {count} suspicious points", { count: data.reviewable })}
           </Button>
-          <Field label="Workspace for new tasks" htmlFor="finding-workspace">
+          <Field label={t("Workspace for new tasks")} htmlFor="finding-workspace">
             <Select
               id="finding-workspace"
               value={workspaceId}
               onChange={(event) => setWorkspaceId(event.target.value)}
             >
-              <option value="">Auto (from the file)</option>
+              <option value="">{t("Auto (from the file)")}</option>
               {workspaces.map((workspace) => (
                 <option key={workspace.id} value={workspace.id}>
                   {workspace.name}
@@ -200,19 +217,31 @@ export function IdeationPanel({
         {run ? (
           <p className="text-xs text-muted-foreground" data-testid="ideation-summary">
             {run.status === "RUNNING"
-              ? "Analysing…"
+              ? t("Analysing…")
               : run.status === "FAILED"
-                ? `The analysis failed: ${run.message ?? "no details"}`
-                : `${run.files} files, ${openFindings} open ${openFindings === 1 ? "finding" : "findings"} · ${run.audit ?? ""}`}
+                ? t("The analysis failed: {message}", { message: run.message ?? t("no details") })
+                : `${
+                    openFindings === 1
+                      ? t("{files} files, 1 open finding", { files: run.files })
+                      : t("{files} files, {count} open findings", {
+                          files: run.files,
+                          count: openFindings,
+                        })
+                  } · ${run.audit ?? ""}`}
             {run.reviewedAt
-              ? ` · Claude read ${formatTokens(run.snippetTokens ?? 0)} tokens of snippets for ${formatUsd(run.modelCostUsd ?? 0)}`
+              ? ` · ${t("Claude read {tokens} tokens of snippets for {cost}", {
+                  tokens: formatTokens(run.snippetTokens ?? 0),
+                  cost: formatUsd(run.modelCostUsd ?? 0),
+                })}`
               : ""}
             {" · "}
             <RelativeTime iso={run.createdAt} />
           </p>
         ) : null}
         {run?.status === "DONE" && data.findings.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No suspicious code found by the rules.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("No suspicious code found by the rules.")}
+          </p>
         ) : (
           <ul>
             {data.findings.map((finding) => (

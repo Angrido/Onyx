@@ -1,4 +1,6 @@
 import type { ApiError } from "@onyx/contracts";
+import { errorText, explainError } from "@/lib/errors";
+import { activeTranslator, type Translate } from "@/lib/i18n/core";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -55,8 +57,9 @@ export const api = {
   delete: <T = void>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
 };
 
-export function errorMessage(error: unknown): string {
-  if (error instanceof ApiRequestError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Unexpected error";
+export function errorMessage(error: unknown, t: Translate = activeTranslator()): string {
+  if (error instanceof ApiRequestError)
+    return errorText(explainError(error.message, error.status, t));
+  if (error instanceof Error) return errorText(explainError(error.message, null, t));
+  return t("Unexpected error");
 }

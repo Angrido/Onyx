@@ -1,4 +1,5 @@
 import type { ModelTier } from "@onyx/contracts";
+import { msg } from "@/lib/i18n/core";
 
 export interface TierStyle {
   label: string;
@@ -11,7 +12,7 @@ export interface TierStyle {
 
 export const TIER_STYLES: Record<ModelTier, TierStyle> = {
   ARCHITECT: {
-    label: "Architect",
+    label: msg("Architect"),
     text: "text-architect",
     bg: "bg-architect/12",
     border: "border-architect/35",
@@ -19,7 +20,7 @@ export const TIER_STYLES: Record<ModelTier, TierStyle> = {
     color: "var(--tier-architect)",
   },
   BUILDER: {
-    label: "Builder",
+    label: msg("Builder"),
     text: "text-builder",
     bg: "bg-builder/12",
     border: "border-builder/35",
@@ -27,7 +28,7 @@ export const TIER_STYLES: Record<ModelTier, TierStyle> = {
     color: "var(--tier-builder)",
   },
   SCOUT: {
-    label: "Scout",
+    label: msg("Scout"),
     text: "text-scout",
     bg: "bg-scout/12",
     border: "border-scout/35",
@@ -35,7 +36,7 @@ export const TIER_STYLES: Record<ModelTier, TierStyle> = {
     color: "var(--tier-scout)",
   },
   APEX: {
-    label: "Apex",
+    label: msg("Apex"),
     text: "text-apex",
     bg: "bg-apex/12",
     border: "border-apex/35",

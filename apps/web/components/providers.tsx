@@ -5,6 +5,8 @@ import { MotionConfig } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { Toaster } from "sonner";
 import { ApiRequestError } from "@/lib/api/client";
+import { I18nProvider } from "@/lib/i18n/client";
+import type { Locale } from "@/lib/i18n/core";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -19,16 +21,18 @@ function createQueryClient(): QueryClient {
   });
 }
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({ locale, children }: { locale: Locale; children: ReactNode }) {
   const [queryClient] = useState(createQueryClient);
   return (
-    <QueryClientProvider client={queryClient}>
-      <MotionConfig reducedMotion="user">{children}</MotionConfig>
-      <Toaster
-        theme="dark"
-        position="bottom-right"
-        toastOptions={{ className: "glass border border-border text-foreground" }}
-      />
-    </QueryClientProvider>
+    <I18nProvider locale={locale}>
+      <QueryClientProvider client={queryClient}>
+        <MotionConfig reducedMotion="user">{children}</MotionConfig>
+        <Toaster
+          theme="dark"
+          position="bottom-right"
+          toastOptions={{ className: "glass border border-border text-foreground" }}
+        />
+      </QueryClientProvider>
+    </I18nProvider>
   );
 }

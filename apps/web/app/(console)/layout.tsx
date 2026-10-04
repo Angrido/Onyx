@@ -3,19 +3,21 @@ import type { ReactNode } from "react";
 import { CommandPaletteLoader } from "@/components/layout/command-palette-loader";
 import { Sidebar } from "@/components/layout/sidebar";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 import { WsProvider } from "@/lib/ws/context";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
   const { user } = await serverFetch<MeResponse>("/api/auth/me");
+  const t = await getT();
   return (
     <WsProvider>
       <a
         href="#main"
         className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
       >
-        Skip to content
+        {t("Skip to content")}
       </a>
       <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar user={user} />

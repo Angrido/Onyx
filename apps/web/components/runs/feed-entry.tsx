@@ -44,6 +44,8 @@ import {
   formatUsd,
   shortId,
 } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 import { END_REASON_LABELS, ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 import { TIER_STYLES, modelLabel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
@@ -61,6 +63,8 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
 
 const ONYX_TOOL_PREFIX = "mcp__onyx__";
 
+const CLAUDE_LABEL = "Claude";
+
 function toolLabel(name: string): string {
   return name.startsWith(ONYX_TOOL_PREFIX) ? `onyx · ${name.slice(ONYX_TOOL_PREFIX.length)}` : name;
 }
@@ -75,7 +79,11 @@ function relativeTo(value: string, cwd: string | null): string {
   return value.startsWith(prefix) ? value.slice(prefix.length) : value;
 }
 
-export function toolSummary(input: unknown, cwd: string | null = null): string {
+export function toolSummary(
+  input: unknown,
+  cwd: string | null = null,
+  t: Translate = english,
+): string {
   if (!isRecord(input)) return "";
   const handle = input.handle;
   if (typeof handle === "string" && handle.length > 0) return `#${handle.replace(/^#/, "")}`;
@@ -83,7 +91,7 @@ export function toolSummary(input: unknown, cwd: string | null = null): string {
     const value = input[key];
     if (typeof value === "string" && value.length > 0) return relativeTo(value, cwd);
   }
-  return typeof input.preview === "string" ? "input truncated" : "";
+  return typeof input.preview === "string" ? t("input truncated") : "";
 }
 
 function Collapsible({
@@ -117,6 +125,7 @@ function Collapsible({
 }
 
 function ToolResult({ result }: { result: ToolResultView }) {
+  const t = useT();
   return (
     <pre
       className={cn(
@@ -126,7 +135,7 @@ function ToolResult({ result }: { result: ToolResultView }) {
           : "bg-surface-0/70 text-muted-foreground",
       )}
     >
-      {result.content || "(empty)"}
+      {result.content || t("(empty)")}
       {result.truncated ? "\n…" : ""}
     </pre>
   );
@@ -139,8 +148,9 @@ function ToolEntry({
   entry: Extract<FeedEntry, { kind: "tool" }>;
   cwd: string | null;
 }) {
+  const t = useT();
   const Icon = entry.name.startsWith(ONYX_TOOL_PREFIX) ? Boxes : (TOOL_ICONS[entry.name] ?? Wrench);
-  const summary = toolSummary(entry.input, cwd);
+  const summary = toolSummary(entry.input, cwd, t);
   const state = entry.result === null ? "running" : entry.result.isError ? "error" : "ok";
   return (
     <Collapsible
@@ -168,16 +178,17 @@ function ToolEntry({
   );
 }
 
-const LEVEL_LABELS = ["map", "signatures", "contracts", "full"] as const;
+const LEVEL_LABELS = [msg("map"), msg("signatures"), msg("contracts"), msg("full")] as const;
 
 const ROLE_TITLES: Record<ContextRole, string> = {
-  target: "Targets",
-  dependency: "Dependencies",
-  dependent: "Dependents",
-  nearby: "Nearby",
+  target: msg("Targets"),
+  dependency: msg("Dependencies"),
+  dependent: msg("Dependents"),
+  nearby: msg("Nearby"),
 };
 
 function LevelBadge({ level }: { level: ContextEntry["level"] }) {
+  const t = useT();
   return (
     <span
       className={cn(
@@ -187,7 +198,7 @@ function LevelBadge({ level }: { level: ContextEntry["level"] }) {
         level === 1 && "bg-surface-3 text-foreground",
         level === 0 && "bg-surface-2 text-muted-foreground",
       )}
-      title={LEVEL_LABELS[level]}
+      title={t(LEVEL_LABELS[level])}
     >
       L{level}
     </span>
@@ -195,7 +206,21 @@ function LevelBadge({ level }: { level: ContextEntry["level"] }) {
 }
 
 function ContextView({ item }: { item: ContextItem }) {
+  const t = useT();
   const savings = contextSavings(item);
+  const sizes = {
+    count: item.entries.length,
+    pack: formatTokens(item.packTokens),
+    map: formatTokens(item.mapTokens),
+  };
+  const filesSummary =
+    item.entries.length === 1
+      ? t("1 file · {pack} pack + {map} map", sizes)
+      : t("{count} files · {pack} pack + {map} map", sizes);
+  const reusedSummary =
+    item.reusedTokens > 0
+      ? ` · ${t("{tokens} already sent", { tokens: formatTokens(item.reusedTokens) })}`
+      : "";
   const roles = (Object.keys(ROLE_TITLES) as ContextRole[]).filter((role) =>
     item.entries.some((entry) => entry.role === role),
   );
@@ -204,11 +229,11 @@ function ContextView({ item }: { item: ContextItem }) {
       header={
         <>
           <Layers3 className="size-3.5 text-primary" />
-          <span className="font-medium">Onyx context</span>
+          <span className="font-medium">{t("Onyx context")}</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {item.entries.length > 0
-              ? `${item.entries.length} files · ${formatTokens(item.packTokens)} pack + ${formatTokens(item.mapTokens)} map${item.reusedTokens > 0 ? ` · ${formatTokens(item.reusedTokens)} already sent` : ""}`
-              : (item.note ?? `${formatTokens(item.mapTokens)} map`)}
+              ? `${filesSummary}${reusedSummary}`
+              : (item.note ?? t("{map} map", { map: sizes.map }))}
           </span>
           {savings !== null ? (
             <span
@@ -217,7 +242,7 @@ function ContextView({ item }: { item: ContextItem }) {
                 savings >= 0 ? "bg-success/15 text-success" : "bg-warning/15 text-warning",
               )}
             >
-              {formatSaving(savings)} vs full reads
+              {t("{saving} vs full reads", { saving: formatSaving(savings) })}
             </span>
           ) : null}
           {item.mcpEnabled ? (
@@ -231,10 +256,13 @@ function ContextView({ item }: { item: ContextItem }) {
       <div className="space-y-3 text-xs">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            ["Delivered", formatTokens(item.deliveredTokens)],
-            ["Full reads", item.baselineTokens > 0 ? formatTokens(item.baselineTokens) : "—"],
-            ["Context pack", formatTokens(item.packTokens)],
-            ["Project map", `${formatTokens(item.mapTokens)}${item.mapFrozen ? " · kept" : ""}`],
+            [t("Delivered"), formatTokens(item.deliveredTokens)],
+            [t("Full reads"), item.baselineTokens > 0 ? formatTokens(item.baselineTokens) : "—"],
+            [t("Context pack"), formatTokens(item.packTokens)],
+            [
+              t("Project map"),
+              `${formatTokens(item.mapTokens)}${item.mapFrozen ? ` · ${t("kept")}` : ""}`,
+            ],
           ].map(([label, value]) => (
             <div key={label} className="rounded-md bg-surface-0/70 px-2 py-1.5">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -243,20 +271,25 @@ function ContextView({ item }: { item: ContextItem }) {
           ))}
         </div>
         {item.note ? <p className="text-muted-foreground">{item.note}</p> : null}
-        {item.reusedTokens > 0 || item.mapFrozen ? (
+        {item.reusedTokens >= 1 || item.mapFrozen ? (
           <p className="text-muted-foreground" data-testid="context-reuse">
             {item.reusedTokens > 0
-              ? `${formatTokens(item.reusedTokens)} tokens of files this conversation already has were listed instead of sent again. `
+              ? `${t(
+                  "{tokens} tokens of files this conversation already has were listed instead of sent again.",
+                  { tokens: formatTokens(item.reusedTokens) },
+                )} `
               : ""}
             {item.mapFrozen
-              ? "The project map is the one this session started with, so Claude's prompt cache stays valid."
+              ? t(
+                  "The project map is the one this session started with, so Claude's prompt cache stays valid.",
+                )
               : ""}
           </p>
         ) : null}
         {roles.map((role) => (
           <div key={role} className="space-y-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {ROLE_TITLES[role]}
+              {t(ROLE_TITLES[role])}
             </p>
             <ul className="space-y-0.5">
               {item.entries
@@ -270,10 +303,10 @@ function ContextView({ item }: { item: ContextItem }) {
                         <span className="text-muted-foreground"> · {entry.symbols.join(", ")}</span>
                       ) : null}
                       {item.inferredTargets.includes(entry.relPath) ? (
-                        <span className="text-muted-foreground"> · from prompt</span>
+                        <span className="text-muted-foreground"> · {t("from prompt")}</span>
                       ) : null}
                       {entry.reused ? (
-                        <span className="text-muted-foreground"> · already sent</span>
+                        <span className="text-muted-foreground"> · {t("already sent")}</span>
                       ) : null}
                     </span>
                     <span className="font-mono text-muted-foreground">
@@ -338,6 +371,7 @@ function GuardEntry({
   entry: Extract<FeedEntry, { kind: "guard" }>;
   cwd: string | null;
 }) {
+  const t = useT();
   const { item } = entry;
   return (
     <div
@@ -347,7 +381,7 @@ function GuardEntry({
     >
       <ShieldX className="size-3.5 shrink-0 text-warning" />
       <span className="font-medium text-warning">
-        {item.source === "audit" ? "Undone" : "Blocked"}
+        {item.source === "audit" ? t("Undone") : t("Blocked")}
       </span>
       <span className="font-medium">{toolLabel(item.tool)}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
@@ -360,16 +394,17 @@ function GuardEntry({
       ) : null}
       <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
         {item.source === "hook"
-          ? "context guard"
+          ? t("context guard")
           : item.source === "audit"
-            ? "after the run"
-            : "permission rule"}
+            ? t("after the run")
+            : t("permission rule")}
       </span>
     </div>
   );
 }
 
 function RoutingEntry({ item }: { item: RoutingItem }) {
+  const t = useT();
   const tier = TIER_STYLES[item.tier];
   return (
     <div
@@ -378,16 +413,18 @@ function RoutingEntry({ item }: { item: RoutingItem }) {
     >
       <div className="flex flex-wrap items-center gap-2">
         <Route className={cn("size-3.5", tier.text)} />
-        <span className={cn("font-semibold", tier.text)}>{tier.label}</span>
+        <span className={cn("font-semibold", tier.text)}>{t(tier.label)}</span>
         <span className="font-medium">{modelLabel(item.modelId)}</span>
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-          {ROUTING_STRATEGY_LABELS[item.strategy]}
+          {t(ROUTING_STRATEGY_LABELS[item.strategy])}
           {item.ruleName ? ` · ${item.ruleName}` : ""}
         </span>
         {item.score !== null ? (
           <span className="font-mono text-[10px] text-muted-foreground">
-            score {item.score.toFixed(2)}
-            {item.confidence !== null ? ` · confidence ${formatPercent(item.confidence)}` : ""}
+            {t("score {score}", { score: item.score.toFixed(2) })}
+            {item.confidence !== null
+              ? ` · ${t("confidence {percent}", { percent: formatPercent(item.confidence) })}`
+              : ""}
           </span>
         ) : null}
       </div>
@@ -397,6 +434,7 @@ function RoutingEntry({ item }: { item: RoutingItem }) {
 }
 
 function RateLimitEntry({ item }: { item: RunItemOf<"rate_limit"> }) {
+  const t = useT();
   const tone =
     item.status === "rejected"
       ? "text-destructive"
@@ -404,10 +442,12 @@ function RateLimitEntry({ item }: { item: RunItemOf<"rate_limit"> }) {
         ? "text-warning"
         : "text-muted-foreground";
   const detail = [
-    quotaStatusLabel(item.status),
-    item.utilization === null ? null : `${formatPercent(item.utilization)} used`,
-    item.resetsAt ? `resets ${formatReset(item.resetsAt)}` : null,
-    item.usingOverage ? "using extra usage" : null,
+    quotaStatusLabel(item.status, t),
+    item.utilization === null
+      ? null
+      : t("{percent} used", { percent: formatPercent(item.utilization) }),
+    item.resetsAt ? t("resets {time}", { time: formatReset(item.resetsAt, t) }) : null,
+    item.usingOverage ? t("using extra usage") : null,
   ]
     .filter((part): part is string => part !== null)
     .join(" · ");
@@ -418,7 +458,9 @@ function RateLimitEntry({ item }: { item: RunItemOf<"rate_limit"> }) {
     >
       <Gauge className={cn("size-3.5", tone)} />
       <span className="font-medium">
-        Claude {quotaWindowLabel(item.limitType ?? "subscription").toLowerCase()}
+        {t("Claude {window}", {
+          window: quotaWindowLabel(item.limitType ?? "subscription", t).toLowerCase(),
+        })}
       </span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">{detail}</span>
     </div>
@@ -426,15 +468,19 @@ function RateLimitEntry({ item }: { item: RunItemOf<"rate_limit"> }) {
 }
 
 function SessionEntry({ item }: { item: SessionItem }) {
+  const t = useT();
   const title =
     item.action === "resumed"
-      ? `Resumed session ${shortId(item.sessionId)}`
-      : `New session ${shortId(item.sessionId)}`;
+      ? t("Resumed session {id}", { id: shortId(item.sessionId) })
+      : t("New session {id}", { id: shortId(item.sessionId) });
   const detail = [
     item.workspaceName,
-    item.reason ? END_REASON_LABELS[item.reason] : null,
+    item.reason ? t(END_REASON_LABELS[item.reason]) : null,
     item.action === "resumed"
-      ? `${formatTokens(item.contextTokens)} / ${formatTokens(item.maxSessionTokens)} context`
+      ? t("{used} / {max} context", {
+          used: formatTokens(item.contextTokens),
+          max: formatTokens(item.maxSessionTokens),
+        })
       : null,
   ]
     .filter((part): part is string => part !== null)
@@ -446,7 +492,7 @@ function SessionEntry({ item }: { item: SessionItem }) {
       <span className="min-w-0 flex-1 truncate text-muted-foreground">{detail}</span>
       {item.handoff ? (
         <span className="rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-semibold text-info">
-          handoff · {formatTokens(item.handoff.tokens)}
+          {t("handoff · {tokens}", { tokens: formatTokens(item.handoff.tokens) })}
         </span>
       ) : null}
     </>
@@ -473,23 +519,27 @@ function SessionEntry({ item }: { item: SessionItem }) {
 }
 
 export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | null }) {
+  const t = useT();
   switch (entry.kind) {
     case "prompt":
       return (
-        <Bubble icon={<User className="size-3.5" />} label="Operator" tone="operator">
+        <Bubble icon={<User className="size-3.5" />} label={t("Operator")} tone="operator">
           {entry.text}
         </Bubble>
       );
     case "init":
       return (
         <p className="text-center text-[11px] text-muted-foreground">
-          Claude session <span className="font-mono">{shortId(entry.sessionId)}</span> ·{" "}
-          {entry.model} · {entry.tools.length} tools
+          {t("Claude session")} <span className="font-mono">{shortId(entry.sessionId)}</span> ·{" "}
+          {entry.model} ·{" "}
+          {entry.tools.length === 1
+            ? t("1 tool")
+            : t("{count} tools", { count: entry.tools.length })}
         </p>
       );
     case "text":
       return (
-        <Bubble icon={<Sparkles className="size-3.5" />} label="Claude" nested={entry.nested}>
+        <Bubble icon={<Sparkles className="size-3.5" />} label={CLAUDE_LABEL} nested={entry.nested}>
           {entry.text}
         </Bubble>
       );
@@ -500,7 +550,7 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
           header={
             <>
               <Brain className="size-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Thinking</span>
+              <span className="text-muted-foreground">{t("Thinking")}</span>
             </>
           }
         >
@@ -513,7 +563,7 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
       return (
         <Bubble
           icon={<User className="size-3.5" />}
-          label="Input"
+          label={t("Input")}
           tone="muted"
           nested={entry.nested}
         >
@@ -568,7 +618,11 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
             >
               {entry.item.subtype}
             </span>
-            <span>{entry.item.numTurns ?? "?"} turns</span>
+            <span>
+              {entry.item.numTurns === 1
+                ? t("1 turn")
+                : t("{count} turns", { count: entry.item.numTurns ?? "?" })}
+            </span>
             <span>{formatDuration(entry.item.durationMs)}</span>
             <span>{formatUsd(entry.item.costUsd)}</span>
           </div>
@@ -590,7 +644,9 @@ export function FeedEntryView({ entry, cwd }: { entry: FeedEntry; cwd: string | 
       );
     case "system":
       return (
-        <p className="text-center text-[11px] text-muted-foreground">system · {entry.subtype}</p>
+        <p className="text-center text-[11px] text-muted-foreground">
+          {t("system")} · {entry.subtype}
+        </p>
       );
     case "context":
       return <ContextView item={entry.item} />;

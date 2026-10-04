@@ -11,11 +11,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 
 const BUDGETS = [400, 800, 1200, 2000];
 const EXPIRIES = [14, 30, 60, 90];
 
 export function MemoryCard({ initial }: { initial: MemorySettings }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [settings, setSettings] = useState(initial);
   const save = useMutation({
@@ -23,9 +25,9 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
     onSuccess: (next) => {
       queryClient.setQueryData(queryKeys.memorySettings, next);
       void queryClient.invalidateQueries({ queryKey: queryKeys.savings });
-      toast.success("Memory settings saved");
+      toast.success(t("Memory settings saved"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -38,11 +40,12 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Brain className="size-4 text-primary" />
-          Project memory
+          {t("Project memory")}
         </CardTitle>
         <CardDescription>
-          Facts collected from earlier runs enter the system prompt of each new session. Each
-          project has its own memory page, where you confirm, edit and forget facts.
+          {t(
+            "Facts collected from earlier runs enter the system prompt of each new session. Each project has its own memory page, where you confirm, edit and forget facts.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -55,11 +58,11 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
               onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })}
               data-testid="memory-enabled"
             />
-            Give new sessions the project memory
+            {t("Give new sessions the project memory")}
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-xs">
-              <span className="text-muted-foreground">Limit</span>
+              <span className="text-muted-foreground">{t("Limit")}</span>
               <Select
                 value={String(settings.budgetTokens)}
                 onChange={(event) =>
@@ -68,13 +71,13 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
               >
                 {BUDGETS.map((value) => (
                   <option key={value} value={value}>
-                    {value} tokens
+                    {t("{count} tokens", { count: value })}
                   </option>
                 ))}
               </Select>
             </label>
             <label className="space-y-1 text-xs">
-              <span className="text-muted-foreground">Forget facts not seen for</span>
+              <span className="text-muted-foreground">{t("Forget facts not seen for")}</span>
               <Select
                 value={String(settings.expiryDays)}
                 onChange={(event) =>
@@ -83,7 +86,7 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
               >
                 {EXPIRIES.map((value) => (
                   <option key={value} value={value}>
-                    {value} days
+                    {t("{count} days", { count: value })}
                   </option>
                 ))}
               </Select>
@@ -99,22 +102,22 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
               data-testid="memory-experiment"
             />
             <span>
-              Measure it: half of the new sessions start without memory
+              {t("Measure it: half of the new sessions start without memory")}
               <span className="block text-xs text-muted-foreground">
-                The result appears in{" "}
+                {t("The result appears in")}{" "}
                 <Link
                   href="/savings#memory-experiment"
                   className="text-primary underline underline-offset-2"
                 >
-                  Savings
+                  {t("Savings")}
                 </Link>{" "}
-                after 10 runs per group.
+                {t("after 10 runs per group.")}
               </span>
             </span>
           </label>
           <Button size="sm" variant="secondary" disabled={save.isPending}>
             {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-            Save
+            {t("Save")}
           </Button>
         </form>
       </CardContent>

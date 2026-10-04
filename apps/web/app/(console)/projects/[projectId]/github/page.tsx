@@ -8,14 +8,19 @@ import type {
   PullRequestListResponse,
   TaskListResponse,
 } from "@onyx/contracts";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ChangelogCard } from "@/components/github/changelog-card";
 import { IssuesCard } from "@/components/github/issues-card";
 import { PullRequestsCard } from "@/components/github/pull-requests-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 
-export const metadata = { title: "GitHub" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("GitHub") };
+}
 
 export default async function ProjectGitHubPage({
   params,
@@ -26,6 +31,7 @@ export default async function ProjectGitHubPage({
 }) {
   const { projectId } = await params;
   const { branch } = await searchParams;
+  const t = await getT();
   const [project, pulls, changelog, tasks, plans, git, issues] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<PullRequestListResponse>(`/api/projects/${projectId}/github/pulls`),
@@ -66,12 +72,12 @@ export default async function ProjectGitHubPage({
             ← {project.name}
           </Link>
         }
-        title="GitHub"
+        title={t("GitHub")}
         description={
           pulls.repo ? (
             <span className="font-mono text-xs">{pulls.repo}</span>
           ) : (
-            "Issues, pull requests and the changelog of the project."
+            t("Issues, pull requests and the changelog of the project.")
           )
         }
       />

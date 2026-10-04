@@ -7,40 +7,51 @@ import type {
   WorkspaceSource,
 } from "@onyx/contracts";
 import { DOMAIN_LABELS } from "./domains";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 export const KIND_LABELS: Record<TaskKind, string> = {
-  ARCHITECTURE: "Architecture",
-  FEATURE: "Feature",
-  REFACTOR: "Refactor",
-  BUGFIX: "Bug fix",
-  UI_STYLE: "UI / styling",
-  TEST_FIX: "Test fix",
-  DOCS: "Docs",
-  CHORE: "Chore",
+  ARCHITECTURE: msg("Architecture"),
+  FEATURE: msg("Feature"),
+  REFACTOR: msg("Refactor"),
+  BUGFIX: msg("Bug fix"),
+  UI_STYLE: msg("UI / styling"),
+  TEST_FIX: msg("Test fix"),
+  DOCS: msg("Docs"),
+  CHORE: msg("Chore"),
 };
 
 export const WORKSPACE_SOURCE_LABELS: Record<WorkspaceSource, string> = {
-  chosen: "chosen by you",
-  targets: "owns the target files",
-  prompt: "from the prompt",
-  default: "default workspace",
+  chosen: msg("chosen by you"),
+  targets: msg("owns the target files"),
+  prompt: msg("from the prompt"),
+  default: msg("default workspace"),
 };
 
 export function workspaceHint(
   name: string | null,
   source: WorkspaceSource | null | undefined,
+  t: Translate = english,
 ): string {
-  if (name === null) return "no workspace";
-  return source ? `${name} (${WORKSPACE_SOURCE_LABELS[source]})` : name;
+  if (name === null) return t("no workspace");
+  return source ? `${name} (${t(WORKSPACE_SOURCE_LABELS[source])})` : name;
 }
 
 export const WEIGHT_LABELS: Record<keyof RouterWeights, { label: string; hint: string }> = {
-  blastRadius: { label: "Blast radius", hint: "Files that import the targets, capped at 25" },
-  crossDomain: { label: "Cross-domain", hint: "Targets span more than one workspace" },
-  filesTouched: { label: "Files touched", hint: "Target files, capped at 10" },
-  archKeywords: { label: "Architecture keywords", hint: "Schema, migration, security… (2 max)" },
-  contextTokens: { label: "Context size", hint: "Tokens of the targets, capped at 60k" },
-  priorFailures: { label: "Prior failures", hint: "Failed runs of the same task, capped at 2" },
+  blastRadius: {
+    label: msg("Blast radius"),
+    hint: msg("Files that import the targets, capped at 25"),
+  },
+  crossDomain: { label: msg("Cross-domain"), hint: msg("Targets span more than one workspace") },
+  filesTouched: { label: msg("Files touched"), hint: msg("Target files, capped at 10") },
+  archKeywords: {
+    label: msg("Architecture keywords"),
+    hint: msg("Schema, migration, security… (2 max)"),
+  },
+  contextTokens: { label: msg("Context size"), hint: msg("Tokens of the targets, capped at 60k") },
+  priorFailures: {
+    label: msg("Prior failures"),
+    hint: msg("Failed runs of the same task, capped at 2"),
+  },
 };
 
 export const WEIGHT_KEYS = Object.keys(WEIGHT_LABELS) as Array<keyof RouterWeights>;
@@ -63,21 +74,28 @@ function list(values: readonly string[] | undefined): string | null {
   return values && values.length > 0 ? values.join(", ") : null;
 }
 
-export function describeMatcher(matcher: RuleMatcher): string {
+export function describeMatcher(matcher: RuleMatcher, t: Translate = english): string {
+  const keywords = matcher.keywordsAny ?? [];
   const parts = [
-    list(matcher.taskKinds?.map((kind) => KIND_LABELS[kind])),
-    list(matcher.workspaceDomains?.map((domain: Domain) => DOMAIN_LABELS[domain])),
+    list(matcher.taskKinds?.map((kind) => t(KIND_LABELS[kind]))),
+    list(matcher.workspaceDomains?.map((domain: Domain) => t(DOMAIN_LABELS[domain]))),
     matcher.pathGlobs && matcher.pathGlobs.length > 0
-      ? `paths ${matcher.pathGlobs.join(", ")}`
+      ? t("paths {paths}", { paths: matcher.pathGlobs.join(", ") })
       : null,
-    matcher.keywordsAny && matcher.keywordsAny.length > 0
-      ? `keywords ${matcher.keywordsAny.slice(0, 6).join(", ")}${matcher.keywordsAny.length > 6 ? "…" : ""}`
+    keywords.length > 0
+      ? t("keywords {keywords}", {
+          keywords: `${keywords.slice(0, 6).join(", ")}${keywords.length > 6 ? "…" : ""}`,
+        })
       : null,
-    matcher.maxFilesTouched !== undefined ? `≤ ${matcher.maxFilesTouched} files` : null,
-    matcher.maxBlastRadius !== undefined ? `blast ≤ ${matcher.maxBlastRadius}` : null,
-    matcher.styleOnly ? "style files only" : null,
+    matcher.maxFilesTouched !== undefined
+      ? t("≤ {count} files", { count: matcher.maxFilesTouched })
+      : null,
+    matcher.maxBlastRadius !== undefined
+      ? t("blast ≤ {count}", { count: matcher.maxBlastRadius })
+      : null,
+    matcher.styleOnly ? t("style files only") : null,
   ].filter((part): part is string => part !== null);
-  return parts.length > 0 ? parts.join(" · ") : "Every task";
+  return parts.length > 0 ? parts.join(" · ") : t("Every task");
 }
 
 export function splitList(text: string): string[] {

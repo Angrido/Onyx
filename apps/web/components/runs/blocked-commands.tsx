@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import { EXPIRY_OPTIONS, SCOPE_LABELS, defaultRules } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export function BlockedCommands({
   taskId: string;
   initial?: BlockedCommandsResponse | null;
 }) {
+  const t = useT();
   const router = useRouter();
   const pathname = usePathname();
   const queryClient = useQueryClient();
@@ -48,7 +50,7 @@ export function BlockedCommands({
       void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
       if (data) void queryClient.invalidateQueries({ queryKey: queryKeys.project(data.projectId) });
-      toast.success(rules.length > 0 ? "Allowed: the task continues" : "The task continues");
+      toast.success(rules.length > 0 ? t("Allowed: the task continues") : t("The task continues"));
       if (pathname !== `/tasks/${taskId}`) router.push(`/tasks/${taskId}`);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -70,20 +72,23 @@ export function BlockedCommands({
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" />
         <div className="space-y-1">
           <p className="text-sm font-medium">
-            The agent was not allowed to run {data.commands.length}{" "}
-            {data.commands.length === 1 ? "command" : "commands"}
+            {data.commands.length === 1
+              ? t("The agent was not allowed to run 1 command")
+              : t("The agent was not allowed to run {count} commands", {
+                  count: data.commands.length,
+                })}
           </p>
           <p className="text-xs text-muted-foreground">
-            Nobody can approve commands during a run, so Claude Code refused these. Allow the ones
-            you trust and the task continues in the same session; answer the agent below if it asked
-            something.
+            {t(
+              "Nobody can approve commands during a run, so Claude Code refused these. Allow the ones you trust and the task continues in the same session; answer the agent below if it asked something.",
+            )}
           </p>
         </div>
       </div>
       {data.suggestions.length > 0 ? (
         <fieldset className="space-y-2">
           <legend className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Commands to allow
+            {t("Commands to allow")}
           </legend>
           {data.suggestions.map((suggestion) => (
             <label
@@ -104,13 +109,15 @@ export function BlockedCommands({
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="font-mono">{suggestion.program} …</span>
                   {suggestion.allowed ? (
-                    <span className="text-[10px] uppercase tracking-wider">already allowed</span>
+                    <span className="text-[10px] uppercase tracking-wider">
+                      {t("already allowed")}
+                    </span>
                   ) : suggestion.safety === "REVIEW" ? (
                     <span className="inline-flex items-center gap-1 text-warning">
                       <TriangleAlert className="size-3" />
-                      {suggestion.reason ?? "check before allowing"}
+                      {suggestion.reason ?? t("check before allowing")}
                     </span>
-                  ) : suggestion.reason ? (
+                  ) : suggestion.reason !== null && suggestion.reason !== "" ? (
                     <span className="text-muted-foreground">{suggestion.reason}</span>
                   ) : null}
                 </span>
@@ -118,7 +125,7 @@ export function BlockedCommands({
                   className="block truncate font-mono text-[11px] text-muted-foreground"
                   title={suggestion.command}
                 >
-                  from: {suggestion.command}
+                  {t("from: {command}", { command: suggestion.command })}
                 </span>
               </span>
             </label>
@@ -135,7 +142,10 @@ export function BlockedCommands({
                   {entry.command}
                 </span>
                 <span className="text-muted-foreground">
-                  Never allowed: {entry.program} {entry.reason}.
+                  {t("Never allowed: {program} {reason}.", {
+                    program: entry.program,
+                    reason: entry.reason,
+                  })}
                 </span>
               </span>
             </li>
@@ -145,7 +155,7 @@ export function BlockedCommands({
       {data.suggestions.some((suggestion) => !suggestion.allowed) ? (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label className="space-y-1 text-xs">
-            <span className="text-muted-foreground">Allow for</span>
+            <span className="text-muted-foreground">{t("Allow for")}</span>
             <Select
               value={scope}
               onChange={(event) => setScope(event.target.value as GrantScope)}
@@ -154,16 +164,16 @@ export function BlockedCommands({
               {scopes.map((entry) => (
                 <option key={entry} value={entry}>
                   {entry === "AGENT" && data.agentName
-                    ? `Agent profile ${data.agentName}`
+                    ? t("Agent profile {name}", { name: data.agentName })
                     : entry === "TASK"
-                      ? `This task: ${data.taskTitle}`
-                      : SCOPE_LABELS[entry]}
+                      ? t("This task: {title}", { title: data.taskTitle })
+                      : t(SCOPE_LABELS[entry])}
                 </option>
               ))}
             </Select>
           </label>
           <label className="space-y-1 text-xs">
-            <span className="text-muted-foreground">For how long</span>
+            <span className="text-muted-foreground">{t("For how long")}</span>
             <Select
               value={expiry === null ? "" : String(expiry)}
               onChange={(event) =>
@@ -173,7 +183,7 @@ export function BlockedCommands({
             >
               {EXPIRY_OPTIONS.map((option) => (
                 <option key={option.label} value={option.hours === null ? "" : option.hours}>
-                  {option.label}
+                  {t(option.label)}
                 </option>
               ))}
             </Select>
@@ -181,8 +191,10 @@ export function BlockedCommands({
         </div>
       ) : null}
       <Textarea
-        aria-label="Reply to the agent"
-        placeholder="Reply to the agent (optional), e.g. Yes, install Playwright. Only the invitation screens."
+        aria-label={t("Reply to the agent")}
+        placeholder={t(
+          "Reply to the agent (optional), e.g. Yes, install Playwright. Only the invitation screens.",
+        )}
         className="min-h-16 text-xs"
         value={reply}
         onChange={(event) => setReply(event.target.value)}
@@ -195,7 +207,7 @@ export function BlockedCommands({
           data-testid="allow-and-continue"
         >
           {allow.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-          {rules.length > 0 ? "Allow and continue" : "Continue"}
+          {rules.length > 0 ? t("Allow and continue") : t("Continue")}
         </Button>
       </div>
     </div>

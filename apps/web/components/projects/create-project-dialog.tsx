@@ -25,13 +25,15 @@ import { Field, Input } from "@/components/ui/form-controls";
 import { GitHubMark } from "@/components/ui/github-mark";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
+import { msg } from "@/lib/i18n/core";
 import { cn } from "@/lib/utils";
 
 export type ProjectSource = "github" | "local";
 
 const SOURCES: Array<{ id: ProjectSource; label: string }> = [
-  { id: "github", label: "From GitHub" },
-  { id: "local", label: "Local folder" },
+  { id: "github", label: msg("From GitHub") },
+  { id: "local", label: msg("Local folder") },
 ];
 
 function LocalFolderForm({
@@ -43,6 +45,7 @@ function LocalFolderForm({
   defaults: boolean;
   onCreated: () => void;
 }) {
+  const t = useT();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
@@ -80,7 +83,7 @@ function LocalFolderForm({
       }),
     onSuccess: (project) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-      toast.success(`Project ${project.name} registered`);
+      toast.success(t("Project {name} registered", { name: project.name }));
       onCreated();
       router.push(`/projects/${project.id}`);
     },
@@ -94,7 +97,7 @@ function LocalFolderForm({
 
   return (
     <form className="space-y-4" onSubmit={submit}>
-      <Field label="Name" htmlFor="project-name">
+      <Field label={t("Name")} htmlFor="project-name">
         <Input
           id="project-name"
           value={name}
@@ -103,9 +106,11 @@ function LocalFolderForm({
         />
       </Field>
       <Field
-        label="Root path"
+        label={t("Root path")}
         htmlFor="project-root"
-        hint="Absolute path of a repository already on this server, e.g. /srv/onyx/projects/my-app"
+        hint={t(
+          "Absolute path of a repository already on this server, e.g. /srv/onyx/projects/my-app",
+        )}
       >
         <Input
           id="project-root"
@@ -127,7 +132,7 @@ function LocalFolderForm({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 font-medium">
               <Layers3 className="size-3.5 text-primary" />
-              Workspaces from the folder structure
+              {t("Workspaces from the folder structure")}
             </p>
             <Button
               type="button"
@@ -137,16 +142,17 @@ function LocalFolderForm({
               onClick={() => preview.mutate()}
             >
               {preview.isPending ? <Loader2 className="animate-spin" /> : null}
-              {proposal === null ? "Preview" : "Refresh"}
+              {proposal === null ? t("Preview") : t("Refresh")}
             </Button>
           </div>
           {proposal === null ? (
             <p className="text-muted-foreground">
-              Onyx looks at the folders (apps, packages, src, prisma, deploy…) and proposes one
-              workspace per area it recognises. Preview them to choose.
+              {t(
+                "Onyx looks at the folders (apps, packages, src, prisma, deploy…) and proposes one workspace per area it recognises. Preview them to choose.",
+              )}
             </p>
           ) : proposal.length === 0 ? (
-            <p className="text-muted-foreground">No workspace proposed for this folder.</p>
+            <p className="text-muted-foreground">{t("No workspace proposed for this folder.")}</p>
           ) : (
             <ul className="space-y-1" data-testid="workspace-proposal">
               {proposal.map((workspace) => (
@@ -177,7 +183,7 @@ function LocalFolderForm({
       <DialogFooter>
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-          Register
+          {t("Register")}
         </Button>
       </DialogFooter>
     </form>
@@ -193,6 +199,7 @@ export function CreateProjectDialog({
   defaultOpen?: boolean;
   defaultSource?: ProjectSource;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(defaultOpen);
   const [source, setSource] = useState<ProjectSource>(defaultSource);
   const [defaults, setDefaults] = useState(true);
@@ -203,21 +210,22 @@ export function CreateProjectDialog({
       <DialogTrigger asChild>
         <Button>
           <Plus />
-          New project
+          {t("New project")}
         </Button>
       </DialogTrigger>
       <DialogContent className="w-[min(94vw,44rem)]">
         <DialogHeader>
-          <DialogTitle>Add a project</DialogTitle>
+          <DialogTitle>{t("Add a project")}</DialogTitle>
           <DialogDescription>
-            Clone one of your GitHub repositories onto this server, or register a folder that is
-            already here. Agents run with the project folder as their working directory.
+            {t(
+              "Clone one of your GitHub repositories onto this server, or register a folder that is already here. Agents run with the project folder as their working directory.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div
             role="tablist"
-            aria-label="Project source"
+            aria-label={t("Project source")}
             className="inline-flex rounded-lg border border-border bg-surface-0/60 p-1"
           >
             {SOURCES.map((entry) => (
@@ -239,7 +247,7 @@ export function CreateProjectDialog({
                 ) : (
                   <FolderOpen className="size-4" />
                 )}
-                {entry.label}
+                {t(entry.label)}
               </button>
             ))}
           </div>
@@ -259,7 +267,9 @@ export function CreateProjectDialog({
               checked={defaults}
               onChange={(event) => setDefaults(event.target.checked)}
             />
-            Create workspaces for the areas of the project (frontend, backend, database, infra…)
+            {t(
+              "Create workspaces for the areas of the project (frontend, backend, database, infra…)",
+            )}
           </label>
         </div>
       </DialogContent>

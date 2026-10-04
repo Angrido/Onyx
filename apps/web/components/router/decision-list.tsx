@@ -10,18 +10,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
+import type { Translate } from "@/lib/i18n/core";
 import { topComponents, WEIGHT_LABELS } from "@/lib/router";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 
-function signals(decision: RoutingDecisionDto): string | null {
+function signals(decision: RoutingDecisionDto, t: Translate): string | null {
   if (!decision.components) return null;
   const top = topComponents(decision.components);
   return top.length > 0
-    ? top.map((entry) => `${WEIGHT_LABELS[entry.key].label} ${entry.value.toFixed(2)}`).join(" · ")
+    ? top
+        .map((entry) => `${t(WEIGHT_LABELS[entry.key].label)} ${entry.value.toFixed(2)}`)
+        .join(" · ")
     : null;
 }
 
 export function DecisionList({ initial }: { initial: RoutingDecisionDto[] }) {
+  const t = useT();
   const decisions = useQuery({
     queryKey: queryKeys.routingDecisions,
     queryFn: () => api.get<RoutingDecisionListResponse>("/api/routing-decisions?limit=30"),
@@ -35,17 +40,17 @@ export function DecisionList({ initial }: { initial: RoutingDecisionDto[] }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <History className="size-4 text-primary" />
-          Recent decisions
+          {t("Recent decisions")}
         </CardTitle>
-        <CardDescription>One per run, with the rationale stored next to it.</CardDescription>
+        <CardDescription>{t("One per run, with the rationale stored next to it.")}</CardDescription>
       </CardHeader>
       <CardContent>
         {decisions.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No routed runs yet.</p>
+          <p className="text-sm text-muted-foreground">{t("No routed runs yet.")}</p>
         ) : (
           <ul className="divide-y divide-border" data-testid="routing-decisions">
             {decisions.data.map((decision) => {
-              const detail = signals(decision);
+              const detail = signals(decision, t);
               return (
                 <li
                   key={decision.id ?? `${decision.taskId}-${decision.createdAt}`}
@@ -57,13 +62,13 @@ export function DecisionList({ initial }: { initial: RoutingDecisionDto[] }) {
                         href={`/tasks/${decision.taskId}`}
                         className="min-w-0 max-w-full truncate font-medium hover:text-primary"
                       >
-                        {decision.taskTitle ?? "Task"}
+                        {decision.taskTitle ?? t("Task")}
                       </Link>
                     ) : null}
                     <TierBadge tier={decision.tier} />
                     <ModelBadge modelId={decision.modelId} />
                     <Badge>
-                      {ROUTING_STRATEGY_LABELS[decision.strategy]}
+                      {t(ROUTING_STRATEGY_LABELS[decision.strategy])}
                       {decision.ruleName ? ` · ${decision.ruleName}` : ""}
                     </Badge>
                     {decision.score !== null ? (

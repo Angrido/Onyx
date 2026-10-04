@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { useQuota } from "@/lib/live";
 import { QUOTA_LEVEL_STYLES, formatReset, quotaStatusLabel, quotaWindowLabel } from "@/lib/quota";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ function barTone(utilization: number | null, status: string, settings: QuotaSett
 }
 
 function SettingsForm({ quota }: { quota: QuotaDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [warnAt, setWarnAt] = useState(String(Math.round(quota.settings.warnAt * 100)));
   const [holdAt, setHoldAt] = useState(String(Math.round(quota.settings.holdAt * 100)));
@@ -40,7 +42,7 @@ function SettingsForm({ quota }: { quota: QuotaDto }) {
     mutationFn: (settings: QuotaSettings) => api.put<QuotaDto>("/api/quota/settings", settings),
     onSuccess: (next) => {
       queryClient.setQueryData(queryKeys.quota, next);
-      toast.success("Limit settings saved");
+      toast.success(t("Limit settings saved"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -54,7 +56,7 @@ function SettingsForm({ quota }: { quota: QuotaDto }) {
     <form className="space-y-3 border-t border-border pt-4" onSubmit={submit}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-xs">
-          <span className="text-muted-foreground">Warn from (% used)</span>
+          <span className="text-muted-foreground">{t("Warn from (% used)")}</span>
           <Input
             type="number"
             min={50}
@@ -66,7 +68,9 @@ function SettingsForm({ quota }: { quota: QuotaDto }) {
           />
         </label>
         <label className="space-y-1 text-xs">
-          <span className="text-muted-foreground">Hold tasks that can wait from (% used)</span>
+          <span className="text-muted-foreground">
+            {t("Hold tasks that can wait from (% used)")}
+          </span>
           <Input
             type="number"
             min={50}
@@ -85,17 +89,18 @@ function SettingsForm({ quota }: { quota: QuotaDto }) {
           checked={deferEnabled}
           onChange={(event) => setDeferEnabled(event.target.checked)}
         />
-        Hold tasks marked “can wait” near the limit
+        {t("Hold tasks marked “can wait” near the limit")}
       </label>
       <Button size="sm" variant="secondary" disabled={save.isPending}>
         {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-        Save
+        {t("Save")}
       </Button>
     </form>
   );
 }
 
 export function QuotaCard({ initial }: { initial: QuotaDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: quota = initial } = useQuota(initial);
   const style = QUOTA_LEVEL_STYLES[quota.level];
@@ -111,21 +116,23 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Gauge className="size-4 text-primary" />
-          Claude subscription limits
+          {t("Claude subscription limits")}
           <Badge tone={style.tone} data-testid="quota-level">
-            {style.label}
+            {t(style.label)}
           </Badge>
         </CardTitle>
         <CardDescription>
-          Claude Code reports how much of the subscription windows is used while runs are going.
-          Near the limit Onyx holds the tasks marked “can wait” and starts them again when the
-          window resets.
+          {t(
+            "Claude Code reports how much of the subscription windows is used while runs are going. Near the limit Onyx holds the tasks marked “can wait” and starts them again when the window resets.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm" data-testid="quota-message">
           {quota.message}
-          {quota.nextResetAt ? ` Resets ${formatReset(quota.nextResetAt)}.` : ""}
+          {quota.nextResetAt
+            ? ` ${t("Resets {time}.", { time: t(formatReset(quota.nextResetAt)) })}`
+            : ""}
         </p>
         {quota.windows.length > 0 ? (
           <ul className="space-y-3">
@@ -133,18 +140,26 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
               <li key={window.type} className={cn("space-y-1.5", window.stale && "opacity-60")}>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
                   <span className="font-medium text-foreground">
-                    {quotaWindowLabel(window.type)}
+                    {t(quotaWindowLabel(window.type))}
                   </span>
                   <span className="text-muted-foreground">
                     {window.stale
-                      ? "reset since the last report"
-                      : `${quotaStatusLabel(window.status)}${window.utilization === null ? "" : ` · ${formatPercent(window.utilization)} used`} · resets ${formatReset(window.resetsAt)}`}
+                      ? t("reset since the last report")
+                      : [
+                          t(quotaStatusLabel(window.status)),
+                          ...(window.utilization === null
+                            ? []
+                            : [
+                                t("{percent} used", { percent: formatPercent(window.utilization) }),
+                              ]),
+                          t("resets {time}", { time: t(formatReset(window.resetsAt)) }),
+                        ].join(" · ")}
                   </span>
                 </div>
                 <div
                   className="h-1.5 overflow-hidden rounded-full bg-surface-3"
                   role="meter"
-                  aria-label={`${quotaWindowLabel(window.type)} used`}
+                  aria-label={t("{window} used", { window: t(quotaWindowLabel(window.type)) })}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round((window.utilization ?? 0) * 100)}
@@ -167,8 +182,14 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/8 p-3 text-xs">
             <span className="min-w-0 flex-1">
               {quota.level === "LIMITED"
-                ? "All queued runs wait. Resume if the limit has already reset or you switched account."
-                : `${quota.deferredTasks} ${quota.deferredTasks === 1 ? "task waits" : "tasks wait"} for the window to reset.`}
+                ? t(
+                    "All queued runs wait. Resume if the limit has already reset or you switched account.",
+                  )
+                : quota.deferredTasks === 1
+                  ? t("1 task waits for the window to reset.")
+                  : t("{count} tasks wait for the window to reset.", {
+                      count: quota.deferredTasks,
+                    })}
             </span>
             <Button
               size="sm"
@@ -177,7 +198,7 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
               onClick={() => resume.mutate()}
             >
               {resume.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-              Resume now
+              {t("Resume now")}
             </Button>
           </div>
         ) : null}

@@ -6,6 +6,7 @@ import { GraphExplorer } from "@/components/graph/graph-explorer";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState, Skeleton } from "@/components/ui/skeleton";
 import { serverFetch } from "@/lib/api/server";
+import { getT } from "@/lib/i18n/server";
 
 export default async function ProjectGraphPage({
   params,
@@ -13,6 +14,7 @@ export default async function ProjectGraphPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
+  const t = await getT();
   const [project, index] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<IndexStatusDto>(`/api/projects/${projectId}/index`),
@@ -26,8 +28,10 @@ export default async function ProjectGraphPage({
             ← {project.name}
           </Link>
         }
-        title="Dependency graph"
-        description="Import graph built by Graphify from tree-sitter. Agents receive the same neighbourhood as skeletons in their context pack."
+        title={t("Dependency graph")}
+        description={t(
+          "Import graph built by Graphify from tree-sitter. Agents receive the same neighbourhood as skeletons in their context pack.",
+        )}
       />
       {index.indexedAt ? (
         <Suspense fallback={<Skeleton className="h-[62vh]" />}>
@@ -36,8 +40,8 @@ export default async function ProjectGraphPage({
       ) : (
         <EmptyState
           icon={<Network className="size-5" />}
-          title="Not indexed yet"
-          description="Index the project from its page to build the graph."
+          title={t("Not indexed yet")}
+          description={t("Index the project from its page to build the graph.")}
         />
       )}
     </>

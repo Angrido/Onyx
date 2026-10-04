@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
+import { useT } from "@/lib/i18n/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatTokens } from "@/lib/format";
 import {
@@ -61,6 +62,7 @@ function FactRow({
   onRemove: () => void;
   actions?: ReactNode;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(fact.line);
 
@@ -74,35 +76,35 @@ function FactRow({
   return (
     <li className="space-y-1.5 py-3" data-testid="memory-fact">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={FACT_KIND_TONES[fact.kind]}>{FACT_KIND_LABELS[fact.kind]}</Badge>
+        <Badge tone={FACT_KIND_TONES[fact.kind]}>{t(FACT_KIND_LABELS[fact.kind])}</Badge>
         {fact.status === "ACTIVE" ? (
           fact.included ? (
-            <Badge tone="success">in memory</Badge>
+            <Badge tone="success">{t("in memory")}</Badge>
           ) : (
-            <Badge>over the limit</Badge>
+            <Badge>{t("over the limit")}</Badge>
           )
         ) : null}
-        {fact.pinned ? <Badge tone="primary">pinned</Badge> : null}
-        {fact.text && fact.kind !== "NOTE" ? <Badge>edited</Badge> : null}
+        {fact.pinned ? <Badge tone="primary">{t("pinned")}</Badge> : null}
+        {fact.text && fact.kind !== "NOTE" ? <Badge>{t("edited")}</Badge> : null}
       </div>
       {editing ? (
         <form className="flex items-center gap-2" onSubmit={save}>
           <Input
-            aria-label="Fact text"
+            aria-label={t("Fact text")}
             value={draft}
             maxLength={300}
             onChange={(event) => setDraft(event.target.value)}
             className="h-9 flex-1"
             autoFocus
           />
-          <Button size="icon" type="submit" aria-label="Save the fact" className="size-9">
+          <Button size="icon" type="submit" aria-label={t("Save the fact")} className="size-9">
             <Check />
           </Button>
           <Button
             size="icon"
             type="button"
             variant="ghost"
-            aria-label="Cancel editing"
+            aria-label={t("Cancel editing")}
             className="size-9"
             onClick={() => setEditing(false)}
           >
@@ -121,13 +123,15 @@ function FactRow({
               href={`/runs/${fact.sourceRunId}`}
               className="hover:text-foreground hover:underline"
             >
-              {factSource(fact)}
+              {factSource(fact, t)}
             </Link>
           ) : (
-            factSource(fact)
+            factSource(fact, t)
           )}
           {fact.expiresAt
-            ? ` · forgotten after ${fact.expiresAt.slice(0, 10)} unless seen again`
+            ? t(" · forgotten after {date} unless seen again", {
+                date: fact.expiresAt.slice(0, 10),
+              })
             : ""}
         </p>
         <div className="flex items-center gap-1">
@@ -139,8 +143,8 @@ function FactRow({
                 variant="ghost"
                 className="size-8"
                 disabled={busy}
-                aria-label={fact.pinned ? "Unpin the fact" : "Pin the fact"}
-                title={fact.pinned ? "Unpin" : "Pin: always first, never forgotten"}
+                aria-label={fact.pinned ? t("Unpin the fact") : t("Pin the fact")}
+                title={fact.pinned ? t("Unpin") : t("Pin: always first, never forgotten")}
                 onClick={() => onUpdate({ pinned: !fact.pinned })}
               >
                 {fact.pinned ? <PinOff /> : <Pin />}
@@ -150,7 +154,7 @@ function FactRow({
                 variant="ghost"
                 className="size-8"
                 disabled={busy}
-                aria-label="Edit the fact"
+                aria-label={t("Edit the fact")}
                 onClick={() => {
                   setDraft(fact.line);
                   setEditing(true);
@@ -166,8 +170,8 @@ function FactRow({
               variant="ghost"
               className="size-8"
               disabled={busy}
-              aria-label={fact.kind === "NOTE" ? "Delete the note" : "Forget the fact"}
-              title={fact.kind === "NOTE" ? "Delete" : "Forget: it will not come back"}
+              aria-label={fact.kind === "NOTE" ? t("Delete the note") : t("Forget the fact")}
+              title={fact.kind === "NOTE" ? t("Delete") : t("Forget: it will not come back")}
               onClick={onRemove}
             >
               <Trash2 />
@@ -180,6 +184,7 @@ function FactRow({
 }
 
 export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const key = queryKeys.memory(initial.projectId);
   const { data: memory = initial } = useQuery({
@@ -231,16 +236,16 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
             <Brain className="size-4 text-primary" />
-            What new sessions start with
-            {!memory.settings.enabled ? <Badge tone="warning">off</Badge> : null}
+            {t("What new sessions start with")}
+            {!memory.settings.enabled ? <Badge tone="warning">{t("off")}</Badge> : null}
           </CardTitle>
           <CardDescription>
-            Onyx collects facts from the runs of this project (commands that work, files read in
-            many tasks, test commands that went green, failures that repeat) and adds the active
-            ones to the system prompt of each new session, up to {memory.settings.budgetTokens}{" "}
-            tokens. A session keeps the memory it started with, so resumes stay cached.{" "}
+            {t(
+              "Onyx collects facts from the runs of this project (commands that work, files read in many tasks, test commands that went green, failures that repeat) and adds the active ones to the system prompt of each new session, up to {count} tokens. A session keeps the memory it started with, so resumes stay cached.",
+              { count: memory.settings.budgetTokens },
+            )}{" "}
             <Link href="/settings#memory" className="text-primary hover:underline">
-              Settings
+              {t("Settings")}
             </Link>
           </CardDescription>
         </CardHeader>
@@ -249,14 +254,29 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
             <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
               <span className="text-muted-foreground" data-testid="memory-usage">
                 {memory.preview
-                  ? `${memory.preview.included} ${memory.preview.included === 1 ? "fact" : "facts"} · ${formatTokens(memory.preview.tokens)} of ${formatTokens(memory.settings.budgetTokens)} tokens${memory.preview.omitted > 0 ? ` · ${memory.preview.omitted} left out by the limit` : ""}`
-                  : "Nothing yet: facts appear after the first runs."}
+                  ? [
+                      memory.preview.included === 1
+                        ? t("1 fact")
+                        : t("{count} facts", { count: memory.preview.included }),
+                      t("{used} of {budget} tokens", {
+                        used: formatTokens(memory.preview.tokens),
+                        budget: formatTokens(memory.settings.budgetTokens),
+                      }),
+                      ...(memory.preview.omitted > 0
+                        ? [
+                            t("{count} left out by the limit", {
+                              count: memory.preview.omitted,
+                            }),
+                          ]
+                        : []),
+                    ].join(" · ")
+                  : t("Nothing yet: facts appear after the first runs.")}
               </span>
             </div>
             <div
               className="h-1.5 overflow-hidden rounded-full bg-surface-3"
               role="meter"
-              aria-label="Memory size against its limit"
+              aria-label={t("Memory size against its limit")}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(share * 100)}
@@ -269,7 +289,7 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
           </div>
           {memory.preview ? (
             <details className="rounded-lg border border-border bg-surface-0/60 p-3">
-              <summary className="cursor-pointer text-xs font-medium">Show the text</summary>
+              <summary className="cursor-pointer text-xs font-medium">{t("Show the text")}</summary>
               <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] text-muted-foreground">
                 {memory.preview.text}
               </pre>
@@ -283,8 +303,8 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
             }}
           >
             <Input
-              aria-label="Add a note to the memory"
-              placeholder="Add a note, e.g. Prices are stored in cents"
+              aria-label={t("Add a note to the memory")}
+              placeholder={t("Add a note, e.g. Prices are stored in cents")}
               value={note}
               maxLength={300}
               onChange={(event) => setNote(event.target.value)}
@@ -293,7 +313,7 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
             />
             <Button size="sm" disabled={add.isPending || note.trim().length < 3}>
               {add.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-              Add note
+              {t("Add note")}
             </Button>
           </form>
         </CardContent>
@@ -302,10 +322,11 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
       {groups.suggested.length > 0 ? (
         <Card data-testid="memory-suggested">
           <CardHeader>
-            <CardTitle>To confirm</CardTitle>
+            <CardTitle>{t("To confirm")}</CardTitle>
             <CardDescription>
-              Failures seen in more than one run. They enter the memory only if you confirm them,
-              because the text comes from command output.
+              {t(
+                "Failures seen in more than one run. They enter the memory only if you confirm them, because the text comes from command output.",
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -320,7 +341,7 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
                     onClick={() => update.mutate({ id: fact.id, input: { status: "ACTIVE" } })}
                   >
                     <Check />
-                    Confirm
+                    {t("Confirm")}
                   </Button>,
                 ),
               )}
@@ -331,9 +352,11 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
 
       <Card data-testid="memory-active">
         <CardHeader>
-          <CardTitle>Remembered</CardTitle>
+          <CardTitle>{t("Remembered")}</CardTitle>
           <CardDescription>
-            Facts not seen again for {memory.settings.expiryDays} days are forgotten, unless pinned.
+            {t("Facts not seen again for {count} days are forgotten, unless pinned.", {
+              count: memory.settings.expiryDays,
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -341,8 +364,9 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
             <ul className="divide-y divide-border">{groups.active.map((fact) => row(fact))}</ul>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Nothing remembered yet. Run a few tasks: commands that work show up after the first
-              run, key files after three.
+              {t(
+                "Nothing remembered yet. Run a few tasks: commands that work show up after the first run, key files after three.",
+              )}
             </p>
           )}
         </CardContent>
@@ -351,7 +375,7 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
       {groups.dismissed.length > 0 ? (
         <details className="rounded-xl border border-border p-4" data-testid="memory-dismissed">
           <summary className="cursor-pointer text-sm font-medium">
-            Forgotten ({groups.dismissed.length})
+            {t("Forgotten ({count})", { count: groups.dismissed.length })}
           </summary>
           <ul className="mt-2 divide-y divide-border">
             {groups.dismissed.map((fact) =>
@@ -364,7 +388,7 @@ export function MemoryPanel({ initial }: { initial: ProjectMemoryDto }) {
                   onClick={() => update.mutate({ id: fact.id, input: { status: "ACTIVE" } })}
                 >
                   <RotateCcw />
-                  Restore
+                  {t("Restore")}
                 </Button>,
               ),
             )}

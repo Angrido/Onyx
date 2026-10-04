@@ -11,6 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, Input, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
+
+const BRANCH_EXAMPLE = "onyx/fix-login";
 
 function DraftForm({
   projectId,
@@ -21,6 +24,7 @@ function DraftForm({
   draft: PullRequestDraftDto;
   onOpened: (pull: PullRequestDto) => void;
 }) {
+  const t = useT();
   const [title, setTitle] = useState(draft.title);
   const [body, setBody] = useState(draft.body);
   const [asDraft, setAsDraft] = useState(false);
@@ -33,7 +37,7 @@ function DraftForm({
         draft: asDraft,
       }),
     onSuccess: (pull) => {
-      toast.success(`Pull request #${pull.number} is open`);
+      toast.success(t("Pull request #{number} is open", { number: pull.number }));
       onOpened(pull);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -48,10 +52,23 @@ function DraftForm({
     <form className="space-y-3" onSubmit={submit} data-testid="pull-draft">
       <p className="text-xs text-muted-foreground">
         {draft.tasks.length > 0
-          ? `From ${draft.tasks.length} ${draft.tasks.length === 1 ? "task" : "tasks"} published on ${draft.branch}, into ${draft.baseBranch}. The description is built from the tasks, the diff and the test loops, without a model.`
-          : `No completed task was published on ${draft.branch}: the description lists the diff only.`}
+          ? `${
+              draft.tasks.length === 1
+                ? t("From 1 task published on {branch}, into {base}.", {
+                    branch: draft.branch,
+                    base: draft.baseBranch,
+                  })
+                : t("From {count} tasks published on {branch}, into {base}.", {
+                    count: draft.tasks.length,
+                    branch: draft.branch,
+                    base: draft.baseBranch,
+                  })
+            } ${t("The description is built from the tasks, the diff and the test loops, without a model.")}`
+          : t("No completed task was published on {branch}: the description lists the diff only.", {
+              branch: draft.branch,
+            })}
       </p>
-      <Field label="Title" htmlFor="pull-title">
+      <Field label={t("Title")} htmlFor="pull-title">
         <Input
           id="pull-title"
           value={title}
@@ -59,7 +76,7 @@ function DraftForm({
           onChange={(event) => setTitle(event.target.value)}
         />
       </Field>
-      <Field label="Description" htmlFor="pull-body">
+      <Field label={t("Description")} htmlFor="pull-body">
         <Textarea
           id="pull-body"
           className="min-h-56 font-mono text-xs"
@@ -74,7 +91,7 @@ function DraftForm({
           checked={asDraft}
           onChange={(event) => setAsDraft(event.target.checked)}
         />
-        Open as draft
+        {t("Open as draft")}
       </label>
       {draft.reason ? (
         <p className="text-sm text-warning" role="status">
@@ -87,7 +104,7 @@ function DraftForm({
         data-testid="pull-open"
       >
         {open.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-        Push and open the pull request
+        {t("Push and open the pull request")}
       </Button>
     </form>
   );
@@ -106,6 +123,7 @@ export function PullRequestsCard({
   initialBranch: string;
   initialDraft: PullRequestDraftDto | null;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [branch, setBranch] = useState(initialBranch);
   const [chosen, setChosen] = useState(initialBranch);
@@ -134,16 +152,19 @@ export function PullRequestsCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <GitPullRequest className="size-4 text-primary" />
-          Pull requests
+          {t("Pull requests")}
         </CardTitle>
         <CardDescription>
-          Onyx checks the open pull requests every minute while checks run, then less often, and
-          stops when they are merged or closed.
+          {t(
+            "Onyx checks the open pull requests every minute while checks run, then less often, and stops when they are merged or closed.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {pulls.data.items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No pull request opened from Onyx yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("No pull request opened from Onyx yet.")}
+          </p>
         ) : (
           <ul className="space-y-4">
             {pulls.data.items.map((pull) => (
@@ -155,18 +176,18 @@ export function PullRequestsCard({
         )}
         {pulls.data.repo ? (
           <div className="space-y-3 border-t border-border pt-5">
-            <h3 className="text-sm font-semibold">New pull request</h3>
+            <h3 className="text-sm font-semibold">{t("New pull request")}</h3>
             <Field
-              label="Branch"
+              label={t("Branch")}
               htmlFor="pull-branch"
-              hint="A branch published from the project page or by a plan."
+              hint={t("A branch published from the project page or by a plan.")}
             >
               <Input
                 id="pull-branch"
                 list="pull-branches"
                 value={branch}
                 onChange={(event) => setBranch(event.target.value)}
-                placeholder="onyx/fix-login"
+                placeholder={BRANCH_EXAMPLE}
               />
             </Field>
             <datalist id="pull-branches">
@@ -177,7 +198,7 @@ export function PullRequestsCard({
             {draft.isFetching && !draft.data ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
-                Preparing the description…
+                {t("Preparing the description…")}
               </p>
             ) : draft.isError ? (
               <p className="text-sm text-destructive">{errorMessage(draft.error)}</p>
@@ -195,7 +216,7 @@ export function PullRequestsCard({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            The project has no GitHub remote, so pull requests cannot be opened from Onyx.
+            {t("The project has no GitHub remote, so pull requests cannot be opened from Onyx.")}
           </p>
         )}
       </CardContent>

@@ -45,6 +45,7 @@ import {
   type Move,
 } from "@/lib/board";
 import { formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { KIND_LABELS } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
@@ -52,6 +53,7 @@ import { useChannel } from "@/lib/ws/context";
 const DRAG_TYPE = "application/x-onyx-card";
 
 function GenerationBanner({ generation }: { generation: RoadmapGenerationDto }) {
+  const t = useT();
   if (generation.status === "RUNNING") {
     return (
       <div
@@ -59,11 +61,14 @@ function GenerationBanner({ generation }: { generation: RoadmapGenerationDto }) 
         data-testid="roadmap-running"
       >
         <Loader2 className="size-4 animate-spin text-primary" />
-        <span className="font-medium">Claude is studying the project</span>
+        <span className="font-medium">{t("Claude is studying the project")}</span>
         {generation.activity ? (
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-            {generation.activity.turns} turns · {generation.activity.toolCalls} tool calls ·{" "}
-            {generation.activity.lastAction ?? "thinking"}
+            {t("{turns} turns · {calls} tool calls", {
+              turns: generation.activity.turns,
+              calls: generation.activity.toolCalls,
+            })}{" "}
+            · {generation.activity.lastAction ?? t("thinking")}
           </span>
         ) : null}
       </div>
@@ -74,12 +79,16 @@ function GenerationBanner({ generation }: { generation: RoadmapGenerationDto }) 
       <div className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/8 px-4 py-3 text-sm">
         <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
         <div>
-          <p className="font-medium text-destructive">The roadmap could not be generated</p>
+          <p className="font-medium text-destructive">{t("The roadmap could not be generated")}</p>
           <p className="text-xs text-muted-foreground">{generation.error}</p>
         </div>
       </div>
     );
   }
+  const suggestions =
+    generation.itemCount === 1
+      ? t("1 suggestion")
+      : t("{count} suggestions", { count: generation.itemCount });
   return (
     <div
       className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-surface-1/70 px-4 py-3 text-sm"
@@ -87,9 +96,9 @@ function GenerationBanner({ generation }: { generation: RoadmapGenerationDto }) 
     >
       <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
       <div className="min-w-0 flex-1 space-y-1">
-        <p>{generation.summary ?? `${generation.itemCount} suggestions`}</p>
+        <p>{generation.summary ?? suggestions}</p>
         <p className="text-xs text-muted-foreground">
-          {generation.itemCount} suggestions · {generation.modelId} ·{" "}
+          {suggestions} · {generation.modelId} ·{" "}
           {generation.costUsd !== null ? `${formatUsd(generation.costUsd)} · ` : ""}
           {generation.endedAt ? <RelativeTime iso={generation.endedAt} /> : null}
         </p>
@@ -168,6 +177,7 @@ function SuggestionCard({
   onMove: () => void;
   onDismiss: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const priority = PRIORITY_STYLES[item.priority];
   return (
@@ -176,7 +186,7 @@ function SuggestionCard({
         <p className="min-w-0 flex-1 font-medium leading-snug">{item.title}</p>
         <button
           type="button"
-          aria-label={`Dismiss ${item.title}`}
+          aria-label={t("Dismiss {title}", { title: item.title })}
           onClick={onDismiss}
           className="rounded p-0.5 text-muted-foreground hover:bg-surface-3 hover:text-foreground"
         >
@@ -190,10 +200,10 @@ function SuggestionCard({
             priority.className,
           )}
         >
-          {priority.label}
+          {t(priority.label)}
         </span>
-        <Badge>{KIND_LABELS[item.kind]}</Badge>
-        <Badge>effort {item.effort}</Badge>
+        <Badge>{t(KIND_LABELS[item.kind])}</Badge>
+        <Badge>{t("effort {size}", { size: item.effort })}</Badge>
         {item.workspaceName ? <Badge>{item.workspaceName}</Badge> : null}
       </div>
       <button
@@ -212,7 +222,7 @@ function SuggestionCard({
       <Chips paths={item.targetPaths} />
       <Button size="sm" variant="secondary" className="w-full" onClick={onMove}>
         <ArrowRight />
-        Move to To do
+        {t("Move to To do")}
       </Button>
     </CardShell>
   );
@@ -233,6 +243,7 @@ function TaskCard({
   busy: boolean;
   onMove: (move: Move) => void;
 }) {
+  const t = useT();
   const priority = PRIORITY_STYLES[priorityOfWeight(priorityWeight)];
   const failed = task.status === "FAILED" || task.status === "INTERRUPTED";
   return (
@@ -255,11 +266,11 @@ function TaskCard({
               priority.className,
             )}
           >
-            {priority.label}
+            {t(priority.label)}
           </span>
         ) : null}
         {column !== "todo" || failed ? <TaskStatusBadge status={task.status} /> : null}
-        <Badge>{KIND_LABELS[task.kind]}</Badge>
+        <Badge>{t(KIND_LABELS[task.kind])}</Badge>
         {workspaceName ? <Badge>{workspaceName}</Badge> : null}
       </div>
       {task.lastRun ? (
@@ -267,7 +278,11 @@ function TaskCard({
           <ModelBadge modelId={task.lastRun.modelId} />
           <span>{formatUsd(task.lastRun.costUsd)}</span>
           {task.lastRun.changedFileCount > 0 ? (
-            <span>{task.lastRun.changedFileCount} files changed</span>
+            <span>
+              {task.lastRun.changedFileCount === 1
+                ? t("1 file changed")
+                : t("{count} files changed", { count: task.lastRun.changedFileCount })}
+            </span>
           ) : null}
         </div>
       ) : null}
@@ -280,13 +295,13 @@ function TaskCard({
       {column === "todo" ? (
         <Button size="sm" className="w-full" onClick={() => onMove("run")}>
           <Play />
-          {failed ? "Retry" : "Start"}
+          {failed ? t("Retry") : t("Start")}
         </Button>
       ) : null}
       {column === "inProgress" ? (
         <Button size="sm" variant="ghost" className="w-full" onClick={() => onMove("cancel")}>
           <Square />
-          Stop and move back
+          {t("Stop and move back")}
         </Button>
       ) : null}
     </CardShell>
@@ -310,6 +325,7 @@ function Column({
   onDropItem: (item: DragItem, to: ColumnId) => void;
   children: ReactNode;
 }) {
+  const t = useT();
   const [over, setOver] = useState(false);
   const allowed = dragging !== null && moveFor(dragging, id) !== null;
   return (
@@ -337,8 +353,8 @@ function Column({
     >
       <header className="mb-3 flex items-baseline justify-between gap-2 px-1">
         <div>
-          <h2 className="text-sm font-semibold">{title}</h2>
-          <p className="text-[11px] text-muted-foreground">{hint}</p>
+          <h2 className="text-sm font-semibold">{t(title)}</h2>
+          <p className="text-[11px] text-muted-foreground">{t(hint)}</p>
         </div>
         <span className="tabular rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted-foreground">
           {count}
@@ -364,6 +380,7 @@ export function RoadmapBoard({
   catalog: CatalogResponse;
   gitPanel?: ReactNode;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [dragging, setDragging] = useState<DragItem | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
@@ -408,7 +425,7 @@ export function RoadmapBoard({
       refresh();
     },
     onSuccess: (_data, { move }) => {
-      if (move === "run") toast.success("Task started");
+      if (move === "run") toast.success(t("Task started"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -420,7 +437,8 @@ export function RoadmapBoard({
   });
 
   const perform = (item: DragItem, move: Move) => {
-    if (move === "cancel" && !window.confirm("Stop this task and move it back to To do?")) return;
+    if (move === "cancel" && !window.confirm(t("Stop this task and move it back to To do?")))
+      return;
     act.mutate({ item, move });
   };
 
@@ -447,7 +465,7 @@ export function RoadmapBoard({
           hasSuggestions={data.suggestions.length > 0}
         />
         <span className="text-xs text-muted-foreground">
-          Drag cards between columns, or use the buttons on each card.
+          {t("Drag cards between columns, or use the buttons on each card.")}
         </span>
       </div>
       {data.generation ? <GenerationBanner generation={data.generation} /> : null}
@@ -496,7 +514,7 @@ export function RoadmapBoard({
       {data.suggestions.length === 0 && data.tasks.length === 0 && !running ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <GitBranch className="size-4" />
-          Press Roadmap to let Claude study this project and fill the Suggested column.
+          {t("Press Roadmap to let Claude study this project and fill the Suggested column.")}
         </p>
       ) : null}
     </div>

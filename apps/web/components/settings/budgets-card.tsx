@@ -19,12 +19,19 @@ import { Field, Input, Select } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { msg } from "@/lib/i18n/core";
 import { BUDGET_LEVEL_TONES, budgetUsage, periodLabel } from "@/lib/orchestration";
 import { cn } from "@/lib/utils";
 
-const LEVEL_LABELS = { ok: "Within budget", soft: "Soft limit passed", hard: "Hard limit reached" };
+const LEVEL_LABELS = {
+  ok: msg("Within budget"),
+  soft: msg("Soft limit passed"),
+  hard: msg("Hard limit reached"),
+};
 
 function BudgetRow({ budget }: { budget: BudgetDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const usage = budgetUsage(budget);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.budgets });
@@ -32,34 +39,34 @@ function BudgetRow({ budget }: { budget: BudgetDto }) {
     mutationFn: () =>
       api.patch<BudgetDto>(`/api/budgets/${budget.id}`, { enabled: !budget.enabled }),
     onSuccess: refresh,
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/budgets/${budget.id}`),
     onSuccess: () => {
       refresh();
-      toast.success("Budget removed");
+      toast.success(t("Budget removed"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   return (
     <div className={cn("space-y-2 py-3", !budget.enabled && "opacity-60")} data-testid="budget">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">
-          {budget.scope === "GLOBAL" ? "All projects" : (budget.projectName ?? "Project")}
+          {budget.scope === "GLOBAL" ? t("All projects") : (budget.projectName ?? t("Project"))}
         </span>
-        <span className="text-xs text-muted-foreground">{periodLabel(budget.period)}</span>
+        <span className="text-xs text-muted-foreground">{periodLabel(budget.period, t)}</span>
         <Badge tone={budget.enabled ? BUDGET_LEVEL_TONES[budget.level] : "neutral"}>
-          {budget.enabled ? LEVEL_LABELS[budget.level] : "Paused"}
+          {budget.enabled ? t(LEVEL_LABELS[budget.level]) : t("Paused")}
         </Badge>
         {budget.level === "soft" && budget.softApproved ? (
-          <Badge tone="neutral">approved for {budget.periodKey}</Badge>
+          <Badge tone="neutral">{t("approved for {period}", { period: budget.periodKey })}</Badge>
         ) : null}
         <div className="ml-auto flex gap-1">
           <Button
             variant="ghost"
             size="icon"
-            aria-label={budget.enabled ? "Pause the budget" : "Enable the budget"}
+            aria-label={budget.enabled ? t("Pause the budget") : t("Enable the budget")}
             onClick={() => toggle.mutate()}
             disabled={toggle.isPending}
           >
@@ -68,7 +75,7 @@ function BudgetRow({ budget }: { budget: BudgetDto }) {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Remove the budget"
+            aria-label={t("Remove the budget")}
             onClick={() => remove.mutate()}
             disabled={remove.isPending}
           >
@@ -97,9 +104,14 @@ function BudgetRow({ budget }: { budget: BudgetDto }) {
         ) : null}
       </div>
       <p className="text-xs text-muted-foreground">
-        {formatUsd(budget.spentUsd)} spent in {budget.periodKey}
-        {budget.softUsd !== null ? ` · soft ${formatUsd(budget.softUsd)}` : ""} · hard{" "}
-        {formatUsd(budget.hardUsd)}
+        {t("{amount} spent in {period}", {
+          amount: formatUsd(budget.spentUsd),
+          period: budget.periodKey,
+        })}
+        {budget.softUsd !== null
+          ? ` · ${t("soft {amount}", { amount: formatUsd(budget.softUsd) })}`
+          : ""}{" "}
+        · {t("hard {amount}", { amount: formatUsd(budget.hardUsd) })}
       </p>
     </div>
   );
@@ -112,6 +124,7 @@ export function BudgetsCard({
   initial: BudgetDto[];
   projects: ProjectDto[];
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: budgets = initial } = useQuery({
     queryKey: queryKeys.budgets,
@@ -137,9 +150,9 @@ export function BudgetsCard({
       void queryClient.invalidateQueries({ queryKey: queryKeys.budgets });
       setSoft("");
       setHard("");
-      toast.success("Budget saved");
+      toast.success(t("Budget saved"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -152,12 +165,12 @@ export function BudgetsCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Wallet className="size-4 text-primary" />
-          Budgets
+          {t("Budgets")}
         </CardTitle>
         <CardDescription>
-          Past the soft limit new runs wait until you approve them in Approvals. At the hard limit
-          Onyx refuses new runs and stops the ones in progress. Spend is the cost Claude Code
-          reports for each run plus the planner and roadmap calls.
+          {t(
+            "Past the soft limit new runs wait until you approve them in Approvals. At the hard limit Onyx refuses new runs and stops the ones in progress. Spend is the cost Claude Code reports for each run plus the planner and roadmap calls.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -168,14 +181,16 @@ export function BudgetsCard({
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No budget yet: spending is not limited.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("No budget yet: spending is not limited.")}
+          </p>
         )}
         <form
           className="space-y-3 rounded-lg border border-border bg-surface-1 p-4"
           onSubmit={submit}
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Applies to" htmlFor="budget-scope">
+            <Field label={t("Applies to")} htmlFor="budget-scope">
               <Select
                 id="budget-scope"
                 value={scope}
@@ -183,14 +198,14 @@ export function BudgetsCard({
                   setScope(event.target.value === "PROJECT" ? "PROJECT" : "GLOBAL")
                 }
               >
-                <option value="GLOBAL">All projects</option>
+                <option value="GLOBAL">{t("All projects")}</option>
                 <option value="PROJECT" disabled={projects.length === 0}>
-                  One project
+                  {t("One project")}
                 </option>
               </Select>
             </Field>
             {scope === "PROJECT" ? (
-              <Field label="Project" htmlFor="budget-project">
+              <Field label={t("Project")} htmlFor="budget-project">
                 <Select
                   id="budget-project"
                   value={projectId}
@@ -204,7 +219,7 @@ export function BudgetsCard({
                 </Select>
               </Field>
             ) : null}
-            <Field label="Period" htmlFor="budget-period">
+            <Field label={t("Period")} htmlFor="budget-period">
               <Select
                 id="budget-period"
                 value={period}
@@ -218,26 +233,26 @@ export function BudgetsCard({
                   )
                 }
               >
-                <option value="DAY">Per day</option>
-                <option value="MONTH">Per month</option>
-                <option value="LIFETIME">In total</option>
+                <option value="DAY">{t("Per day")}</option>
+                <option value="MONTH">{t("Per month")}</option>
+                <option value="LIFETIME">{t("In total")}</option>
               </Select>
             </Field>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-            <Field label="Soft limit (USD)" htmlFor="budget-soft">
+            <Field label={t("Soft limit (USD)")} htmlFor="budget-soft">
               <Input
                 id="budget-soft"
                 type="number"
                 min="0.01"
                 step="0.01"
                 inputMode="decimal"
-                placeholder="optional"
+                placeholder={t("optional")}
                 value={soft}
                 onChange={(event) => setSoft(event.target.value)}
               />
             </Field>
-            <Field label="Hard limit (USD)" htmlFor="budget-hard">
+            <Field label={t("Hard limit (USD)")} htmlFor="budget-hard">
               <Input
                 id="budget-hard"
                 type="number"
@@ -251,7 +266,7 @@ export function BudgetsCard({
             </Field>
             <Button type="submit" disabled={create.isPending || !hard}>
               {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-              Add
+              {t("Add")}
             </Button>
           </div>
         </form>

@@ -1,14 +1,18 @@
 import { SEARCH_MARK_END, SEARCH_MARK_START } from "@onyx/contracts/client";
 import type { SearchResult } from "@onyx/contracts";
+import { english, msg, type Translate } from "@/lib/i18n/core";
 
 export const SEARCH_PREFIX = "search ";
 export const searchMinLength = 2;
 
-const KIND_LABELS = { TASK: "task", RUN: "run", FILE: "file" } as const;
+const KIND_LABELS = { TASK: msg("task"), RUN: msg("run"), FILE: msg("file") } as const;
 
-export function searchHint(result: Pick<SearchResult, "kind" | "projectName" | "status">): string {
+export function searchHint(
+  result: Pick<SearchResult, "kind" | "projectName" | "status">,
+  t: Translate = english,
+): string {
   const status = result.status ? ` · ${result.status.toLowerCase().replaceAll("_", " ")}` : "";
-  return `${KIND_LABELS[result.kind]} · ${result.projectName}${status}`;
+  return `${t(KIND_LABELS[result.kind])} · ${result.projectName}${status}`;
 }
 
 export function snippetParts(text: string): { text: string; mark: boolean }[] {

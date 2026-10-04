@@ -29,6 +29,7 @@ import {
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import { KIND_LABELS, workspaceHint } from "@/lib/router";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 
@@ -42,6 +43,7 @@ function useDebounced<T>(value: T, delayMs: number): T {
 }
 
 function RoutingHint({ preview }: { preview: RouterPreviewResponse }) {
+  const t = useT();
   const { decision } = preview;
   return (
     <div
@@ -52,8 +54,8 @@ function RoutingHint({ preview }: { preview: RouterPreviewResponse }) {
       <TierBadge tier={decision.tier} />
       <ModelBadge modelId={decision.modelId} />
       <span className="text-muted-foreground">
-        {ROUTING_STRATEGY_LABELS[decision.strategy]}
-        {` · ${workspaceHint(preview.workspaceName, preview.workspaceSource)}`}
+        {t(ROUTING_STRATEGY_LABELS[decision.strategy])}
+        {` · ${workspaceHint(preview.workspaceName, preview.workspaceSource, t)}`}
       </span>
       <p className="basis-full text-muted-foreground">{decision.rationale}</p>
     </div>
@@ -69,6 +71,7 @@ export function CreateTaskDialog({
   workspaces: WorkspaceDto[];
   catalog: CatalogResponse;
 }) {
+  const t = useT();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -153,20 +156,20 @@ export function CreateTaskDialog({
       <DialogTrigger asChild>
         <Button disabled={workspaces.length === 0}>
           <Sparkles />
-          New task
+          {t("New task")}
         </Button>
       </DialogTrigger>
       <DialogContent className="w-[min(94vw,40rem)]">
         <DialogHeader>
-          <DialogTitle>Delegate a task</DialogTitle>
+          <DialogTitle>{t("Delegate a task")}</DialogTitle>
           <DialogDescription>
-            The agent runs headless in a workspace compartment. With Auto, Onyx picks the workspace
-            that owns the target files, otherwise the one the prompt talks about, otherwise the
-            first one; the model tier comes from the routing rules.
+            {t(
+              "The agent runs headless in a workspace compartment. With Auto, Onyx picks the workspace that owns the target files, otherwise the one the prompt talks about, otherwise the first one; the model tier comes from the routing rules.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
-          <Field label="Title" htmlFor="task-title">
+          <Field label={t("Title")} htmlFor="task-title">
             <Input
               id="task-title"
               value={title}
@@ -174,7 +177,7 @@ export function CreateTaskDialog({
               required
             />
           </Field>
-          <Field label="Prompt" htmlFor="task-prompt">
+          <Field label={t("Prompt")} htmlFor="task-prompt">
             <Textarea
               id="task-prompt"
               className="min-h-36 font-mono text-xs"
@@ -184,9 +187,11 @@ export function CreateTaskDialog({
             />
           </Field>
           <Field
-            label="Target files"
+            label={t("Target files")}
             htmlFor="task-targets"
-            hint="Sent in full; their imports and importers go in as skeletons. Leave empty to let Onyx infer targets from the prompt."
+            hint={t(
+              "Sent in full; their imports and importers go in as skeletons. Leave empty to let Onyx infer targets from the prompt.",
+            )}
           >
             <div className="flex gap-2">
               <Input
@@ -195,8 +200,8 @@ export function CreateTaskDialog({
                 className="font-mono text-xs"
                 placeholder={
                   files.data
-                    ? "src/feature/file.ts or a folder"
-                    : "Index the project for suggestions"
+                    ? t("src/feature/file.ts or a folder")
+                    : t("Index the project for suggestions")
                 }
                 value={targetDraft}
                 onChange={(event) => setTargetDraft(event.target.value)}
@@ -207,7 +212,7 @@ export function CreateTaskDialog({
                 }}
               />
               <Button type="button" variant="secondary" onClick={addTarget}>
-                Add
+                {t("Add")}
               </Button>
             </div>
             <datalist id="task-target-files">
@@ -226,7 +231,7 @@ export function CreateTaskDialog({
                     {path}
                     <button
                       type="button"
-                      aria-label={`Remove ${path}`}
+                      aria-label={t("Remove {path}", { path })}
                       onClick={() => setTargetPaths(targetPaths.filter((entry) => entry !== path))}
                       className="rounded p-0.5 text-muted-foreground hover:text-foreground"
                     >
@@ -238,13 +243,13 @@ export function CreateTaskDialog({
             ) : null}
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label="Workspace" htmlFor="task-workspace">
+            <Field label={t("Workspace")} htmlFor="task-workspace">
               <Select
                 id="task-workspace"
                 value={workspaceId}
                 onChange={(event) => setWorkspaceId(event.target.value)}
               >
-                <option value="">Auto</option>
+                <option value="">{t("Auto")}</option>
                 {workspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.name}
@@ -252,7 +257,7 @@ export function CreateTaskDialog({
                 ))}
               </Select>
             </Field>
-            <Field label="Kind" htmlFor="task-kind">
+            <Field label={t("Kind")} htmlFor="task-kind">
               <Select
                 id="task-kind"
                 value={kind}
@@ -260,18 +265,18 @@ export function CreateTaskDialog({
               >
                 {TASK_KINDS.map((option) => (
                   <option key={option} value={option}>
-                    {KIND_LABELS[option]}
+                    {t(KIND_LABELS[option])}
                   </option>
                 ))}
               </Select>
             </Field>
-            <Field label="Model" htmlFor="task-model">
+            <Field label={t("Model")} htmlFor="task-model">
               <ModelSelect
                 id="task-model"
                 models={catalog.models}
                 value={model}
                 onChange={setModel}
-                defaultLabel="Auto (router)"
+                defaultLabel={t("Auto (router)")}
               />
             </Field>
           </div>
@@ -283,7 +288,7 @@ export function CreateTaskDialog({
               checked={runNow}
               onChange={(event) => setRunNow(event.target.checked)}
             />
-            Run immediately
+            {t("Run immediately")}
           </label>
           <label className="flex items-start gap-3 text-sm text-muted-foreground">
             <input
@@ -294,16 +299,16 @@ export function CreateTaskDialog({
               data-testid="task-can-wait"
             />
             <span>
-              Can wait
+              {t("Can wait")}
               <span className="block text-xs">
-                Near the Claude subscription limit it waits for the window to reset.
+                {t("Near the Claude subscription limit it waits for the window to reset.")}
               </span>
             </span>
           </label>
           <DialogFooter>
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-              {runNow ? "Create and run" : "Create"}
+              {runNow ? t("Create and run") : t("Create")}
             </Button>
           </DialogFooter>
         </form>

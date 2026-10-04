@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api, errorMessage } from "@/lib/api/client";
 import { shortId } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { RESET_STRATEGY_LABELS } from "@/lib/sessions";
 
 const DOMAIN_ICONS: Record<Domain, typeof Monitor> = {
   FRONTEND: Monitor,
@@ -21,12 +23,13 @@ const DOMAIN_ICONS: Record<Domain, typeof Monitor> = {
 };
 
 function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
+  const t = useT();
   const router = useRouter();
   const Icon = DOMAIN_ICONS[workspace.domain];
   const reset = useMutation({
     mutationFn: () => api.post<WorkspaceDto>(`/api/workspaces/${workspace.id}/reset`),
     onSuccess: () => {
-      toast.success(`${workspace.name}: context reset`);
+      toast.success(t("{name}: context reset", { name: workspace.name }));
       router.refresh();
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -42,7 +45,7 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
           <Icon className="size-4 text-muted-foreground" />
           <span className="text-sm font-medium">{workspace.name}</span>
         </Link>
-        <Badge>{workspace.resetStrategy.toLowerCase()}</Badge>
+        <Badge>{t(RESET_STRATEGY_LABELS[workspace.resetStrategy].label)}</Badge>
       </div>
       <div className="flex flex-wrap gap-1">
         {workspace.pathGlobs.slice(0, 3).map((glob) => (
@@ -61,9 +64,9 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
       </div>
       <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          Session{" "}
+          {t("Session")}{" "}
           <span className="font-mono text-foreground">
-            {workspace.activeSessionId ? shortId(workspace.activeSessionId) : "none"}
+            {workspace.activeSessionId ? shortId(workspace.activeSessionId) : t("none")}
           </span>
         </span>
         <div className="flex items-center gap-1">
@@ -72,15 +75,15 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
             size="sm"
             disabled={!workspace.activeSessionId || reset.isPending}
             onClick={() => reset.mutate()}
-            title="Start the next run in a new session with a handoff note"
+            title={t("Start the next run in a new session with a handoff note")}
           >
             <RotateCcw />
-            Reset
+            {t("Reset")}
           </Button>
           <Button variant="secondary" size="sm" asChild>
             <Link href={`/projects/${workspace.projectId}/workspaces/${workspace.id}`}>
               <SquareTerminal />
-              Open
+              {t("Open")}
             </Link>
           </Button>
         </div>

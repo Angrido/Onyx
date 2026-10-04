@@ -17,6 +17,7 @@ import {
   PULL_STATE_TONES,
   checksCount,
 } from "@/lib/github";
+import { useT } from "@/lib/i18n/client";
 
 export function PullRequestStatus({
   pull,
@@ -25,6 +26,7 @@ export function PullRequestStatus({
   pull: PullRequestDto;
   onRefreshed?: (pull: PullRequestDto) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const refresh = useMutation({
     mutationFn: () => api.post<PullRequestDto>(`/api/pull-requests/${pull.id}/refresh`),
@@ -48,34 +50,38 @@ export function PullRequestStatus({
           #{pull.number} {pull.title}
           <ExternalLink className="size-3.5 text-muted-foreground" />
         </a>
-        <Badge tone={PULL_STATE_TONES[pull.state]}>{PULL_STATE_LABELS[pull.state]}</Badge>
-        {pull.draft ? <Badge>Draft</Badge> : null}
+        <Badge tone={PULL_STATE_TONES[pull.state]}>{t(PULL_STATE_LABELS[pull.state])}</Badge>
+        {pull.draft ? <Badge>{t("Draft")}</Badge> : null}
         <Badge tone={CHECKS_TONES[pull.checksState]} data-testid="pull-checks">
-          {CHECKS_LABELS[pull.checksState]}
+          {t(CHECKS_LABELS[pull.checksState])}
         </Badge>
       </div>
       <p className="text-xs text-muted-foreground">
-        <span className="font-mono">{pull.branch}</span> → {pull.baseBranch} · {checksCount(pull)}
+        <span className="font-mono">{pull.branch}</span> → {pull.baseBranch} ·{" "}
+        {checksCount(pull, t)}
         {pull.checkedAt ? (
           <>
             {" "}
-            · checked <RelativeTime iso={pull.checkedAt} />
+            · {t("checked")} <RelativeTime iso={pull.checkedAt} />
           </>
         ) : null}
       </p>
       {pull.checks.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5" aria-label={`Checks of pull request ${pull.number}`}>
+        <ul
+          className="flex flex-wrap gap-1.5"
+          aria-label={t("Checks of pull request {number}", { number: pull.number })}
+        >
           {pull.checks.map((check) => (
             <li key={check.name}>
               {check.url ? (
                 <a href={check.url} target="_blank" rel="noreferrer">
                   <Badge tone={CHECK_RESULT_TONES[check.result]}>
-                    {check.name}: {CHECK_RESULT_LABELS[check.result]}
+                    {check.name}: {t(CHECK_RESULT_LABELS[check.result])}
                   </Badge>
                 </a>
               ) : (
                 <Badge tone={CHECK_RESULT_TONES[check.result]}>
-                  {check.name}: {CHECK_RESULT_LABELS[check.result]}
+                  {check.name}: {t(CHECK_RESULT_LABELS[check.result])}
                 </Badge>
               )}
             </li>
@@ -88,10 +94,10 @@ export function PullRequestStatus({
           variant="ghost"
           onClick={() => refresh.mutate()}
           disabled={refresh.isPending}
-          aria-label={`Check pull request ${pull.number} again`}
+          aria-label={t("Check pull request {number} again", { number: pull.number })}
         >
           {refresh.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          Check now
+          {t("Check now")}
         </Button>
       ) : null}
     </div>

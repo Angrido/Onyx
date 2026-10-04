@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { formatTokens, shortId } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { END_REASON_LABELS, SESSION_STATUS_LABELS } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ const STATUS_TONES: Record<SessionStatus, NonNullable<BadgeProps["tone"]>> = {
 };
 
 function SessionNode({ session, last }: { session: SessionDto; last: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const pending =
     session.claudeSessionId === null && session.runs === 0 && session.status === "IDLE";
@@ -46,22 +48,26 @@ function SessionNode({ session, last }: { session: SessionDto; last: boolean }) 
             {shortId(session.id)}
           </span>
           <Badge tone={STATUS_TONES[session.status]}>
-            {pending ? "Pending" : SESSION_STATUS_LABELS[session.status]}
+            {pending ? t("Pending") : t(SESSION_STATUS_LABELS[session.status])}
           </Badge>
           <ModelBadge modelId={session.modelId} />
           {session.endReason ? (
             <Badge tone={session.endReason === "DOMAIN_SWITCH" ? "warning" : "neutral"}>
-              ended · {END_REASON_LABELS[session.endReason]}
+              {t("ended")} · {t(END_REASON_LABELS[session.endReason])}
             </Badge>
           ) : null}
         </div>
         <p className="text-xs text-muted-foreground">
-          {session.runs} runs · {session.turns} turns · {formatTokens(session.contextTokens)}{" "}
-          context · started <RelativeTime iso={session.startedAt} />
+          {t("{runs} runs · {turns} turns · {tokens} context", {
+            runs: session.runs,
+            turns: session.turns,
+            tokens: formatTokens(session.contextTokens),
+          })}{" "}
+          · {t("started")} <RelativeTime iso={session.startedAt} />
           {session.endedAt ? (
             <>
               {" "}
-              · ended <RelativeTime iso={session.endedAt} />
+              · {t("ended")} <RelativeTime iso={session.endedAt} />
             </>
           ) : null}
         </p>
@@ -77,9 +83,9 @@ function SessionNode({ session, last }: { session: SessionDto; last: boolean }) 
                 <ChevronRight className="size-3.5 text-info" />
               </motion.span>
               <ScrollText className="size-3.5 text-info" />
-              <span className="font-medium text-info">Handoff note</span>
+              <span className="font-medium text-info">{t("Handoff note")}</span>
               <span className="text-muted-foreground">
-                {formatTokens(session.handoffTokens ?? 0)} tokens
+                {t("{tokens} tokens", { tokens: formatTokens(session.handoffTokens ?? 0) })}
               </span>
             </button>
             {open ? (
@@ -105,14 +111,15 @@ export function SessionChain({
   busy: boolean;
   onChange: () => void;
 }) {
+  const t = useT();
   const reset = useMutation({
     mutationFn: (handoff: boolean) =>
       api.post<ResetWorkspaceResponse>(`/api/workspaces/${workspaceId}/reset`, { handoff }),
     onSuccess: (response, handoff) => {
       toast.success(
         handoff && response.session
-          ? "Next run starts a new session with a handoff note"
-          : "Next run starts with a clean context",
+          ? t("Next run starts a new session with a handoff note")
+          : t("Next run starts with a clean context"),
       );
       onChange();
     },
@@ -125,10 +132,10 @@ export function SessionChain({
         <div className="space-y-1.5">
           <CardTitle className="flex items-center gap-2">
             <GitBranch className="size-4 text-primary" />
-            Session chain
+            {t("Session chain")}
           </CardTitle>
           <CardDescription>
-            Each Claude session of this workspace, newest first, with why it ended.
+            {t("Each Claude session of this workspace, newest first, with why it ended.")}
           </CardDescription>
         </div>
         <div className="flex gap-1.5">
@@ -137,10 +144,10 @@ export function SessionChain({
             variant="secondary"
             disabled={busy || reset.isPending}
             onClick={() => reset.mutate(true)}
-            title="Rotate now and prepare a handoff note for the next run"
+            title={t("Rotate now and prepare a handoff note for the next run")}
           >
             {reset.isPending ? <Loader2 className="animate-spin" /> : <ScrollText />}
-            Reset + handoff
+            {t("Reset + handoff")}
           </Button>
           <Button
             size="sm"
@@ -149,14 +156,14 @@ export function SessionChain({
             onClick={() => reset.mutate(false)}
           >
             <RotateCcw />
-            Reset
+            {t("Reset")}
           </Button>
         </div>
       </CardHeader>
       <CardContent>
         {sessions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No sessions yet: the first run or terminal starts one.
+            {t("No sessions yet: the first run or terminal starts one.")}
           </p>
         ) : (
           <AnimatePresence mode="wait" initial={false}>
