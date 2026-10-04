@@ -37,6 +37,7 @@ export const GRANT_SCOPES = ["TASK", "AGENT", "PROJECT"] as const;
 export const QUEUE_WAIT_REASONS = ["SLOTS", "PROJECT", "WORKSPACE", "QUOTA"] as const;
 export const QUEUE_ITEM_KINDS = ["TASK", "TDD", "PLAN"] as const;
 export const QUEUE_MOVES = ["top", "up", "down", "bottom"] as const;
+export const PROJECT_HEALTH = ["OK", "ATTENTION", "ERROR"] as const;
 export const SAVINGS_SOURCES = [
   "context-pack",
   "stable-prefix",

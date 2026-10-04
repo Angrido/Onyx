@@ -5,6 +5,7 @@ import {
   type GitChangeKind,
   type GitIdentityDto,
   type GitStatusDto,
+  type GitSummary,
   type PublishChangesRequestSchema,
   type PublishResultDto,
   type UpdateGitIdentityRequestSchema,
@@ -45,6 +46,7 @@ const execFileAsync = promisify(execFile);
 const IDENTITY_KEY = "git.identity";
 const MAX_CHANGES = 200;
 const GIT_TIMEOUT_MS = 120_000;
+const SUMMARY_TIMEOUT_MS = 10_000;
 const FALLBACK_IDENTITY: GitIdentity = { name: "Onyx", email: "onyx@localhost" };
 
 const StoredIdentitySchema = z.object({
@@ -168,6 +170,41 @@ export class GitService {
     });
     await this.audit(actor, "git.identity", null, {});
     return this.identity();
+  }
+
+  async summary(rootPath: string, now = new Date()): Promise<GitSummary> {
+    const checkedAt = now.toISOString();
+    try {
+      const output = await this.git(
+        rootPath,
+        ["status", "--porcelain=v1", "-b", "--untracked-files=normal"],
+        { env: { GIT_OPTIONAL_LOCKS: "0" }, timeoutMs: SUMMARY_TIMEOUT_MS },
+      );
+      const parsed = parsePorcelain(output);
+      const branch = parsed.branchLine
+        ? parseBranchLine(parsed.branchLine)
+        : { branch: null, upstream: null, ahead: 0, behind: 0 };
+      return {
+        isRepo: true,
+        ...branch,
+        changeCount: parsed.changes.length,
+        checkedAt,
+        error: null,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const notRepo = /not a git repository/i.test(message);
+      return {
+        isRepo: false,
+        branch: null,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        changeCount: 0,
+        checkedAt,
+        error: notRepo ? null : message.slice(0, 200),
+      };
+    }
   }
 
   async status(projectId: string): Promise<GitStatusDto> {
@@ -402,7 +439,12 @@ export class GitService {
   private async git(
     cwd: string,
     args: readonly string[],
-    options: { env?: Record<string, string>; input?: string; secrets?: readonly string[] } = {},
+    options: {
+      env?: Record<string, string>;
+      input?: string;
+      secrets?: readonly string[];
+      timeoutMs?: number;
+    } = {},
   ): Promise<string> {
     const env = gitEnvironment(this.deps.sourceEnv ?? process.env, {
       GIT_TERMINAL_PROMPT: "0",
@@ -416,7 +458,7 @@ export class GitService {
         execFileAsync(this.deps.gitBin ?? "git", safeGitArgs(args), {
           cwd,
           env,
-          timeout: GIT_TIMEOUT_MS,
+          timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
           maxBuffer: 16 * 1024 * 1024,
         }),
       );

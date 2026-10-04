@@ -4,6 +4,7 @@ import {
   ProjectRunLimitRequestSchema,
   QueueSettingsSchema,
   QuotaSettingsSchema,
+  type MissionControlDto,
   type QueueDto,
   type QuotaDto,
   type CatalogResponse,
@@ -47,6 +48,10 @@ export function registerSystemRoutes(app: FastifyInstance, container: Container)
   );
 
   app.post("/api/quota/resume", async (): Promise<QuotaDto> => container.quota.resume());
+
+  app.get("/api/mission-control", async (): Promise<MissionControlDto> =>
+    container.mission.overview(),
+  );
 
   app.get("/api/queue", async (): Promise<QueueDto> => container.queue.dto());
 

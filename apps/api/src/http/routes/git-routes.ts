@@ -20,17 +20,17 @@ export function registerGitRoutes(app: FastifyInstance, container: Container): v
     git.status(idParam(request.params)),
   );
 
-  app.post("/api/projects/:id/git/publish", async (request): Promise<PublishResultDto> =>
-    git.publish(
-      idParam(request.params),
-      PublishChangesRequestSchema.parse(request.body),
-      actorOf(request),
-    ),
-  );
+  app.post("/api/projects/:id/git/publish", async (request): Promise<PublishResultDto> => {
+    const id = idParam(request.params);
+    return git
+      .publish(id, PublishChangesRequestSchema.parse(request.body), actorOf(request))
+      .finally(() => container.mission.forget(id));
+  });
 
-  app.post("/api/projects/:id/git/switch-default", async (request): Promise<GitStatusDto> =>
-    git.switchToDefault(idParam(request.params), actorOf(request)),
-  );
+  app.post("/api/projects/:id/git/switch-default", async (request): Promise<GitStatusDto> => {
+    const id = idParam(request.params);
+    return git.switchToDefault(id, actorOf(request)).finally(() => container.mission.forget(id));
+  });
 
   app.get("/api/settings/git", async (): Promise<GitIdentityDto> => git.identity());
 

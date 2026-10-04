@@ -131,12 +131,15 @@ async function main(): Promise<void> {
   const uncached = async (path: string) => {
     context.container.router.forgetTelemetry();
     context.container.savings.forget();
+    context.container.mission.forget();
     return api.get(path);
   };
   await time("GET /api/telemetry/summary", () => uncached("/api/telemetry/summary"));
   await time("GET /api/telemetry/routing", () => uncached("/api/telemetry/routing"));
   await time("GET /api/telemetry/savings", () => uncached("/api/telemetry/savings"));
   await time("GET /api/telemetry/savings (cached)", () => api.get("/api/telemetry/savings"));
+  await time("GET /api/mission-control", () => uncached("/api/mission-control"));
+  await time("GET /api/mission-control (git cached)", () => api.get("/api/mission-control"));
   await time("GET /api/tasks?limit=200", () => api.get("/api/tasks?limit=200"));
   await time("GET /api/projects", () => api.get("/api/projects"));
   await destroyTestContext(context);

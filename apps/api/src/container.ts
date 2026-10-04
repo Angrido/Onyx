@@ -15,6 +15,7 @@ import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
+import { MissionService } from "./application/mission-service";
 import { QueueService } from "./application/queue-service";
 import { QuotaService } from "./application/quota-service";
 import {
@@ -99,6 +100,7 @@ export interface Container {
   budgets: BudgetService;
   quota: QuotaService;
   queue: QueueService;
+  mission: MissionService;
   orchestrator: OrchestratorService;
   backups: BackupService;
   vault: SecretVault;
@@ -323,9 +325,10 @@ export async function createContainer(
         runId: null,
       });
     },
-    afterRun: () => {
+    afterRun: (taskId) => {
       router.forgetTelemetry();
       savings.forget();
+      void mission.forgetTask(taskId).catch(() => undefined);
       void spending.budgets?.refresh().catch(() => undefined);
     },
   });
@@ -439,6 +442,14 @@ export async function createContainer(
     github,
     isWorkspaceBusy: (workspaceId) => scheduler.isWorkspaceBusy(workspaceId),
   });
+  const mission = new MissionService({
+    prisma,
+    scheduler: () => scheduling.scheduler,
+    gitSummary: (rootPath, now) => git.summary(rootPath, now),
+    limitOf: (projectId) => queue.limitOf(projectId),
+    maxConcurrent: config.maxConcurrentAgents,
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
   const orchestrator = new OrchestratorService({
     prisma,
     logger,
@@ -494,6 +505,7 @@ export async function createContainer(
     budgets,
     quota,
     queue,
+    mission,
     orchestrator,
     backups,
     vault,

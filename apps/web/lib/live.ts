@@ -1,6 +1,6 @@
 "use client";
 
-import type { QueueDto, QuotaDto, ServerMessage } from "@onyx/contracts";
+import type { MissionControlDto, QueueDto, QuotaDto, ServerMessage } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -34,6 +34,25 @@ export function useLiveSystem(): void {
     void queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
   }, [queryClient]);
   useChannel(channels.system, onMessage);
+}
+
+export function useMission(initial?: MissionControlDto) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: queryKeys.mission,
+    queryFn: () => api.get<MissionControlDto>("/api/mission-control"),
+    refetchInterval: 30_000,
+    ...(initial ? { initialData: initial } : {}),
+  });
+  const onMessage = useCallback(
+    (message: ServerMessage) => {
+      if (message.type === "system.runs" && message.data.event !== "reordered")
+        void queryClient.invalidateQueries({ queryKey: queryKeys.mission });
+    },
+    [queryClient],
+  );
+  useChannel(channels.system, onMessage);
+  return query;
 }
 
 export function useQueue(initial?: QueueDto) {
