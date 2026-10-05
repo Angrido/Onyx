@@ -40,6 +40,24 @@ describe("readable errors", () => {
     expect(explainError("Database locked", 500).fix).toContain("onyx-status");
   });
 
+  it("explains a branch that does not exist on GitHub", () => {
+    const refused = explainError(
+      "The branch onyx/automated does not exist on Angrido/Onyx: leave the field empty to clone main, or pick one of main, dev",
+      400,
+      translator("it"),
+    );
+    expect(refused).toEqual({
+      message: "Il branch onyx/automated non esiste su Angrido/Onyx.",
+      fix: "Lascia il branch predefinito (main) o scegline uno dall'elenco.",
+    });
+    const cloned = explainError(
+      "Cloning into '/root/Onyx/.onyx-data/projects/Onyx'...\nfatal: Remote branch onyx/automated not found in upstream origin",
+      null,
+    );
+    expect(cloned.message).toBe("The branch onyx/automated does not exist on GitHub.");
+    expect(cloned.fix).toBe("Keep the default branch or pick one from the list.");
+  });
+
   it("passes unknown messages through", () => {
     expect(explainError("Something specific", 400)).toEqual({
       message: "Something specific",

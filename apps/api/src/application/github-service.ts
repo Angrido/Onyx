@@ -6,6 +6,7 @@ import {
   type CloneJobDto,
   type CloneJobState,
   type GitHubAccountDto,
+  type GitHubBranchListResponse,
   type GitHubRepoDto,
   type GitHubRepoListResponse,
   type GitHubTokenSource,
@@ -189,6 +190,38 @@ export class GitHubService {
     return this.accountInfo();
   }
 
+  async branches(fullName: string): Promise<GitHubBranchListResponse> {
+    const resolved = await this.resolveToken();
+    const token = resolved?.token ?? null;
+    try {
+      const repo = await this.deps.client.repo(fullName, token);
+      const listed = await this.deps.client.branches(repo.full_name, token);
+      const branches = [
+        repo.default_branch,
+        ...listed.names.filter((name) => name !== repo.default_branch).sort(),
+      ];
+      return {
+        fullName: repo.full_name,
+        defaultBranch: repo.default_branch,
+        branches,
+        truncated: listed.truncated,
+      };
+    } catch (error) {
+      throw toAppError(error);
+    }
+  }
+
+  private async checkBranch(repo: GitHubRepo, branch: string, token: string | null): Promise<void> {
+    if (branch === repo.default_branch) return;
+    const listed = await this.deps.client.branches(repo.full_name, token).catch(() => null);
+    if (!listed || listed.truncated || listed.names.includes(branch)) return;
+    const others = listed.names.filter((name) => name !== repo.default_branch).slice(0, 4);
+    const choices = [repo.default_branch, ...others].join(", ");
+    throw badRequest(
+      `The branch ${branch} does not exist on ${repo.full_name}: leave the field empty to clone ${repo.default_branch}, or pick one of ${choices}`,
+    );
+  }
+
   async repos(owner: string | undefined, refresh: boolean): Promise<GitHubRepoListResponse> {
     const resolved = await this.resolveToken();
     if (!owner && !resolved) {
@@ -229,6 +262,7 @@ export class GitHubService {
     } catch (error) {
       throw toAppError(error);
     }
+    if (input.branch) await this.checkBranch(repo, input.branch, resolved?.token ?? null);
     const name = input.name ?? projectNameFor(repo.name);
     const projectsDir = this.deps.config.projectsDir;
     const targetPath = join(projectsDir, name);

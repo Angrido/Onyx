@@ -4,6 +4,7 @@ import type {
   CloneJobDto,
   GitHubAccountDto,
   GitHubRepoDto,
+  GitHubBranchListResponse,
   GitHubRepoListResponse,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,10 +30,11 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { GitHubMark } from "@/components/ui/github-mark";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/form-controls";
+import { Field, Input, Select } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { errorText, explainError } from "@/lib/errors";
 import { GITHUB_TOKEN_URL, filterRepos, formatRepoSize, projectNameFor } from "@/lib/github";
 import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
@@ -322,7 +324,9 @@ function ImportProgress({ job }: { job: CloneJobDto }) {
         </div>
       ) : null}
       <p className="font-mono text-[11px] text-muted-foreground">{job.targetPath}</p>
-      {job.error ? <p className="text-xs text-destructive">{job.error}</p> : null}
+      {job.error ? (
+        <p className="text-xs text-destructive">{errorText(explainError(job.error, null, t))}</p>
+      ) : null}
     </div>
   );
 }
@@ -356,6 +360,18 @@ export function GitHubImport({
         `/api/github/repos${owner ? `?owner=${encodeURIComponent(owner)}` : ""}`,
       ),
     enabled: browsing && account.isSuccess,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const branches = useQuery({
+    queryKey: queryKeys.githubBranches(selected?.fullName ?? ""),
+    queryFn: () => {
+      const [repoOwner = "", repoName = ""] = (selected?.fullName ?? "").split("/");
+      return api.get<GitHubBranchListResponse>(
+        `/api/github/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/branches`,
+      );
+    },
+    enabled: selected !== null && selected.importedProjectId === null,
     retry: false,
     staleTime: 60_000,
   });
@@ -518,14 +534,40 @@ export function GitHubImport({
                 required
               />
             </Field>
-            <Field label={t("Branch")} htmlFor="import-branch">
-              <Input
-                id="import-branch"
-                className="font-mono text-xs"
-                placeholder={selected.defaultBranch}
-                value={branch}
-                onChange={(event) => setBranch(event.target.value)}
-              />
+            <Field
+              label={t("Branch to clone")}
+              htmlFor="import-branch"
+              hint={t("Onyx creates the branches agents work on by itself.")}
+            >
+              {branches.isError ? (
+                <Input
+                  id="import-branch"
+                  className="font-mono text-xs"
+                  placeholder={selected.defaultBranch}
+                  value={branch}
+                  onChange={(event) => setBranch(event.target.value)}
+                />
+              ) : (
+                <Select
+                  id="import-branch"
+                  className="font-mono text-xs"
+                  value={branch || selected.defaultBranch}
+                  disabled={!branches.data}
+                  onChange={(event) =>
+                    setBranch(
+                      event.target.value === selected.defaultBranch ? "" : event.target.value,
+                    )
+                  }
+                >
+                  {(branches.data?.branches ?? [selected.defaultBranch]).map((entry) => (
+                    <option key={entry} value={entry}>
+                      {entry === selected.defaultBranch
+                        ? t("{branch} (default)", { branch: entry })
+                        : entry}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </Field>
             <Button type="submit" disabled={start.isPending || running}>
               {start.isPending || running ? <Loader2 className="animate-spin" /> : <Download />}
