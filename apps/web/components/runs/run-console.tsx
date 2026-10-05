@@ -4,6 +4,7 @@ import type {
   BlockedCommandsResponse,
   RunDto,
   RunEventsResponse,
+  RunStatus,
   ServerMessage,
 } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
@@ -18,6 +19,7 @@ import { FeedEntryView } from "@/components/runs/feed-entry";
 import { ModelBadge, RunStatusBadge } from "@/components/tasks/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
@@ -34,6 +36,7 @@ import {
   type FeedState,
 } from "@/lib/run-feed";
 import { cacheNote, runSaving } from "@/lib/savings";
+import type { GlossaryId } from "@/lib/glossary";
 import { tierOfModel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
@@ -68,21 +71,29 @@ function useElapsed(startedAt: string, endedAt: string | null, running: boolean)
   return Math.max(0, end - new Date(startedAt).getTime());
 }
 
+export interface RunLiveState {
+  status: RunStatus;
+  tool: string | null;
+}
+
 function Metric({
   label,
   value,
   className,
   title,
+  term,
 }: {
   label: string;
   value: string;
   className?: string | undefined;
   title?: string;
+  term?: GlossaryId;
 }) {
   return (
     <div className={cn("min-w-0", className)} title={title}>
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <p className="flex min-h-6 items-center gap-0.5 text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">
         {label}
+        {term ? <HelpTip term={term} /> : null}
       </p>
       <p className="tabular truncate text-sm font-semibold">{value}</p>
     </div>
@@ -94,11 +105,13 @@ export function RunConsole({
   blocked = null,
   events = null,
   className,
+  onLive,
 }: {
   run: RunDto;
   blocked?: BlockedCommandsResponse | null;
   events?: RunEventsResponse | null;
   className?: string;
+  onLive?: (state: RunLiveState) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -147,6 +160,10 @@ export function RunConsole({
 
   const status = feed.status ?? run.status;
   const terminal = isTerminal(status);
+  const tool = activeTool({ entries: feed.entries, status });
+  useEffect(() => {
+    onLive?.({ status, tool });
+  }, [onLive, status, tool]);
   const wasTerminal = useRef(isTerminal(run.status));
   useEffect(() => {
     if (terminal && !wasTerminal.current) {
@@ -191,12 +208,7 @@ export function RunConsole({
     <Card className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
       <div className="space-y-4 border-b border-border px-5 py-4">
         <div className="flex items-center gap-4">
-          <AgentOrb
-            tier={tierOfModel(model)}
-            status={status}
-            tool={activeTool({ entries: feed.entries, status })}
-            size={44}
-          />
+          <AgentOrb tier={tierOfModel(model)} status={status} tool={tool} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <ModelBadge modelId={model} />
@@ -228,14 +240,25 @@ export function RunConsole({
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-3 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-7">
-          <Metric label={t("Input")} value={formatTokens(usage.inputTokens)} />
-          <Metric label={t("Output")} value={formatTokens(usage.outputTokens)} />
-          <Metric label={t("Cache read")} value={formatTokens(usage.cacheReadTokens)} />
-          <Metric label={t("Window")} value={formatTokens(feedContextTokens(feed))} />
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-4 xl:grid-cols-7">
+          <Metric label={t("Tokens sent")} term="token" value={formatTokens(usage.inputTokens)} />
+          <Metric label={t("Tokens written")} value={formatTokens(usage.outputTokens)} />
           <Metric
+            label={t("Reread from cache")}
+            term="cache"
+            value={formatTokens(usage.cacheReadTokens)}
+          />
+          <Metric
+            label={t("Conversation size")}
+            term="session"
+            value={formatTokens(feedContextTokens(feed))}
+          />
+          <Metric
+            term="context"
             label={
-              saving.kind === "estimate" && saving.net !== null ? t("Net context") : t("Context")
+              saving.kind === "estimate" && saving.net !== null
+                ? t("Context saved, net")
+                : t("Context saved")
             }
             title={t(
               "Context tokens with Onyx compared with reading the target files and their dependencies in full: negative is fewer tokens. Net subtracts the files read again. Estimate.",
@@ -252,7 +275,11 @@ export function RunConsole({
             }
           />
           <Metric label={t("Cost")} value={formatUsd(costUsd)} />
-          <Metric label={t("Elapsed")} value={formatDuration(elapsed)} />
+          <Metric label={t("Duration")} value={formatDuration(elapsed)} />
+          <p className="col-span-full flex items-center gap-0.5 text-xs text-muted-foreground">
+            {t("Tokens count towards your Claude limits.")}
+            <HelpTip term="limits" />
+          </p>
         </div>
         {saving.kind === "control" ? (
           <p

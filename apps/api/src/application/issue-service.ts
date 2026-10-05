@@ -10,13 +10,18 @@ import type { Logger } from "pino";
 import type { z } from "zod";
 import { issueExcerpt, issuePrompt, issueTitle, kindFromLabels } from "../domain/pull-requests";
 import { badRequest } from "../errors";
-import { GitHubError, type GitHubClient, type GitHubIssue } from "../infrastructure/github-client";
+import {
+  GITHUB_FAILURE_KEYS,
+  GitHubError,
+  type GitHubClient,
+  type GitHubIssue,
+} from "../infrastructure/github-client";
 import type { GitHubService } from "./github-service";
 import type { GitService } from "./git-service";
 import type { IndexService } from "./index-service";
 import type { TaskService } from "./task-service";
 import { githubFailure } from "./pull-request-service";
-import { tx } from "../i18n";
+import { tx, txKnown } from "../i18n";
 
 type ImportInput = z.output<typeof ImportIssuesRequestSchema>;
 
@@ -94,7 +99,10 @@ export class IssueService {
       } catch (error) {
         skipped.push({
           number,
-          reason: error instanceof GitHubError ? error.message : tx("GitHub could not be reached"),
+          reason:
+            error instanceof GitHubError
+              ? txKnown(error.message, GITHUB_FAILURE_KEYS)
+              : tx("GitHub could not be reached"),
         });
         continue;
       }

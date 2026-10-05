@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { interpolate, msg } from "../i18n";
 
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com";
 
@@ -123,6 +124,19 @@ export interface GitHubClientOptions {
 
 const PAGE_SIZE = 100;
 
+const FAILURE = {
+  token: msg("GitHub rejected the token: it is wrong, expired or revoked"),
+  rateLimit: msg("GitHub rate limit reached: try again later"),
+  rateLimitToken: msg("GitHub rate limit reached: connect a token to raise the limit"),
+  notFound: msg("Not found on GitHub, or the token cannot see it"),
+  pullRequests: msg(
+    "The GitHub token cannot do this: it needs Pull requests read and write on this repository",
+  ),
+  unreachable: msg("GitHub is unreachable from this machine ({error})"),
+} as const;
+
+export const GITHUB_FAILURE_KEYS: readonly string[] = Object.values(FAILURE);
+
 function describeFailure(status: number, body: string, authenticated: boolean): string {
   let message = "";
   try {
@@ -133,15 +147,12 @@ function describeFailure(status: number, body: string, authenticated: boolean): 
   } catch {
     message = body.slice(0, 200);
   }
-  if (status === 401) return "GitHub rejected the token: it is wrong, expired or revoked";
+  if (status === 401) return FAILURE.token;
   if (status === 403 && /rate limit/i.test(message))
-    return authenticated
-      ? "GitHub rate limit reached: try again later"
-      : "GitHub rate limit reached: connect a token to raise the limit";
-  if (status === 429) return "GitHub rate limit reached: try again later";
-  if (status === 404) return "Not found on GitHub, or the token cannot see it";
-  if (status === 403 && /resource not accessible/i.test(message))
-    return "The GitHub token cannot do this: it needs Pull requests read and write on this repository";
+    return authenticated ? FAILURE.rateLimit : FAILURE.rateLimitToken;
+  if (status === 429) return FAILURE.rateLimit;
+  if (status === 404) return FAILURE.notFound;
+  if (status === 403 && /resource not accessible/i.test(message)) return FAILURE.pullRequests;
   const details = validationDetails(body);
   return `GitHub responded ${status}${message ? `: ${message}` : ""}${details ? ` (${details})` : ""}`;
 }
@@ -327,7 +338,9 @@ export class GitHubClient {
     } catch (error) {
       throw new GitHubError(
         502,
-        `GitHub is unreachable from this machine (${error instanceof Error ? error.message : String(error)})`,
+        interpolate(FAILURE.unreachable, {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
     const text = await response.text();

@@ -2,6 +2,7 @@
 
 import type { HealthCheckDto, ProjectHealth, ProjectHealthReport } from "@onyx/contracts";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { CircleAlert, CircleCheck, CircleX, Loader2, RefreshCw, Stethoscope } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { useT } from "@/lib/i18n/client";
-import { HEALTH_STYLES } from "@/lib/mission";
+import { HEALTH_STYLES, globalIssues } from "@/lib/mission";
 import { HEALTH_CHECK_LABELS, HEALTH_LEVEL_LABELS, checksSummary } from "@/lib/system";
 import { cn } from "@/lib/utils";
 
@@ -26,12 +27,43 @@ export function HealthIcon({ level, className }: { level: ProjectHealth; classNa
 }
 
 export function HealthLights({ checks }: { checks: readonly HealthCheckDto[] }) {
+  const t = useT();
+  const label = checks
+    .map((check) => `${t(HEALTH_CHECK_LABELS[check.id])}: ${t(HEALTH_LEVEL_LABELS[check.level])}`)
+    .join(", ");
   return (
-    <span className="inline-flex items-center gap-0.5" aria-hidden>
+    <span className="inline-flex items-center gap-0.5" role="img" aria-label={label} title={label}>
       {checks.map((check) => (
         <HealthIcon key={check.id} level={check.level} />
       ))}
     </span>
+  );
+}
+
+export function GlobalIssuesNote({ checks }: { checks: readonly HealthCheckDto[] }) {
+  const t = useT();
+  const issues = globalIssues(checks);
+  if (issues.length === 0) return null;
+  return (
+    <p
+      className="flex min-w-0 items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
+      data-testid="global-issues-note"
+    >
+      <HealthIcon level={issues[0]?.level ?? "ATTENTION"} className="mt-px" />
+      <span className="min-w-0">
+        {issues.length === 1
+          ? t("1 problem affects every project, not only this one:")
+          : t("{count} problems affect every project, not only this one:", {
+              count: issues.length,
+            })}{" "}
+        <span className="text-muted-foreground">
+          {issues.map((issue) => issue.reason).join(" · ")}
+        </span>{" "}
+        <Link href="/#global-health" className="text-primary underline-offset-2 hover:underline">
+          {t("See it in Mission control")}
+        </Link>
+      </span>
+    </p>
   );
 }
 
@@ -103,8 +135,9 @@ export function ProjectHealthCard({ initial }: { initial: ProjectHealthReport })
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         <HealthCheckList checks={data.checks} className="grid gap-3 space-y-0 sm:grid-cols-2" />
+        <GlobalIssuesNote checks={data.globalChecks} />
       </CardContent>
     </Card>
   );

@@ -32,8 +32,7 @@ export interface DiskFacts {
   error: string | null;
 }
 
-export interface CredentialFacts {
-  claude: boolean;
+export interface GitHubFacts {
   githubRemote: boolean;
   githubToken: boolean;
 }
@@ -237,33 +236,25 @@ export function diskCheck(disks: readonly DiskFacts[]): HealthFinding {
   return { id: "disk", level, message: msg("{free} free ({percent}%)"), params };
 }
 
-export function credentialsCheck(facts: CredentialFacts): HealthFinding {
-  const missingGitHub = facts.githubRemote && !facts.githubToken;
-  if (!facts.claude && missingGitHub)
-    return {
-      id: "credentials",
-      level: "ATTENTION",
-      message: msg("No Claude account and no GitHub token: add them in Settings"),
-    };
-  if (!facts.claude)
-    return {
-      id: "credentials",
-      level: "ATTENTION",
-      message: msg("No Claude account connected: sign in from Settings"),
-    };
-  if (missingGitHub)
-    return {
-      id: "credentials",
-      level: "ATTENTION",
-      message: msg("The project has a GitHub remote but no GitHub token: add one in Settings"),
-    };
-  return facts.githubRemote
-    ? {
-        id: "credentials",
-        level: "OK",
-        message: msg("Claude account and GitHub token are set"),
-      }
-    : { id: "credentials", level: "OK", message: msg("Claude account connected") };
+export function claudeCheck(connected: boolean): HealthFinding {
+  return connected
+    ? { id: "claude", level: "OK", message: msg("Claude account connected") }
+    : {
+        id: "claude",
+        level: "ATTENTION",
+        message: msg("Claude is not connected: agents cannot start"),
+      };
+}
+
+export function githubCheck(facts: GitHubFacts): HealthFinding | null {
+  if (!facts.githubRemote) return null;
+  return facts.githubToken
+    ? { id: "github", level: "OK", message: msg("GitHub token set") }
+    : {
+        id: "github",
+        level: "ATTENTION",
+        message: msg("The project has a GitHub remote but no GitHub token: add one in Settings"),
+      };
 }
 
 export function ruleCommand(rule: string): string | null {

@@ -1,4 +1,12 @@
+import { interpolate, msg } from "../../i18n";
+
 export type TddStage = "run" | "related" | "full" | "typecheck" | "lint";
+
+export const STOP_REASON = {
+  budget: msg("The loop budget of ${budget} is spent (${spent})"),
+  exhausted: msg("Still failing after {count} fix attempts (limit {limit})"),
+  stalled: msg("The same failures came back {count} times in a row after the escalation"),
+} as const;
 
 export const STAGE_RANK: Readonly<Record<TddStage, number>> = {
   run: 0,
@@ -74,21 +82,27 @@ export function decideNext(
     return {
       action: "stop",
       status: "ABORTED",
-      reason: `The loop budget of $${limits.budgetUsd.toFixed(2)} is spent ($${limits.spentUsd.toFixed(4)})`,
+      reason: interpolate(STOP_REASON.budget, {
+        budget: limits.budgetUsd.toFixed(2),
+        spent: limits.spentUsd.toFixed(4),
+      }),
     };
   }
   if (progress.fixes >= limits.maxIterations) {
     return {
       action: "stop",
       status: "EXHAUSTED",
-      reason: `Still failing after ${progress.fixes} fix attempts (limit ${limits.maxIterations})`,
+      reason: interpolate(STOP_REASON.exhausted, {
+        count: progress.fixes,
+        limit: limits.maxIterations,
+      }),
     };
   }
   if (progress.escalated && progress.sameSignatureStreak >= SAME_SIGNATURE_BEFORE_STALL) {
     return {
       action: "stop",
       status: "STALLED",
-      reason: `The same failures came back ${progress.sameSignatureStreak} times in a row after the escalation`,
+      reason: interpolate(STOP_REASON.stalled, { count: progress.sameSignatureStreak }),
     };
   }
   return {

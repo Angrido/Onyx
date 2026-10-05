@@ -31,6 +31,13 @@ import { cn } from "@/lib/utils";
 
 export type ProjectSource = "github" | "local";
 
+const SOURCE_HINTS: Record<ProjectSource, string> = {
+  github: msg(
+    "Onyx copies one of your repositories onto this server and keeps it linked to GitHub.",
+  ),
+  local: msg("Use a folder that is already on this server, for example one you cloned yourself."),
+};
+
 const SOURCES: Array<{ id: ProjectSource; label: string }> = [
   { id: "github", label: msg("From GitHub") },
   { id: "local", label: msg("Local folder") },
@@ -251,6 +258,9 @@ export function CreateProjectDialog({
               </button>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground" data-testid="project-source-hint">
+            {t(SOURCE_HINTS[source])}
+          </p>
           {source === "github" ? (
             <GitHubImport defaultWorkspaces={defaults} onImported={close} />
           ) : (

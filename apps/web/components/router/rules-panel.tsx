@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, Input, Label, Select, Textarea } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS } from "@/lib/domains";
@@ -418,6 +419,7 @@ export function RulesPanel({
           </CardTitle>
           <CardDescription>
             {t("The first enabled rule that matches decides the tier, before the heuristic runs.")}
+            <HelpTip term="tier" className="ml-1" />
           </CardDescription>
         </div>
         <Button size="sm" onClick={() => openEditor(null)}>

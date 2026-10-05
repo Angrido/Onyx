@@ -1,197 +1,33 @@
 "use client";
 
-import type { ApprovalListResponse, ServerMessage, UserDto } from "@onyx/contracts";
-import { channels } from "@onyx/contracts/client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  FolderGit2,
-  Gauge,
-  Inbox,
-  LayoutDashboard,
-  LayoutGrid,
-  LogOut,
-  PiggyBank,
-  Route,
-  ScrollText,
-  Search,
-  Settings,
-} from "lucide-react";
+import type { UserDto } from "@onyx/contracts";
+import { LogOut, Search } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { Wordmark } from "@/components/layout/brand";
-import { api } from "@/lib/api/client";
-import { queryKeys } from "@/lib/api/keys";
-import { formatPercent } from "@/lib/format";
+import { MobileNav } from "@/components/layout/mobile-nav";
+import {
+  ConnectionIndicator,
+  PendingBadge,
+  QuotaIndicator,
+  useLogout,
+  usePendingApprovals,
+} from "@/components/layout/nav-parts";
 import { useT } from "@/lib/i18n/client";
-import { msg } from "@/lib/i18n/core";
+import { APPROVALS_HREF, isActive, navSections } from "@/lib/nav";
 import { openCommandPalette } from "@/lib/palette";
-import { useQuota } from "@/lib/live";
-import { QUOTA_LEVEL_STYLES, isQuotaAlert, peakUtilization } from "@/lib/quota";
 import { cn } from "@/lib/utils";
-import { useChannel, useConnectionState } from "@/lib/ws/context";
-
-const NAV = [
-  { href: "/", label: msg("Mission control"), icon: LayoutDashboard, compact: true },
-  { href: "/projects", label: msg("Projects"), icon: FolderGit2, compact: true },
-  { href: "/agents", label: msg("Agent grid"), icon: LayoutGrid, compact: true },
-  { href: "/approvals", label: msg("Approvals"), icon: Inbox, compact: true },
-  { href: "/router", label: msg("Router"), icon: Route, compact: true },
-  { href: "/telemetry", label: msg("Telemetry"), icon: Activity, compact: true },
-  { href: "/savings", label: msg("Savings"), icon: PiggyBank, compact: true },
-  { href: "/logs", label: msg("Logs"), icon: ScrollText, compact: false },
-  { href: "/settings", label: msg("Settings"), icon: Settings, compact: true },
-] as const;
-
-function isActive(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
-}
-
-const CONNECTION_STYLES = {
-  open: { dot: "bg-success", label: msg("Live") },
-  connecting: { dot: "bg-warning animate-pulse", label: msg("Connecting") },
-  closed: { dot: "bg-destructive", label: msg("Offline") },
-} as const;
-
-function usePendingApprovals(): number {
-  const queryClient = useQueryClient();
-  const { data = 0 } = useQuery({
-    queryKey: queryKeys.approvalsPending,
-    queryFn: () =>
-      api
-        .get<ApprovalListResponse>("/api/approvals?status=PENDING&limit=1")
-        .then((page) => page.pending),
-  });
-  const onMessage = useCallback(
-    (message: ServerMessage) => {
-      if (message.type === "approvals.changed")
-        queryClient.setQueryData(queryKeys.approvalsPending, message.data.pending);
-    },
-    [queryClient],
-  );
-  useChannel(channels.system, onMessage);
-  return data;
-}
-
-function PendingDot({ count, compact }: { count: number; compact: boolean }) {
-  if (count === 0) return null;
-  return (
-    <motion.span
-      key={count}
-      initial={{ scale: 0.6, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      data-testid="approvals-badge"
-      className={cn(
-        "grid place-items-center rounded-full bg-warning font-semibold text-background",
-        compact
-          ? "absolute -right-0.5 -top-0.5 size-4 text-[9px]"
-          : "relative ml-auto h-5 min-w-5 px-1.5 text-[10px]",
-      )}
-    >
-      {count > 99 ? "99+" : count}
-    </motion.span>
-  );
-}
-
-const QUOTA_TEXT = {
-  neutral: "text-muted-foreground",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-destructive",
-} as const;
-
-function QuotaIndicator({ compact }: { compact: boolean }) {
-  const t = useT();
-  const { data: quota } = useQuota();
-  if (!quota || !isQuotaAlert(quota.level)) return null;
-  const style = QUOTA_LEVEL_STYLES[quota.level];
-  const peak = peakUtilization(quota);
-  const used = peak === null ? null : t("{percent} used", { percent: formatPercent(peak) });
-  const label = `${t("Claude limit: {status}", { status: t(style.label) })}${used === null ? "" : ` (${used})`}`;
-  if (compact)
-    return (
-      <Link
-        href="/telemetry#quota"
-        aria-label={label}
-        title={label}
-        data-testid="quota-indicator-compact"
-        className={cn("rounded-md p-1.5 min-[400px]:p-2", QUOTA_TEXT[style.tone])}
-      >
-        <Gauge className="size-4" />
-      </Link>
-    );
-  return (
-    <Link
-      href="/telemetry#quota"
-      data-testid="quota-indicator"
-      className={cn(
-        "flex items-center gap-2 rounded-md border border-border bg-surface-1/60 px-2.5 py-2 text-xs transition-colors hover:bg-surface-2",
-        QUOTA_TEXT[style.tone],
-      )}
-    >
-      <Gauge className="size-4 shrink-0" />
-      <span className="min-w-0">
-        <span className="block font-medium">{t(style.label)}</span>
-        <span className="block text-muted-foreground">
-          {t("Claude limit")}
-          {used === null ? "" : ` · ${used}`}
-        </span>
-      </span>
-    </Link>
-  );
-}
 
 export function Sidebar({ user }: { user: UserDto }) {
   const t = useT();
   const pathname = usePathname();
-  const router = useRouter();
-  const connection = CONNECTION_STYLES[useConnectionState()];
   const pending = usePendingApprovals();
-
-  async function logout() {
-    await api.post("/api/auth/logout");
-    router.replace("/login");
-    router.refresh();
-  }
+  const logout = useLogout();
 
   return (
     <>
-      <header className="glass sticky top-0 z-30 flex items-center gap-2 border-b border-border px-4 py-2.5 md:hidden">
-        <Wordmark condensed />
-        <nav className="ml-auto flex items-center">
-          {NAV.filter((item) => item.compact).map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-label={t(item.label)}
-              className={cn(
-                "relative rounded-md p-1.5 transition-colors min-[400px]:p-2",
-                isActive(pathname, item.href)
-                  ? "bg-surface-2 text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <item.icon className="size-4" />
-              {item.href === "/approvals" ? <PendingDot count={pending} compact /> : null}
-            </Link>
-          ))}
-        </nav>
-        <QuotaIndicator compact />
-        <span
-          className={cn("size-2 shrink-0 rounded-full", connection.dot)}
-          title={t(connection.label)}
-        />
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
-          aria-label={t("Sign out")}
-        >
-          <LogOut className="size-4" />
-        </button>
-      </header>
+      <MobileNav user={user} pending={pending} />
       <aside className="glass sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border px-3 py-5 md:flex">
         <div className="px-2">
           <Wordmark />
@@ -208,38 +44,57 @@ export function Sidebar({ user }: { user: UserDto }) {
             {"Ctrl K"}
           </kbd>
         </button>
-        <nav className="mt-4 flex flex-col gap-1">
-          {NAV.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
+        <nav
+          aria-label={t("Main navigation")}
+          className="-mx-1 mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-4"
+        >
+          {navSections().map(({ section, items }) => (
+            <div key={section.id}>
+              <p
+                id={`nav-section-${section.id}`}
+                className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
               >
-                {active ? (
-                  <motion.span
-                    layoutId="nav-active"
-                    className="absolute inset-0 rounded-md border border-border-strong bg-surface-2"
-                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                  />
-                ) : null}
-                <item.icon className="relative size-4" />
-                <span className="relative">{t(item.label)}</span>
-                {item.href === "/approvals" ? <PendingDot count={pending} compact={false} /> : null}
-              </Link>
-            );
-          })}
+                {t(section.label)}
+              </p>
+              <ul aria-labelledby={`nav-section-${section.id}`} className="flex flex-col gap-0.5">
+                {items.map((item) => {
+                  const active = isActive(pathname, item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        title={t(item.description)}
+                        aria-current={active ? "page" : undefined}
+                        className={cn(
+                          "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                          active
+                            ? "text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {active ? (
+                          <motion.span
+                            layoutId="nav-active"
+                            className="absolute inset-0 rounded-md border border-border-strong bg-surface-2"
+                            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                          />
+                        ) : null}
+                        <item.icon className="relative size-4" aria-hidden="true" />
+                        <span className="relative">{t(item.label)}</span>
+                        {item.href === APPROVALS_HREF ? (
+                          <PendingBadge count={pending} compact={false} />
+                        ) : null}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
-        <div className="mt-auto space-y-3 px-2">
+        <div className="space-y-3 px-2">
           <QuotaIndicator compact={false} />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className={cn("size-2 rounded-full", connection.dot)} />
-            {t(connection.label)}
-          </div>
+          <ConnectionIndicator />
           <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-3 py-2">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{user.username}</p>

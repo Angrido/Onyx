@@ -49,10 +49,9 @@ export default async function ProjectsPage({
   return (
     <>
       <PageHeader
-        eyebrow={t("Workspace")}
         title={t("Projects")}
         description={t(
-          "Repositories Onyx can orchestrate. Each project is split into domain workspaces with their own sessions.",
+          "The code folders Onyx works on. Each project is split into areas, the workspaces, so that every agent works on its own files.",
         )}
         actions={header}
       />

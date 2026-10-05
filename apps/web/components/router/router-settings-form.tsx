@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent } from "@/lib/format";
@@ -191,8 +192,9 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
           </label>
         </div>
         <div className="space-y-2">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <p className="flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {t("Tier models")}
+            <HelpTip term="tier" />
           </p>
           <div className="flex flex-wrap gap-2">
             {MODEL_TIERS.map((tier) => {

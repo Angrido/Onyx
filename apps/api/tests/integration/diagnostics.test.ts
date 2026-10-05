@@ -1,6 +1,7 @@
 import type {
   DiagnosticsBundle,
   LogListResponse,
+  MissionControlDto,
   ProjectDetailDto,
   ProjectHealthReport,
 } from "@onyx/contracts";
@@ -74,20 +75,16 @@ describe("system endpoints need the console session", () => {
 });
 
 describe("project health", () => {
-  it("returns every check with an overall level", async () => {
+  it("returns the project checks with an overall level and the shared checks apart", async () => {
     const { status, body } = await api.get<ProjectHealthReport>(
       `/api/projects/${project.id}/health`,
     );
     expect(status).toBe(200);
     expect(body.projectId).toBe(project.id);
-    expect(body.checks.map((check) => check.id)).toEqual([
-      "index",
-      "git",
-      "tests",
-      "disk",
-      "credentials",
-    ]);
-    expect(body.checks.find((check) => check.id === "credentials")).toMatchObject({
+    expect(body.checks.map((check) => check.id).slice(0, 3)).toEqual(["index", "git", "tests"]);
+    expect(body.checks.map((check) => check.id)).not.toContain("claude");
+    expect(body.globalChecks.map((check) => check.id)).toEqual(["claude", "disk"]);
+    expect(body.globalChecks.find((check) => check.id === "claude")).toMatchObject({
       level: "OK",
       reason: "Claude account connected",
     });
@@ -109,11 +106,11 @@ describe("project health", () => {
     expect((await api.get("/api/projects/missing/health")).status).toBe(404);
   });
 
-  it("shows the checks on the mission control card", async () => {
-    const { body } = await api.get<{ projects: { id: string; checks: { id: string }[] }[] }>(
-      "/api/mission-control",
-    );
-    expect(body.projects.find((entry) => entry.id === project.id)?.checks).toHaveLength(5);
+  it("shows the project checks on the mission control card and the shared ones once", async () => {
+    const { body } = await api.get<MissionControlDto>("/api/mission-control");
+    const card = body.projects.find((entry) => entry.id === project.id);
+    expect(card?.checks.map((check) => check.id)).not.toContain("claude");
+    expect(body.globalChecks.map((check) => check.id)).toEqual(["claude", "disk"]);
   });
 });
 

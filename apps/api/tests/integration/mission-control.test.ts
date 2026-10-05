@@ -57,6 +57,7 @@ describe("mission control", () => {
     const first = before.projects.find((project) => project.id === repo.id);
     expect(first?.git).toMatchObject({ isRepo: true, branch: "main", changeCount: 1, error: null });
     expect(first?.health).toBe("OK");
+    expect(before.globalChecks.find((check) => check.id === "claude")?.level).toBe("OK");
     expect(before.projects.find((project) => project.id === plain.id)).toMatchObject({
       health: "ATTENTION",
       reasons: ["Not a git repository"],
@@ -96,5 +97,48 @@ describe("mission control", () => {
     expect(after.today.runs).toBe(1);
     expect(updated?.running).toBe(0);
     expect(after.maxConcurrent).toBe(2);
+  });
+});
+
+describe("mission control without a Claude account", () => {
+  let bare: TestContext;
+  let bareApi: ApiClient;
+
+  beforeAll(async () => {
+    bare = await createTestContext({
+      diskSpace: async () => ({ bavail: 900, blocks: 1_000, bsize: 1024 ** 3 }),
+    });
+    execFileSync("git", ["init", "--quiet", "--initial-branch=main"], { cwd: bare.projectRoot });
+    for (const args of [
+      ["add", "-A"],
+      ["commit", "--quiet", "-m", "init"],
+    ])
+      execFileSync("git", ["-c", "user.email=t@onyx", "-c", "user.name=t", ...args], {
+        cwd: bare.projectRoot,
+      });
+    bareApi = apiClient(bare.app, await authenticate(bare.app));
+  });
+
+  afterAll(async () => {
+    await destroyTestContext(bare);
+  });
+
+  it("reports the missing account once instead of on every project", async () => {
+    const first = (
+      await bareApi.post<ProjectDetailDto>("/api/projects", {
+        name: "one",
+        rootPath: bare.projectRoot,
+      })
+    ).body;
+    await bare.container.indexes.idle(first.id);
+    const { body } = await bareApi.get<MissionControlDto>("/api/mission-control");
+    expect(body.globalChecks.find((check) => check.id === "claude")).toMatchObject({
+      level: "ATTENTION",
+      reason: "Claude is not connected: agents cannot start",
+    });
+    const card = body.projects.find((project) => project.id === first.id);
+    expect(card?.health).toBe("OK");
+    expect(card?.reasons).toEqual([]);
+    expect(card?.checks.map((check) => check.id)).not.toContain("claude");
   });
 });

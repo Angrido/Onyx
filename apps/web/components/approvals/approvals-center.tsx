@@ -12,12 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { useT } from "@/lib/i18n/client";
 import { msg, type Translate } from "@/lib/i18n/core";
 import { APPROVAL_KIND_LABELS, APPROVAL_KIND_TONES, sortApprovals } from "@/lib/orchestration";
+import { APPROVAL_GROUP_TITLES, approvalOutcome, groupApprovals } from "@/lib/plan-guide";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
 
@@ -50,6 +52,7 @@ function PendingApproval({ approval }: { approval: ApprovalDto }) {
   const t = useT();
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
+  const outcome = approvalOutcome(approval);
   const decide = useMutation({
     mutationFn: (decision: "approve" | "reject") =>
       api.post<ApprovalDto>(`/api/approvals/${approval.id}/${decision}`, {
@@ -95,6 +98,16 @@ function PendingApproval({ approval }: { approval: ApprovalDto }) {
           {approval.detail ? (
             <p className="text-sm leading-relaxed text-muted-foreground">{approval.detail}</p>
           ) : null}
+          <ul className="space-y-1 text-xs" data-testid="approval-outcome">
+            <li className="flex gap-1.5">
+              <Check className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden="true" />
+              <span>{t(outcome.approve)}</span>
+            </li>
+            <li className="flex gap-1.5 text-muted-foreground">
+              <X className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>{t(outcome.reject)}</span>
+            </li>
+          </ul>
           {approval.files.length > 0 ? (
             <ul className="space-y-1">
               {approval.files.map((file) => (
@@ -206,9 +219,10 @@ export function ApprovalsCenter({ initial }: { initial: ApprovalListResponse }) 
   return (
     <div className="space-y-8">
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">
+        <h2 className="flex items-center gap-0.5 text-sm font-semibold tracking-tight">
           {t("Waiting for you")}
           {pending.length > 0 ? ` · ${pending.length}` : ""}
+          <HelpTip term="approval" />
         </h2>
         {pending.length === 0 ? (
           <Card>
@@ -223,12 +237,27 @@ export function ApprovalsCenter({ initial }: { initial: ApprovalListResponse }) 
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-3">
-            <AnimatePresence initial={false}>
-              {pending.map((approval) => (
-                <PendingApproval key={approval.id} approval={approval} />
-              ))}
-            </AnimatePresence>
+          <div className="space-y-6">
+            {groupApprovals(pending).map((group) => (
+              <section
+                key={group.kind}
+                className="space-y-3"
+                aria-labelledby={`approvals-${group.kind}`}
+                data-testid="approval-group"
+              >
+                <h3
+                  id={`approvals-${group.kind}`}
+                  className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                >
+                  {t(APPROVAL_GROUP_TITLES[group.kind])} · {group.items.length}
+                </h3>
+                <AnimatePresence initial={false}>
+                  {group.items.map((approval) => (
+                    <PendingApproval key={approval.id} approval={approval} />
+                  ))}
+                </AnimatePresence>
+              </section>
+            ))}
           </div>
         )}
       </section>

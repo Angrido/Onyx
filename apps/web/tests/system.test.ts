@@ -18,7 +18,7 @@ const CHECKS: HealthCheckDto[] = [
   { id: "git", level: "ATTENTION", reason: "2 commits behind origin/main" },
   { id: "tests", level: "ATTENTION", reason: "pnpm test cannot run" },
   { id: "disk", level: "ERROR", reason: "Almost no space left" },
-  { id: "credentials", level: "OK", reason: "Claude account connected" },
+  { id: "claude", level: "OK", reason: "Claude account connected" },
 ];
 
 describe("health checks", () => {

@@ -20,7 +20,7 @@ import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/form-controls";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { EmptyState } from "@/components/ui/skeleton";
-import { formatTokens, formatUsd } from "@/lib/format";
+import { formatUsd } from "@/lib/format";
 import { useT } from "@/lib/i18n/client";
 import { useMission } from "@/lib/live";
 import {
@@ -29,10 +29,14 @@ import {
   MISSION_FILTERS,
   MISSION_SORTS,
   SORT_LABELS,
+  activityLine,
   filterCounts,
   filterProjects,
   gitLine,
+  isQuiet,
+  lastTaskAt,
   sortProjects,
+  spendLine,
   type MissionFilter,
   type MissionSort,
 } from "@/lib/mission";
@@ -49,12 +53,56 @@ function Row({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   );
 }
 
+function ActiveTasks({ project }: { project: MissionProjectDto }) {
+  if (project.activeTasks.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-0.5">
+      {project.activeTasks.map((task) => (
+        <li key={task.taskId} className="truncate">
+          <Link
+            href={task.runId ? `/runs/${task.runId}` : `/tasks/${task.taskId}`}
+            className="text-primary hover:underline"
+          >
+            {task.title}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function IdleLine({ project }: { project: MissionProjectDto }) {
+  const t = useT();
+  const last = lastTaskAt(project);
+  return (
+    <span className="text-muted-foreground" data-testid="mission-idle">
+      {t("Inactive")}
+      {" · "}
+      {last ? (
+        <>
+          {t("last task")} <RelativeTime iso={last} />
+        </>
+      ) : (
+        t("no task yet")
+      )}
+      {project.openTasks === 1 ? ` · ${t("1 open task")}` : ""}
+      {project.openTasks > 1 ? ` · ${t("{count} open tasks", { count: project.openTasks })}` : ""}
+    </span>
+  );
+}
+
 function ProjectCard({ project }: { project: MissionProjectDto }) {
   const t = useT();
   const health = HEALTH_STYLES[project.health];
   const reasons = otherReasons(project);
+  const quiet = isQuiet(project);
+  const spend = spendLine(project, t);
   return (
-    <Card className="flex h-full flex-col gap-3 p-4" data-testid="mission-card">
+    <Card
+      className="flex h-full flex-col gap-3 p-4"
+      data-testid="mission-card"
+      data-quiet={quiet ? "true" : undefined}
+    >
       <div className="flex items-start justify-between gap-3">
         <Link
           href={`/projects/${project.id}`}
@@ -74,39 +122,18 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
           </span>
         </Row>
         <Row icon={<Bot />}>
-          <span>
-            {project.running > 0 ? (
-              <span className="font-medium text-foreground">
-                {t("{count} running", { count: project.running })}
+          {quiet ? (
+            <IdleLine project={project} />
+          ) : (
+            <>
+              <span className={project.running > 0 ? "font-medium" : "text-muted-foreground"}>
+                {activityLine(project, t)}
               </span>
-            ) : (
-              <span className="text-muted-foreground">{t("No agent running")}</span>
-            )}
-            {project.queued > 0 ? ` · ${t("{count} queued", { count: project.queued })}` : ""}
-            {project.runLimit !== null
-              ? ` · ${t("limit {count}", { count: project.runLimit })}`
-              : ""}
-            {project.openTasks === 1 ? ` · ${t("1 open task")}` : ""}
-            {project.openTasks > 1
-              ? ` · ${t("{count} open tasks", { count: project.openTasks })}`
-              : ""}
-          </span>
-          {project.activeTasks.length > 0 ? (
-            <ul className="mt-1 space-y-0.5">
-              {project.activeTasks.map((task) => (
-                <li key={task.taskId} className="truncate">
-                  <Link
-                    href={task.runId ? `/runs/${task.runId}` : `/tasks/${task.taskId}`}
-                    className="text-primary hover:underline"
-                  >
-                    {task.title}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+              <ActiveTasks project={project} />
+            </>
+          )}
         </Row>
-        {project.lastRun ? (
+        {!quiet && project.lastRun ? (
           <Row icon={<FolderGit2 />}>
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
               <RunStatusBadge status={project.lastRun.status} />
@@ -123,7 +150,7 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
             </div>
           </Row>
         ) : null}
-        {project.lastTdd ? (
+        {!quiet && project.lastTdd ? (
           <Row icon={<FlaskConical />}>
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
               <Badge tone={TDD_STATUS_TONES[project.lastTdd.status]}>
@@ -138,17 +165,13 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
             </div>
           </Row>
         ) : null}
-        <Row icon={<CircleDollarSign />}>
-          <span className="tabular">
-            {t("Today {cost} · {tokens} tokens", {
-              cost: formatUsd(project.today.costUsd),
-              tokens: formatTokens(project.today.tokens),
-            })}
-            <span className="text-muted-foreground">
-              {` · ${t("week {cost}", { cost: formatUsd(project.week.costUsd) })}`}
+        {spend ? (
+          <Row icon={<CircleDollarSign />}>
+            <span className="tabular" data-testid="mission-spend">
+              {spend}
             </span>
-          </span>
-        </Row>
+          </Row>
+        ) : null}
         {project.pendingApprovals > 0 ? (
           <Row icon={<Inbox />}>
             <Link href="/approvals" className="font-medium text-warning hover:underline">
@@ -176,8 +199,9 @@ function ProjectCard({ project }: { project: MissionProjectDto }) {
           <details className="group" data-testid="mission-checks">
             <summary className="-mx-1 flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               <HealthLights checks={project.checks} />
-              <span className="sr-only">{t("Health checks")}:</span>
-              <span className="min-w-0 truncate">{checksSummary(project.checks, t)}</span>
+              <span className="min-w-0 truncate">
+                {t("Health: {summary}", { summary: checksSummary(project.checks, t) })}
+              </span>
               <ChevronDown
                 className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180"
                 aria-hidden
@@ -282,7 +306,7 @@ export function MissionControl({
             )}
           >
             {t(FILTER_LABELS[entry])}
-            <span className="tabular opacity-80">{counts[entry]}</span>
+            <span className="tabular">{counts[entry]}</span>
           </button>
         ))}
       </div>

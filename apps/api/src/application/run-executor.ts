@@ -38,6 +38,7 @@ import { pendingRunOf } from "../domain/pending-run";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { classifyCacheLoss, DEFAULT_PROMPT_CACHE_TTL_MS, prefixHash } from "../domain/prompt-cache";
 import { lostSession, resolveRunOutcome } from "../domain/run-outcome";
+import { RUN_TEXT } from "../domain/run-texts";
 import { shouldEscalate, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import {
   auditReads,
@@ -48,6 +49,7 @@ import {
 } from "../domain/savings";
 import type { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, notFound } from "../errors";
+import { interpolate } from "../i18n";
 import type { EventWriter } from "../infrastructure/event-writer";
 import {
   buildMcpConfig,
@@ -425,9 +427,11 @@ export class RunExecutor {
         exitCode: exit.exitCode,
         signal: exit.signal,
         message: retryInNewSession
-          ? `${outcome.errorMessage ?? "Run failed"}. Claude Code no longer has this session: re-queued in a new one.`
+          ? interpolate(RUN_TEXT.newSession, { error: outcome.errorMessage ?? RUN_TEXT.runFailed })
           : followUp
-            ? `${outcome.errorMessage ?? "Run failed"}. Re-queued on a higher tier.`
+            ? interpolate(RUN_TEXT.higherTier, {
+                error: outcome.errorMessage ?? RUN_TEXT.runFailed,
+              })
             : outcome.errorMessage,
       }),
     );
@@ -1174,9 +1178,9 @@ export class RunExecutor {
         mcpEnabled,
         note:
           excludedTargets.length > 0
-            ? `Excluded by the context profile: ${excludedTargets.join(", ")}`
+            ? interpolate(RUN_TEXT.excluded, { files: excludedTargets.join(", ") })
             : targets.length === 0
-              ? "No target files: set target paths on the task or name files in the prompt"
+              ? RUN_TEXT.noTargets
               : null,
         arm,
       },

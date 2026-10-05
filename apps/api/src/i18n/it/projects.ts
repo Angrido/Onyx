@@ -58,4 +58,16 @@ export const PROJECTS: Record<string, string> = {
   Registering: "Registrazione",
   "No Claude credential: sign in or paste a token first":
     "Nessuna credenziale Claude: accedi o incolla prima un token",
+  "GitHub rejected the token: it is wrong, expired or revoked":
+    "GitHub ha rifiutato il token: è errato, scaduto o revocato",
+  "GitHub rate limit reached: try again later":
+    "Limite di richieste di GitHub raggiunto: riprova più tardi",
+  "GitHub rate limit reached: connect a token to raise the limit":
+    "Limite di richieste di GitHub raggiunto: connetti un token per alzare il limite",
+  "Not found on GitHub, or the token cannot see it":
+    "Non trovato su GitHub, oppure il token non può vederlo",
+  "The GitHub token cannot do this: it needs Pull requests read and write on this repository":
+    "Il token GitHub non può farlo: serve Pull requests in lettura e scrittura su questo repository",
+  "GitHub is unreachable from this machine ({error})":
+    "GitHub non è raggiungibile da questa macchina ({error})",
 };

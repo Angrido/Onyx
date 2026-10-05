@@ -5,6 +5,8 @@ import {
   type RuleMatcher,
 } from "@onyx/contracts";
 import picomatch from "picomatch";
+import { interpolate } from "../../i18n";
+import { RULE_REASON } from "./rationale";
 
 export interface RuleView {
   id: string;
@@ -47,18 +49,18 @@ export function matchRule(
 
   if (matcher.taskKinds && matcher.taskKinds.length > 0) {
     if (!matcher.taskKinds.includes(features.kind)) return null;
-    reasons.push(`kind ${features.kind}`);
+    reasons.push(interpolate(RULE_REASON.kind, { kind: features.kind }));
   }
   if (matcher.workspaceDomains && matcher.workspaceDomains.length > 0) {
     const domain = features.workspaceDomain;
     if (domain === null || !matcher.workspaceDomains.includes(domain)) return null;
-    reasons.push(`workspace ${domain}`);
+    reasons.push(interpolate(RULE_REASON.workspace, { workspace: domain }));
   }
   if (matcher.pathGlobs && matcher.pathGlobs.length > 0) {
     const isMatch = picomatch(matcher.pathGlobs, { dot: true });
     const hit = features.targets.find((path) => isMatch(path));
     if (hit === undefined) return null;
-    reasons.push(`path ${hit}`);
+    reasons.push(interpolate(RULE_REASON.path, { path: hit }));
   }
   if (matcher.keywordsAny && matcher.keywordsAny.length > 0) {
     const haystack = normalizedText(text);
@@ -66,19 +68,29 @@ export function matchRule(
       haystack.includes(normalizedText(keyword).trimEnd()),
     );
     if (hit === undefined) return null;
-    reasons.push(`keyword "${hit}"`);
+    reasons.push(interpolate(RULE_REASON.keyword, { keyword: hit }));
   }
   if (matcher.maxFilesTouched !== undefined) {
     if (features.filesTouched > matcher.maxFilesTouched) return null;
-    reasons.push(`${features.filesTouched} files ≤ ${matcher.maxFilesTouched}`);
+    reasons.push(
+      interpolate(RULE_REASON.files, {
+        count: features.filesTouched,
+        max: matcher.maxFilesTouched,
+      }),
+    );
   }
   if (matcher.maxBlastRadius !== undefined) {
     if (features.blastRadius > matcher.maxBlastRadius) return null;
-    reasons.push(`blast radius ${features.blastRadius} ≤ ${matcher.maxBlastRadius}`);
+    reasons.push(
+      interpolate(RULE_REASON.blastRadius, {
+        count: features.blastRadius,
+        max: matcher.maxBlastRadius,
+      }),
+    );
   }
   if (matcher.styleOnly !== undefined) {
     if (features.styleOnly !== matcher.styleOnly) return null;
-    reasons.push(matcher.styleOnly ? "style files only" : "not only style files");
+    reasons.push(matcher.styleOnly ? RULE_REASON.styleOnly : RULE_REASON.notStyleOnly);
   }
   return { rule, reasons };
 }

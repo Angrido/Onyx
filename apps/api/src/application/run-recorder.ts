@@ -11,6 +11,7 @@ import {
   type RunItemOf,
   type TokenUsage,
 } from "@onyx/contracts";
+import { localizeRunItems } from "../domain/run-texts";
 import type { EventWriter } from "../infrastructure/event-writer";
 import type { RunEventPublisher } from "../infrastructure/ws-hub";
 
@@ -217,6 +218,11 @@ export class RunRecorder {
       payload,
       ...(type === ONYX_EVENT_TYPE || type === ONYX_ITEMS_EVENT_TYPE ? {} : { items }),
     });
-    this.publisher.publishRunEvent(this.runId, this.seq, new Date().toISOString(), items);
+    this.publisher.publishRunEvent(
+      this.runId,
+      this.seq,
+      new Date().toISOString(),
+      localizeRunItems(items),
+    );
   }
 }

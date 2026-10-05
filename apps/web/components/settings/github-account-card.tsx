@@ -93,9 +93,6 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
             <Field
               label={data.connected ? t("Replace the token") : t("Personal access token")}
               htmlFor="settings-github-token"
-              hint={t(
-                "Fine-grained token with Contents read and write on the repositories Onyx works on (read-only is enough to clone, write is needed to push branches), plus Pull requests read and write to open pull requests and Issues, Checks and Commit statuses read to import issues and follow the checks.",
-              )}
             >
               <div className="flex gap-2">
                 <Input
@@ -117,6 +114,32 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
                 </Button>
               </div>
             </Field>
+            <div
+              className="space-y-1 text-xs text-muted-foreground"
+              data-testid="github-permissions"
+            >
+              <p>
+                {t(
+                  "Create a fine-grained token on the repositories Onyx works on, with these permissions:",
+                )}
+              </p>
+              <ul className="list-disc space-y-0.5 pl-5">
+                <li>
+                  <span className="font-medium text-foreground">{"Contents"}</span>{" "}
+                  {t("read and write: clone and push branches (read only is enough to clone)")}
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">{"Pull requests"}</span>{" "}
+                  {t("read and write: open pull requests")}
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">
+                    {"Issues, Checks, Commit statuses"}
+                  </span>{" "}
+                  {t("read only: import issues and follow the checks")}
+                </li>
+              </ul>
+            </div>
             <a
               href={GITHUB_TOKEN_URL}
               target="_blank"

@@ -1,6 +1,5 @@
 import type { OrchestrationDto, ProjectDetailDto } from "@onyx/contracts";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { PlanView } from "@/components/orchestration/plan-view";
@@ -27,13 +26,8 @@ export default async function PlanPage({
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href={`/projects/${project.id}`} className="hover:text-foreground">
-            ← {project.name}
-          </Link>
-        }
         title={t("Feature plan")}
-        description={plan.goal}
+        description={<span className="line-clamp-3 break-words">{plan.goal}</span>}
       />
       <PlanView initial={plan} />
     </>

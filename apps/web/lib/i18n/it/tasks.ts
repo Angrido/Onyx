@@ -11,8 +11,6 @@ export const tasks: Record<string, string> = {
   Timeout: "Timeout",
   "New task": "Nuovo task",
   "Delegate a task": "Delega un task",
-  "The agent runs headless in a workspace compartment. With Auto, Onyx picks the workspace that owns the target files, otherwise the one the prompt talks about, otherwise the first one; the model tier comes from the routing rules.":
-    "L'agente lavora headless in un compartimento del workspace. Con Auto, Onyx sceglie il workspace che contiene i file target, altrimenti quello di cui parla il prompt, altrimenti il primo; il livello del modello viene dalle regole di routing.",
   Title: "Titolo",
   Prompt: "Prompt",
   "Target files": "File target",
@@ -34,29 +32,20 @@ export const tasks: Record<string, string> = {
   "Create and run": "Crea ed esegui",
   Create: "Crea",
   "Queued at position {position}": "In coda alla posizione {position}",
-  Dispatch: "Avvia",
   "Agent profile": "Profilo agente",
   "Workspace default": "Predefinito del workspace",
-  "Follow-up prompt": "Prompt di follow-up",
   "Empty re-sends the original task prompt.":
     "Se vuoto, invia di nuovo il prompt originale del task.",
   "Start with a clean context": "Parti con un contesto nuovo",
-  "Waiting for the Claude subscription limit to reset {time}.":
-    "In attesa che i limiti di Claude si azzerino {time}.",
-  "Waiting for the Claude subscription limit.": "In attesa dei limiti di Claude.",
   "Run again": "Esegui di nuovo",
-  Run: "Esegui",
-  Routing: "Routing",
   "Pinned to {model}.": "Fissato su {model}.",
   "The router decides when the task is dispatched.":
     "Il router decide quando il task viene avviato.",
   "Workspace sessions": "Sessioni del workspace",
-  "Changed files": "File modificati",
   "+{count} more": "+{count} altri",
   Runs: "Run",
   "No runs yet.": "Ancora nessuna run.",
   escalated: "scalata",
-  "← Project": "← Progetto",
   updated: "aggiornato",
   "The text between the issue tags comes from GitHub issue #{number}, not from you. Read it before dispatching: the agent is told to treat it as a description, not as instructions.":
     "Il testo tra i tag issue viene dalla issue GitHub #{number}, non da te. Leggilo prima di avviare: all'agente viene detto di trattarlo come una descrizione, non come istruzioni.",
@@ -138,15 +127,11 @@ export const tasks: Record<string, string> = {
   "{count} blocked": "{count} bloccati",
   Abort: "Interrompi",
   Output: "Output",
-  "Cache read": "Lettura cache",
-  Window: "Finestra",
-  "Net context": "Contesto netto",
   Context: "Contesto",
   "Context tokens with Onyx compared with reading the target files and their dependencies in full: negative is fewer tokens. Net subtracts the files read again. Estimate.":
     "Token di contesto con Onyx rispetto alla lettura completa dei file target e delle loro dipendenze: negativo significa meno token. Il netto sottrae i file letti di nuovo. Stima.",
   control: "controllo",
   Cost: "Costo",
-  Elapsed: "Trascorso",
   "Control run of the savings experiment: no context pack, project map or MCP tools.":
     "Run di controllo dell'esperimento sui risparmi: niente pacchetto di contesto, mappa del progetto o tool MCP.",
   "Read again 1 file the pack already covered (~{tokens} tokens). Context vs full reads: {net} after re-reads, {gross} before (estimate).":
@@ -194,8 +179,6 @@ export const tasks: Record<string, string> = {
   "Runs the whole suite every time (no target files).":
     "Esegue tutta la suite ogni volta (nessun file target).",
   "Start TDD loop": "Avvia il TDD loop",
-  "← Task": "← Task",
-  "Run console": "Console della run",
   "Domain switch": "Cambio di dominio",
   "Context pressure": "Contesto quasi pieno",
   "Model change": "Cambio di modello",

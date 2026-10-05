@@ -39,3 +39,59 @@ export function tx(text: string, params?: Params): string {
 export function msg(text: string): string {
   return text;
 }
+
+export type KnownParams = Readonly<Record<string, (value: string) => string>>;
+
+const knownPatterns = new Map<string, { pattern: RegExp; names: string[] }>();
+
+function knownPattern(key: string): { pattern: RegExp; names: string[] } {
+  const cached = knownPatterns.get(key);
+  if (cached) return cached;
+  const names: string[] = [];
+  const source = key
+    .split(/(\{\w+\})/)
+    .map((part, index) => {
+      const name = /^\{(\w+)\}$/.exec(part)?.[1];
+      if (name === undefined) return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      names.push(name);
+      if (name === "count") return "(-?\\d+)";
+      return index === 1 && key.startsWith("{") ? "([\\s\\S]*)" : "([\\s\\S]*?)";
+    })
+    .join("");
+  const entry = { pattern: new RegExp(`^${source}$`), names };
+  knownPatterns.set(key, entry);
+  return entry;
+}
+
+function translateKnown(text: string, keys: readonly string[], own: KnownParams): string {
+  for (const key of keys) {
+    const { pattern, names } = knownPattern(key);
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const params: Params = {};
+    names.forEach((name, index) => {
+      const value = match[index + 1] ?? "";
+      const custom = own[name];
+      params[name] = custom
+        ? custom(value)
+        : value.length < text.length
+          ? translateKnown(value, keys, own)
+          : value;
+    });
+    return tx(key, params);
+  }
+  return text;
+}
+
+export function txKnown(text: string, keys: readonly string[], own: KnownParams = {}): string {
+  if (currentLocale() === "en") return text;
+  return translateKnown(text, keys, own);
+}
+
+export function txKnownOrNull(
+  text: string | null,
+  keys: readonly string[],
+  own: KnownParams = {},
+): string | null {
+  return text === null ? null : txKnown(text, keys, own);
+}

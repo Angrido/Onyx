@@ -180,6 +180,7 @@ let planPath: string;
 let editsPath: string;
 let context: TestContext;
 let api: ApiClient;
+let sessionCookie: string;
 
 function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, env: GIT_ENV }).toString().trim();
@@ -267,7 +268,8 @@ beforeAll(async () => {
   const address = context.app.server.address();
   if (address === null || typeof address === "string") throw new Error("API is not listening");
   context.container.config.internalApiUrl = `http://127.0.0.1:${address.port}`;
-  api = apiClient(context.app, await authenticate(context.app));
+  sessionCookie = await authenticate(context.app);
+  api = apiClient(context.app, sessionCookie);
 }, 60_000);
 
 afterAll(async () => {
@@ -333,6 +335,13 @@ describe("multi-agent orchestrator", () => {
       approveLabel: "Approve and run",
       link: `/projects/${project.id}/plans/${planned.id}`,
     });
+    expect(approval?.title).toMatch(/^Plan for shop: /);
+    expect(approval?.detail).toMatch(/^3 tasks: /);
+    const italian = apiClient(context.app, `${sessionCookie}; onyx_locale=it`);
+    const shown = (await italian.get<ApprovalDto>(`/api/approvals/${planned.approvalId}`)).body;
+    expect(shown.title).toBe(approval?.title.replace(/^Plan for shop: /, "Piano per shop: "));
+    expect(shown.detail).toBe(approval?.detail?.replace(/^3 tasks: /, "3 task: "));
+    await apiClient(context.app, `${sessionCookie}; onyx_locale=en`).get("/api/approvals");
     const listed = await api.get<OrchestrationListResponse>(
       `/api/projects/${project.id}/orchestrations`,
     );
@@ -356,6 +365,12 @@ describe("multi-agent orchestrator", () => {
       180_000,
     );
     expect(finished.message).toBe(`Merged 3 tasks into ${running.workBranch}`);
+    const italianPlan = await apiClient(
+      context.app,
+      `${sessionCookie}; onyx_locale=it`,
+    ).get<OrchestrationDto>(`/api/orchestrations/${planned.id}`);
+    expect(italianPlan.body.message).toBe(`Uniti 3 task in ${running.workBranch}`);
+    await apiClient(context.app, `${sessionCookie}; onyx_locale=en`).get("/api/approvals");
     expect(finished.status).toBe("COMPLETED");
     expect(finished.nodes.every((node) => node.state === "merged")).toBe(true);
     expect(finished.nodes.every((node) => node.taskStatus === "COMPLETED")).toBe(true);

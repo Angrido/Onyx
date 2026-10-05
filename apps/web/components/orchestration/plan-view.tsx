@@ -20,6 +20,7 @@ import {
   FlaskConical,
   GitBranch,
   GitMerge,
+  Inbox,
   Loader2,
   Play,
   RotateCcw,
@@ -34,20 +35,20 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { NodeResolution, NodeReview } from "@/components/orchestration/node-review";
+import { StatusBanner } from "@/components/tasks/status-banner";
 import { ModelBadge, TierBadge } from "@/components/tasks/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatUsd } from "@/lib/format";
 import { useT } from "@/lib/i18n/client";
 import {
-  canResume,
   isNodeBusy,
   isPlanActive,
-  isPlanOpen,
   NODE_STATE_LABELS,
   NODE_STATE_TONES,
   PLAN_STATUS_LABELS,
@@ -55,6 +56,7 @@ import {
   planLevels,
   planProgress,
 } from "@/lib/orchestration";
+import { NODE_STATE_HINTS, planBanner } from "@/lib/plan-guide";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
 
@@ -102,6 +104,9 @@ function NodeCard({ node, byKey }: { node: OrchestrationNode; byKey: Map<string,
           {t(NODE_STATE_LABELS[node.state])}
         </Badge>
       </div>
+      <p className="text-xs font-medium" data-testid="plan-node-hint">
+        {t(NODE_STATE_HINTS[node.state])}
+      </p>
       <p className="line-clamp-4 text-xs leading-relaxed text-muted-foreground">
         {node.description}
       </p>
@@ -263,10 +268,121 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
   const levels = planLevels(plan.nodes);
   const byKey = new Map(plan.nodes.map((node) => [node.key, node.title]));
   const progress = planProgress(plan.nodes);
-  const waitingMerge = plan.nodes.some((node) => node.state === "conflict");
+
+  const banner = planBanner(plan);
 
   return (
     <div className="space-y-6" data-testid="plan-view" data-status={plan.status}>
+      <StatusBanner
+        banner={banner}
+        testId="plan-banner"
+        extra={
+          plan.message && plan.status !== "FAILED" ? (
+            <p className="break-words text-xs text-muted-foreground" data-testid="plan-message">
+              {plan.message}
+            </p>
+          ) : null
+        }
+      >
+        {banner.actions.map((action) => {
+          switch (action) {
+            case "approve":
+              return (
+                <Button
+                  key={action}
+                  size="sm"
+                  onClick={() => act.mutate("approve")}
+                  disabled={act.isPending}
+                >
+                  {act.isPending && act.variables === "approve" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Play />
+                  )}
+                  {t("Approve and run")}
+                </Button>
+              );
+            case "reject":
+              return (
+                <Button
+                  key={action}
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => act.mutate("reject")}
+                  disabled={act.isPending}
+                >
+                  <Trash2 />
+                  {t("Discard the plan")}
+                </Button>
+              );
+            case "resume":
+              return (
+                <Button
+                  key={action}
+                  size="sm"
+                  onClick={() => act.mutate("resume")}
+                  disabled={act.isPending}
+                >
+                  <RotateCcw />
+                  {t("Resume")}
+                </Button>
+              );
+            case "cancel":
+              return (
+                <Button
+                  key={action}
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => act.mutate("cancel")}
+                  disabled={act.isPending}
+                >
+                  <Square />
+                  {t("Cancel")}
+                </Button>
+              );
+            case "push":
+              return (
+                <Button
+                  key={action}
+                  size="sm"
+                  onClick={() => push.mutate()}
+                  disabled={push.isPending}
+                >
+                  {push.isPending ? <Loader2 className="animate-spin" /> : <Upload />}
+                  {t("Push the branch")}
+                </Button>
+              );
+            case "approvals":
+              return (
+                <Button key={action} size="sm" asChild>
+                  <Link href="/approvals">
+                    <Inbox />
+                    {t("Open Approvals")}
+                  </Link>
+                </Button>
+              );
+          }
+        })}
+        {push.data?.pushed && push.data.compareUrl ? (
+          <Button asChild size="sm" variant="secondary">
+            <a href={push.data.compareUrl} target="_blank" rel="noreferrer">
+              <ExternalLink />
+              {t("Open a pull request")}
+            </a>
+          </Button>
+        ) : null}
+        {plan.verifyLoopId ? (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={`/tasks/${plan.rootTaskId}`}>
+              <FlaskConical />
+              {t("Final tests")}
+            </Link>
+          </Button>
+        ) : null}
+        {banner.actions.includes("approve") || banner.actions.includes("approvals") ? (
+          <HelpTip term="approval" className="self-center" />
+        ) : null}
+      </StatusBanner>
       <Card>
         <CardContent className="space-y-4 p-5">
           <div className="flex flex-wrap items-center gap-2">
@@ -286,6 +402,7 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
                 ? ` · ${t("{cost} on QA and conflicts", { cost: formatUsd(plan.qaCostUsd) })}`
                 : ""}
             </span>
+            {plan.qa ? <HelpTip term="qa" /> : null}
             <span className="ml-auto text-xs text-muted-foreground">
               {formatUsd(plan.costUsd)} · <RelativeTime iso={plan.createdAt} />
             </span>
@@ -293,13 +410,15 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
           {plan.summary ? <p className="text-sm leading-relaxed">{plan.summary}</p> : null}
           {plan.workBranch ? (
             <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
-              <GitBranch className="size-3.5" />
+              <GitBranch className="size-3.5" aria-hidden="true" />
               <span>{plan.baseBranch ?? "HEAD"}</span>
-              <span className="text-muted-foreground/60">{plan.baseCommit?.slice(0, 7)}</span>
-              <ArrowRight className="size-3" />
-              <span className="text-foreground" data-testid="plan-branch">
+              <span>{plan.baseCommit?.slice(0, 7)}</span>
+              <ArrowRight className="size-3" aria-hidden="true" />
+              <span className="break-all text-foreground" data-testid="plan-branch">
                 {plan.workBranch}
               </span>
+              <span className="font-sans">{t("work branch")}</span>
+              <HelpTip term="worktree" />
             </div>
           ) : null}
           {progress.total > 0 && plan.status !== "AWAITING_APPROVAL" ? (
@@ -320,26 +439,6 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
               </p>
             </div>
           ) : null}
-          {plan.message ? (
-            <p
-              className={cn(
-                "rounded-lg border px-3 py-2 text-sm",
-                plan.status === "COMPLETED"
-                  ? "border-success/40 bg-success/10 text-success"
-                  : plan.status === "FAILED"
-                    ? "border-destructive/40 bg-destructive/10 text-destructive"
-                    : "border-warning/40 bg-warning/10 text-warning",
-              )}
-              data-testid="plan-message"
-            >
-              {plan.message}
-              {waitingMerge ? (
-                <Link href="/approvals" className="ml-2 underline underline-offset-2">
-                  {t("Open Approvals")}
-                </Link>
-              ) : null}
-            </p>
-          ) : null}
           {plan.warnings.length > 0 ? (
             <ul className="space-y-1 text-xs text-warning">
               {plan.warnings.map((warning) => (
@@ -350,66 +449,6 @@ export function PlanView({ initial }: { initial: OrchestrationDto }) {
               ))}
             </ul>
           ) : null}
-          <div className="flex flex-wrap gap-2">
-            {plan.status === "AWAITING_APPROVAL" ? (
-              <>
-                <Button onClick={() => act.mutate("approve")} disabled={act.isPending}>
-                  {act.isPending && act.variables === "approve" ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <Play />
-                  )}
-                  {t("Approve and run")}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => act.mutate("reject")}
-                  disabled={act.isPending}
-                >
-                  <Trash2 />
-                  {t("Discard the plan")}
-                </Button>
-              </>
-            ) : null}
-            {canResume(plan) ? (
-              <Button onClick={() => act.mutate("resume")} disabled={act.isPending}>
-                <RotateCcw />
-                {t("Resume")}
-              </Button>
-            ) : null}
-            {isPlanOpen(plan) && plan.status !== "AWAITING_APPROVAL" ? (
-              <Button
-                variant="secondary"
-                onClick={() => act.mutate("cancel")}
-                disabled={act.isPending}
-              >
-                <Square />
-                {t("Cancel")}
-              </Button>
-            ) : null}
-            {plan.status === "COMPLETED" && plan.workBranch ? (
-              <Button variant="secondary" onClick={() => push.mutate()} disabled={push.isPending}>
-                {push.isPending ? <Loader2 className="animate-spin" /> : <Upload />}
-                {t("Push the branch")}
-              </Button>
-            ) : null}
-            {push.data?.pushed && push.data.compareUrl ? (
-              <Button asChild variant="ghost">
-                <a href={push.data.compareUrl} target="_blank" rel="noreferrer">
-                  <ExternalLink />
-                  {t("Open a pull request")}
-                </a>
-              </Button>
-            ) : null}
-            {plan.verifyLoopId ? (
-              <Button asChild variant="ghost">
-                <Link href={`/tasks/${plan.rootTaskId}`}>
-                  <FlaskConical />
-                  {t("Final tests")}
-                </Link>
-              </Button>
-            ) : null}
-          </div>
         </CardContent>
       </Card>
 

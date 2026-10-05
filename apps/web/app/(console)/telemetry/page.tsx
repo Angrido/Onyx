@@ -12,27 +12,29 @@ import { ModelBadge } from "@/components/tasks/status-badge";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
 import { QuotaCard } from "@/components/telemetry/quota-card";
 import { Badge } from "@/components/ui/badge";
+import { HelpTip } from "@/components/ui/help-tip";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { serverFetch } from "@/lib/api/server";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import type { GlossaryId } from "@/lib/glossary";
 import type { Translate } from "@/lib/i18n/core";
 import { getT } from "@/lib/i18n/server";
 import { TIER_STYLES } from "@/lib/tiers";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
-  return { title: t("Telemetry") };
+  return { title: t("Usage") };
 }
 
 function WindowCard({ title, window, t }: { title: string; window: UsageWindow; t: Translate }) {
-  const rows = [
-    [t("Runs"), String(window.runs)],
-    [t("Cost"), formatUsd(window.costUsd)],
-    [t("Input tokens"), formatTokens(window.usage.inputTokens)],
-    [t("Output tokens"), formatTokens(window.usage.outputTokens)],
-    [t("Cache read"), formatTokens(window.usage.cacheReadTokens)],
-    [t("Cache write"), formatTokens(window.usage.cacheCreationTokens)],
-    [t("Cache hit ratio"), formatPercent(window.cacheHitRatio)],
+  const rows: [string, string, GlossaryId | null][] = [
+    [t("Runs"), String(window.runs), null],
+    [t("Cost"), formatUsd(window.costUsd), null],
+    [t("Input tokens"), formatTokens(window.usage.inputTokens), "token"],
+    [t("Output tokens"), formatTokens(window.usage.outputTokens), null],
+    [t("Read from cache"), formatTokens(window.usage.cacheReadTokens), "cache"],
+    [t("Cache write"), formatTokens(window.usage.cacheCreationTokens), null],
+    [t("Cache hit ratio"), formatPercent(window.cacheHitRatio), null],
   ];
   return (
     <Card>
@@ -40,10 +42,13 @@ function WindowCard({ title, window, t }: { title: string; window: UsageWindow; 
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-y-2 text-sm">
-          {rows.map(([label, value]) => (
+        <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm">
+          {rows.map(([label, value, term]) => (
             <div key={label} className="contents">
-              <dt className="text-muted-foreground">{label}</dt>
+              <dt className="flex items-center gap-0.5 text-muted-foreground">
+                {label}
+                {term ? <HelpTip term={term} /> : null}
+              </dt>
               <dd className="tabular text-right font-medium">{value}</dd>
             </div>
           ))}
@@ -64,10 +69,10 @@ export default async function TelemetryPage() {
   return (
     <>
       <PageHeader
-        eyebrow={t("Telemetry")}
-        title={t("Tokens and spend")}
+        eyebrow={t("Tokens and spend")}
+        title={t("Usage")}
         description={t(
-          "Usage reported by Claude Code for every run. Costs come from the CLI result; with a subscription token they are notional.",
+          "How much Claude has read and written for your runs, what it would cost and how much of your subscription is used. With a subscription the costs are only indicative: you pay the subscription, not the tokens.",
         )}
       />
       <KpiTiles initial={summary} />
@@ -80,7 +85,10 @@ export default async function TelemetryPage() {
       <Card>
         <CardHeader>
           <CardTitle>{t("Spend by model · last 7 days")}</CardTitle>
-          <CardDescription>{t("The router decides which tier each run lands on.")}</CardDescription>
+          <CardDescription className="flex flex-wrap items-center gap-x-1">
+            {t("The router decides which tier each run lands on.")}
+            <HelpTip term="tier" />
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {summary.byModel.length === 0 ? (
@@ -99,7 +107,7 @@ export default async function TelemetryPage() {
                     <th className="pb-2 text-right font-medium">{t("Runs")}</th>
                     <th className="pb-2 text-right font-medium">{t("Input")}</th>
                     <th className="pb-2 text-right font-medium">{t("Output")}</th>
-                    <th className="pb-2 text-right font-medium">{t("Cache read")}</th>
+                    <th className="pb-2 text-right font-medium">{t("From cache")}</th>
                     <th className="pb-2 text-right font-medium">{t("Cost")}</th>
                   </tr>
                 </thead>

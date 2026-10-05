@@ -41,8 +41,10 @@ import {
 import { untilAborted } from "../domain/abortable";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import { QA_MAX_REWORKS, qaFeedbackPrompt } from "../domain/qa";
+import { RATIONALE } from "../domain/routing/rationale";
+import { RUN_TEXT } from "../domain/run-texts";
 import { badRequest, conflict, notFound } from "../errors";
-import { msg, tx } from "../i18n";
+import { interpolate, msg, txKnown } from "../i18n";
 import { GitRepo, linkDependencies } from "../infrastructure/git-worktree";
 import {
   buildMcpConfig,
@@ -73,13 +75,15 @@ import { priceUsage, type RouterService } from "./router-service";
 import {
   localizeQaReview,
   localizeResolution,
+  RESOLUTION_CHECK,
+  REVIEW_TEXT_KEYS,
   toQaReviewDto,
   toResolutionDto,
   type ReviewService,
 } from "./review-service";
 import type { RunScheduler } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
-import type { TddService } from "./tdd-service";
+import { TDD_TEXT_KEYS, type TddService } from "./tdd-service";
 import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type CreateInput = z.output<typeof CreateOrchestrationRequestSchema>;
@@ -192,8 +196,80 @@ const FIXED_TEXTS: ReadonlySet<string> = new Set([
   msg("Claude is studying the project"),
 ]);
 
+const PLAN_TEXT = {
+  stoppedEarly: msg("Claude Code stopped before answering ({reason})"),
+  failedOne: msg("{count} task failed: {titles}"),
+  failedMany: msg("{count} tasks failed: {titles}"),
+  noWorkspace: msg("The task has no workspace"),
+  notStarted: msg("The agent run could not start"),
+  runEnded: msg("The agent run ended {status}: {error}"),
+  testsFailed: msg("The tests did not pass: {reason}"),
+  qaOne: msg("QA found problems after {count} review: {problems}"),
+  qaMany: msg("QA found problems after {count} reviews: {problems}"),
+  qaUnfinished: msg("QA could not finish: {summary}"),
+  criterion: msg("criterion {index} not met"),
+  noBranch: msg("The task has no branch to merge"),
+  conflictProposing: msg("Merge conflict in {files}: Claude is proposing a resolution"),
+  conflictWaiting: msg("Merge conflict in {files}: a resolution is waiting in Approvals"),
+  conflictNote: msg("Merge conflict in {files}. {note}"),
+  conflict: msg("Merge conflict in {files}"),
+  unusable: msg("Claude's proposal was not usable: {reason}"),
+  noLongerApplies: msg("The proposal no longer applies"),
+  mergedBroken: msg("The merged branch does not pass the tests: {reason}"),
+  mergedOne: msg("Merged {count} task into {branch}"),
+  mergedMany: msg("Merged {count} tasks into {branch}"),
+  workBranch: msg("the work branch"),
+} as const;
+
+const APPROVAL_TEXT = {
+  planTitle: msg("Plan for {project}: {goal}"),
+  theProject: msg("the project"),
+  planOne: msg("{count} task: {summary}"),
+  planMany: msg("{count} tasks: {summary}"),
+  reviewTitle: msg("Review: {title}"),
+  qaOne: msg("QA found problems after {count} review: {problems}. {summary}"),
+  qaMany: msg("QA found problems after {count} reviews: {problems}. {summary}"),
+  qaUnfinished: msg("QA could not finish: {summary}. {details}"),
+  mergeTitle: msg("Merge conflict: {title}"),
+  mergeNote: msg(
+    "{note}. {branch} conflicts with {base} in {count} file(s). Resolve it on {branch} (for example in {path}) and retry, or drop the task.",
+  ),
+  merge: msg(
+    "{branch} conflicts with {base} in {count} file(s). Resolve it on {branch} (for example in {path}) and retry, or drop the task.",
+  ),
+  itsWorktree: msg("its worktree"),
+  resolvedTitle: msg("Resolved conflict: {title}"),
+  resolvedCost: msg(
+    "Claude resolved the conflict in {count} file(s). {checks} Cost ${cost}. Read the diff on the plan page before applying it.",
+  ),
+  resolved: msg(
+    "Claude resolved the conflict in {count} file(s). {checks} Read the diff on the plan page before applying it.",
+  ),
+} as const;
+
+const PLAN_TEXT_KEYS: readonly string[] = [
+  ...FIXED_TEXTS,
+  ...Object.values(PLAN_TEXT),
+  ...REVIEW_TEXT_KEYS,
+  ...TDD_TEXT_KEYS,
+];
+
+const APPROVAL_TEXT_KEYS: readonly string[] = [...Object.values(APPROVAL_TEXT), ...PLAN_TEXT_KEYS];
+
+const PROBLEMS = {
+  problems: (value: string) =>
+    value
+      .split("; ")
+      .map((part) => txKnown(part, [PLAN_TEXT.criterion]))
+      .join("; "),
+};
+
 function localized<T extends string | null>(text: T): T {
-  return (text !== null && FIXED_TEXTS.has(text) ? tx(text) : text) as T;
+  return (text === null ? text : txKnown(text, PLAN_TEXT_KEYS, PROBLEMS)) as T;
+}
+
+export function localizeApprovalText(text: string): string {
+  return txKnown(text, APPROVAL_TEXT_KEYS, PROBLEMS);
 }
 
 function localizePlan(dto: OrchestrationDto): OrchestrationDto {
@@ -281,24 +357,36 @@ export class OrchestratorService {
       const state = this.states.get(channel.slice("orchestration:".length));
       return state ? [orchestrationStateMessage(localizePlan(state))] : [];
     });
-    deps.approvals.register("PLAN", {
-      approve: (approval, payload, actor) => this.approvePlan(approval, payload, actor),
-      reject: (approval, payload, actor) => this.rejectPlan(approval, payload, actor),
-    });
-    deps.approvals.register("MERGE", {
-      approve: (approval, payload) =>
-        payload.key.startsWith("resolve:")
-          ? this.applyResolution(approval, payload)
-          : this.retryMerge(approval, payload),
-      reject: (approval, payload) =>
-        payload.key.startsWith("resolve:")
-          ? this.discardResolution(approval, payload)
-          : this.dropNode(approval, payload),
-    });
-    deps.approvals.register("QA", {
-      approve: (approval, payload) => this.retryMerge(approval, payload),
-      reject: (approval, payload) => this.dropNode(approval, payload),
-    });
+    deps.approvals.register(
+      "PLAN",
+      {
+        approve: (approval, payload, actor) => this.approvePlan(approval, payload, actor),
+        reject: (approval, payload, actor) => this.rejectPlan(approval, payload, actor),
+      },
+      localizeApprovalText,
+    );
+    deps.approvals.register(
+      "MERGE",
+      {
+        approve: (approval, payload) =>
+          payload.key.startsWith("resolve:")
+            ? this.applyResolution(approval, payload)
+            : this.retryMerge(approval, payload),
+        reject: (approval, payload) =>
+          payload.key.startsWith("resolve:")
+            ? this.discardResolution(approval, payload)
+            : this.dropNode(approval, payload),
+      },
+      localizeApprovalText,
+    );
+    deps.approvals.register(
+      "QA",
+      {
+        approve: (approval, payload) => this.retryMerge(approval, payload),
+        reject: (approval, payload) => this.dropNode(approval, payload),
+      },
+      localizeApprovalText,
+    );
   }
 
   async list(projectId: string): Promise<OrchestrationDto[]> {
@@ -729,7 +817,7 @@ export class OrchestratorService {
       return fail(
         exit.reason === "aborted" || exit.reason === "shutdown"
           ? "Planning was interrupted"
-          : `Claude Code stopped before answering (${exit.reason})`,
+          : interpolate(PLAN_TEXT.stoppedEarly, { reason: exit.reason }),
       );
     }
     const rows = usageByModel(final, modelId);
@@ -746,7 +834,9 @@ export class OrchestratorService {
     });
     if (final.isError) {
       return fail(
-        `Claude Code reported an error: ${(final.resultText ?? final.subtype).slice(0, 300)}`,
+        interpolate(RUN_TEXT.reported, {
+          error: (final.resultText ?? final.subtype).slice(0, 300),
+        }),
       );
     }
     let validated: ValidatedPlan;
@@ -826,13 +916,19 @@ export class OrchestratorService {
     });
     await this.deps.approvals.create({
       kind: "PLAN",
-      title: `Plan for ${project?.name ?? "the project"}: ${shorten(orchestration.goal, 80)}`,
+      title: interpolate(APPROVAL_TEXT.planTitle, {
+        project: project?.name ?? APPROVAL_TEXT.theProject,
+        goal: shorten(orchestration.goal, 80),
+      }),
       projectId: orchestration.projectId,
       taskId: orchestration.rootTaskId,
       payload: {
         key: `plan:${orchestration.id}`,
         orchestrationId: orchestration.id,
-        detail: `${nodes.length} task${nodes.length === 1 ? "" : "s"}: ${plan.summary}`,
+        detail: interpolate(nodes.length === 1 ? APPROVAL_TEXT.planOne : APPROVAL_TEXT.planMany, {
+          count: nodes.length,
+          summary: plan.summary,
+        }),
         link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
         approveLabel: "Approve and run",
         rejectLabel: "Discard the plan",
@@ -999,7 +1095,10 @@ export class OrchestratorService {
           return this.finish(
             driver.id,
             "FAILED",
-            `${failed.length} task${failed.length === 1 ? "" : "s"} failed: ${failed.map((node) => node.title).join(", ")}`,
+            interpolate(failed.length === 1 ? PLAN_TEXT.failedOne : PLAN_TEXT.failedMany, {
+              count: failed.length,
+              titles: failed.map((node) => node.title).join(", "),
+            }),
             "FAILED",
           );
         }
@@ -1031,7 +1130,7 @@ export class OrchestratorService {
           dependsOn: { include: { dependsOn: { select: { title: true, resultSummary: true } } } },
         },
       });
-      if (!task.workspaceId) throw new Error("The task has no workspace");
+      if (!task.workspaceId) throw new Error(PLAN_TEXT.noWorkspace);
       const key = task.planKey ?? task.id;
       const repo = await this.repoOf(orchestration.projectId);
       const workBranch = orchestration.workBranch ?? "";
@@ -1118,7 +1217,7 @@ export class OrchestratorService {
         agentConfigId: null,
         prompt,
         newSession,
-        tierHint: work.tier ? { tier: work.tier, reason: "suggested by the plan" } : null,
+        tierHint: work.tier ? { tier: work.tier, reason: RATIONALE.planHint } : null,
       },
       workspaceId: work.workspaceId,
       projectId: work.orchestration.projectId,
@@ -1139,11 +1238,14 @@ export class OrchestratorService {
         where: { id: work.taskId },
         select: { resultSummary: true },
       });
-      throw new Error(latest?.resultSummary ?? "The agent run could not start");
+      throw new Error(latest?.resultSummary ?? PLAN_TEXT.notStarted);
     }
     if (run.status !== "COMPLETED" && run.resultSubtype !== "error_max_turns")
       throw new Error(
-        `The agent run ended ${run.status.toLowerCase()}: ${run.errorMessage ?? "no details"}`,
+        interpolate(PLAN_TEXT.runEnded, {
+          status: run.status.toLowerCase(),
+          error: run.errorMessage ?? RUN_TEXT.noDetails,
+        }),
       );
   }
 
@@ -1168,7 +1270,11 @@ export class OrchestratorService {
     const final = await tdd.settled(loop.id);
     if (work.driver.cancelled) return false;
     if (final.status !== "GREEN")
-      throw new Error(`The tests did not pass: ${final.message ?? final.status.toLowerCase()}`);
+      throw new Error(
+        interpolate(PLAN_TEXT.testsFailed, {
+          reason: final.message ?? final.status.toLowerCase(),
+        }),
+      );
     return true;
   }
 
@@ -1211,22 +1317,33 @@ export class OrchestratorService {
       }
       const unmet = outcome?.criteria.filter((criterion) => !criterion.met) ?? [];
       const problems = [
-        ...unmet.map((criterion) => `criterion ${criterion.index} not met`),
+        ...unmet.map((criterion) => interpolate(PLAN_TEXT.criterion, { index: criterion.index })),
         ...(outcome?.issues.map((issue) => issue.problem) ?? []),
       ];
+      const found = problems.slice(0, 3).join("; ") || row.summary;
       const message = outcome
-        ? `QA found problems after ${attempt} ${attempt === 1 ? "review" : "reviews"}: ${problems.slice(0, 3).join("; ") || row.summary}`
-        : `QA could not finish: ${row.summary}`;
+        ? interpolate(attempt === 1 ? PLAN_TEXT.qaOne : PLAN_TEXT.qaMany, {
+            count: attempt,
+            problems: found,
+          })
+        : interpolate(PLAN_TEXT.qaUnfinished, { summary: row.summary });
+      const detail = outcome
+        ? interpolate(attempt === 1 ? APPROVAL_TEXT.qaOne : APPROVAL_TEXT.qaMany, {
+            count: attempt,
+            problems: found,
+            summary: row.summary,
+          })
+        : interpolate(APPROVAL_TEXT.qaUnfinished, { summary: row.summary, details: row.summary });
       await this.setNode(taskId, "review", message);
       await this.deps.approvals.create({
         kind: "QA",
-        title: `Review: ${title}`,
+        title: interpolate(APPROVAL_TEXT.reviewTitle, { title }),
         projectId: orchestration.projectId,
         taskId,
         payload: {
           key: `qa:${taskId}`,
           orchestrationId: orchestration.id,
-          detail: `${message}. ${row.summary}`.slice(0, 1_000),
+          detail: detail.slice(0, 1_000),
           files: [
             ...new Set(
               (outcome?.issues ?? []).flatMap((issue) => (issue.file ? [issue.file] : [])),
@@ -1288,8 +1405,7 @@ export class OrchestratorService {
   ): Promise<void> {
     const { prisma } = this.deps;
     const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-    if (!task.branchName || !orchestration.integrationPath)
-      throw new Error("The task has no branch to merge");
+    if (!task.branchName || !orchestration.integrationPath) throw new Error(PLAN_TEXT.noBranch);
     await this.setNode(taskId, "merging", null);
     const repo = await this.repoOf(orchestration.projectId);
     const env = await this.deps.git.commitEnv();
@@ -1317,7 +1433,7 @@ export class OrchestratorService {
       await this.setNode(
         taskId,
         "conflict",
-        `Merge conflict in ${outcome.conflicts.join(", ")}: Claude is proposing a resolution`,
+        interpolate(PLAN_TEXT.conflictProposing, { files: outcome.conflicts.join(", ") }),
       );
       const work = this.proposeResolution(driver, orchestration, taskId, outcome.conflicts).catch(
         (error: unknown) =>
@@ -1339,17 +1455,26 @@ export class OrchestratorService {
     await this.setNode(
       task.id,
       "conflict",
-      `Merge conflict in ${conflicts.join(", ")}${note ? `. ${note}` : ""}`,
+      interpolate(note ? PLAN_TEXT.conflictNote : PLAN_TEXT.conflict, {
+        files: conflicts.join(", "),
+        note: note ?? "",
+      }),
     );
     await this.deps.approvals.create({
       kind: "MERGE",
-      title: `Merge conflict: ${task.title}`,
+      title: interpolate(APPROVAL_TEXT.mergeTitle, { title: task.title }),
       projectId: orchestration.projectId,
       taskId: task.id,
       payload: {
         key: `merge:${task.id}`,
         orchestrationId: orchestration.id,
-        detail: `${note ? `${note}. ` : ""}${task.branchName} conflicts with ${orchestration.workBranch} in ${conflicts.length} file(s). Resolve it on ${task.branchName} (for example in ${task.worktreePath ?? "its worktree"}) and retry, or drop the task.`,
+        detail: interpolate(note ? APPROVAL_TEXT.mergeNote : APPROVAL_TEXT.merge, {
+          note: note ?? "",
+          branch: String(task.branchName),
+          base: String(orchestration.workBranch),
+          count: conflicts.length,
+          path: task.worktreePath ?? APPROVAL_TEXT.itsWorktree,
+        }),
         files: [...conflicts],
         link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
         approveLabel: "Retry the merge",
@@ -1404,7 +1529,7 @@ export class OrchestratorService {
         orchestration,
         task,
         conflicts,
-        `Claude's proposal was not usable: ${resolution.message ?? "no details"}`,
+        interpolate(PLAN_TEXT.unusable, { reason: resolution.message ?? RUN_TEXT.noDetails }),
       );
       return;
     }
@@ -1412,17 +1537,24 @@ export class OrchestratorService {
     await this.setNode(
       taskId,
       "conflict",
-      `Merge conflict in ${conflicts.join(", ")}: a resolution is waiting in Approvals`,
+      interpolate(PLAN_TEXT.conflictWaiting, { files: conflicts.join(", ") }),
     );
     await this.deps.approvals.create({
       kind: "MERGE",
-      title: `Resolved conflict: ${task.title}`,
+      title: interpolate(APPROVAL_TEXT.resolvedTitle, { title: task.title }),
       projectId: orchestration.projectId,
       taskId,
       payload: {
         key: `resolve:${taskId}`,
         orchestrationId: orchestration.id,
-        detail: `Claude resolved the conflict in ${files.length} file(s). ${resolution.checks ?? ""}${resolution.costUsd !== null ? ` Cost $${resolution.costUsd.toFixed(3)}.` : ""} Read the diff on the plan page before applying it.`,
+        detail: interpolate(
+          resolution.costUsd !== null ? APPROVAL_TEXT.resolvedCost : APPROVAL_TEXT.resolved,
+          {
+            count: files.length,
+            checks: resolution.checks ?? "",
+            cost: resolution.costUsd?.toFixed(3) ?? "",
+          },
+        ),
         files,
         link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
         approveLabel: "Apply the resolution",
@@ -1453,11 +1585,22 @@ export class OrchestratorService {
     const added = after.filter((key) => !known.has(key));
     return added.length === 0
       ? {
-          text: `Tests and type check on the proposal: no new failures${before.length > 0 ? ` (${before.length} already failing before)` : ""}.`,
+          text: interpolate(
+            before.length > 0 ? RESOLUTION_CHECK.cleanBefore : RESOLUTION_CHECK.clean,
+            { count: before.length },
+          ),
           passed: true,
         }
       : {
-          text: `Tests or type check fail on the proposal: ${added.slice(0, 5).join(", ")}${added.length > 5 ? ` and ${added.length - 5} more` : ""}.`,
+          text: interpolate(RESOLUTION_CHECK.failing, {
+            failures:
+              added.length > 5
+                ? interpolate(RESOLUTION_CHECK.more, {
+                    labels: added.slice(0, 5).join(", "),
+                    count: added.length - 5,
+                  })
+                : added.join(", "),
+          }),
           passed: false,
         };
   }
@@ -1511,7 +1654,7 @@ export class OrchestratorService {
         orchestration,
         task,
         toStringArray(resolution.files),
-        "The proposal no longer applies",
+        PLAN_TEXT.noLongerApplies,
       );
       return;
     }
@@ -1622,7 +1765,9 @@ export class OrchestratorService {
           return this.finish(
             id,
             "FAILED",
-            `The merged branch does not pass the tests: ${final.message ?? final.status.toLowerCase()}`,
+            interpolate(PLAN_TEXT.mergedBroken, {
+              reason: final.message ?? final.status.toLowerCase(),
+            }),
             "FAILED",
           );
         const repo = await this.repoOf(orchestration.projectId);
@@ -1638,7 +1783,10 @@ export class OrchestratorService {
     await this.finish(
       id,
       "COMPLETED",
-      `Merged ${nodes.length} task${nodes.length === 1 ? "" : "s"} into ${orchestration.workBranch ?? "the work branch"}`,
+      interpolate(nodes.length === 1 ? PLAN_TEXT.mergedOne : PLAN_TEXT.mergedMany, {
+        count: nodes.length,
+        branch: orchestration.workBranch ?? PLAN_TEXT.workBranch,
+      }),
       "COMPLETED",
     );
   }

@@ -1,4 +1,5 @@
-import type { MissionProjectDto, ProjectHealth } from "@onyx/contracts";
+import type { HealthCheckDto, MissionProjectDto, ProjectHealth } from "@onyx/contracts";
+import { formatTokens, formatUsd } from "@/lib/format";
 import { english, msg, type Translate } from "@/lib/i18n/core";
 
 export const MISSION_FILTERS = ["all", "working", "attention", "idle"] as const;
@@ -96,4 +97,50 @@ export function gitLine(project: MissionProjectDto, t: Translate = english): str
   if (git.ahead > 0) parts.push(t("{count} ahead", { count: git.ahead }));
   if (git.behind > 0) parts.push(t("{count} behind", { count: git.behind }));
   return parts.join(" · ");
+}
+
+export function isQuiet(project: MissionProjectDto): boolean {
+  return (
+    !isWorking(project) &&
+    project.activeTasks.length === 0 &&
+    project.pendingApprovals === 0 &&
+    project.today.runs === 0 &&
+    project.today.tokens === 0 &&
+    project.today.costUsd === 0
+  );
+}
+
+export function lastTaskAt(project: MissionProjectDto): string | null {
+  return project.lastRun ? (project.lastRun.endedAt ?? project.lastRun.startedAt) : null;
+}
+
+export function spendLine(project: MissionProjectDto, t: Translate = english): string | null {
+  const { today, week } = project;
+  const todayEmpty = today.costUsd === 0 && today.tokens === 0;
+  if (todayEmpty && week.costUsd === 0 && week.tokens === 0) return null;
+  if (todayEmpty) return t("This week {cost}", { cost: formatUsd(week.costUsd) });
+  return [
+    t("Today {cost} · {tokens} tokens", {
+      cost: formatUsd(today.costUsd),
+      tokens: formatTokens(today.tokens),
+    }),
+    t("week {cost}", { cost: formatUsd(week.costUsd) }),
+  ].join(" · ");
+}
+
+export function activityLine(project: MissionProjectDto, t: Translate = english): string {
+  const parts = [
+    project.running > 0 ? t("{count} running", { count: project.running }) : t("No agent running"),
+  ];
+  if (project.queued > 0) parts.push(t("{count} queued", { count: project.queued }));
+  if (project.runLimit !== null) parts.push(t("limit {count}", { count: project.runLimit }));
+  if (project.openTasks === 1) parts.push(t("1 open task"));
+  if (project.openTasks > 1) parts.push(t("{count} open tasks", { count: project.openTasks }));
+  return parts.join(" · ");
+}
+
+export function globalIssues(checks: readonly HealthCheckDto[]): HealthCheckDto[] {
+  return [...checks]
+    .filter((check) => check.level !== "OK")
+    .sort((left, right) => HEALTH_RANK[right.level] - HEALTH_RANK[left.level]);
 }

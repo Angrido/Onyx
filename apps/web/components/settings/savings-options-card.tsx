@@ -8,6 +8,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { useT } from "@/lib/i18n/client";
@@ -66,8 +67,12 @@ export function SavingsOptionsCard({ initial }: { initial: SavingsOptionsDto }) 
         <CardTitle className="flex items-center gap-2">
           <PiggyBank className="size-4 text-primary" />
           {t("Token saving options")}
+          <HelpTip term="token" />
         </CardTitle>
         <CardDescription>
+          {t(
+            "Each switch makes runs use fewer tokens in a different way. You can turn them on one at a time.",
+          )}{" "}
           {t("Each option has its own line in")}{" "}
           <Link href="/savings" className="text-primary underline underline-offset-2">
             {t("Savings")}

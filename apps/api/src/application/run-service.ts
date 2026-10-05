@@ -9,6 +9,7 @@ import type { PrismaClient } from "@onyx/db";
 import { conflict, notFound } from "../errors";
 import type { StoredRunEvent } from "../infrastructure/ws-hub";
 import { analyzeCommands } from "../domain/command-rules";
+import { localizeRunItems } from "../domain/run-texts";
 import { RUN_INCLUDE, toRunDto, toStringArray } from "./mappers";
 import type { RunScheduler } from "./run-scheduler";
 
@@ -50,9 +51,22 @@ export class RunService {
     const rows = await this.storedEvents(id, after, null, limit + 1);
     const page = rows.slice(0, limit);
     return {
-      items: page.map((row) => ({ seq: row.seq, createdAt: row.ts, items: row.items })),
+      items: page.map((row) => ({
+        seq: row.seq,
+        createdAt: row.ts,
+        items: localizeRunItems(row.items),
+      })),
       nextAfter: rows.length > limit ? (page.at(-1)?.seq ?? null) : null,
     };
+  }
+
+  async shownEvents(
+    runId: string,
+    afterSeq: number,
+    beforeSeq: number | null,
+  ): Promise<StoredRunEvent[]> {
+    const rows = await this.storedEvents(runId, afterSeq, beforeSeq);
+    return rows.map((row) => ({ ...row, items: localizeRunItems(row.items) }));
   }
 
   async storedEvents(

@@ -35,10 +35,12 @@ import {
   type RoutingEscalation,
   type RoutingPlan,
 } from "../domain/routing/decide";
+import { localizeRationale, RATIONALE } from "../domain/routing/rationale";
 import { extractFeatures, type TargetFact } from "../domain/routing/features";
 import { parseMatcher, type RuleView } from "../domain/routing/rules";
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS } from "../domain/routing/scoring";
 import { badRequest, notFound } from "../errors";
+import { interpolate } from "../i18n";
 import type { AuxUsage, TaskClassifier } from "../infrastructure/aux-model";
 import { completedTaskRuns, type RunTotalRow } from "../infrastructure/run-totals";
 import type { IndexService } from "./index-service";
@@ -277,7 +279,7 @@ export class RouterService {
       strategy: row.strategy,
       tier: row.tier,
       modelId: row.modelId,
-      rationale: row.rationale,
+      rationale: localizeRationale(row.rationale),
       score: row.score,
       confidence: row.confidence,
       ruleId: row.ruleId,
@@ -460,11 +462,18 @@ export class RouterService {
           tier: verdict.tier,
           modelId: null,
           classify: false,
-          rationale: `Classifier ${classifier.modelId}: ${verdict.rationale} (heuristic: ${plan.rationale})`,
+          rationale: interpolate(RATIONALE.classifier, {
+            model: classifier.modelId,
+            verdict: verdict.rationale,
+            heuristic: plan.rationale,
+          }),
         };
       } catch (error) {
         logger.warn({ err: error }, "Routing classifier failed; keeping the heuristic decision");
-        plan = { ...plan, rationale: `${plan.rationale} · classifier unavailable` };
+        plan = {
+          ...plan,
+          rationale: interpolate(RATIONALE.unavailable, { rationale: plan.rationale }),
+        };
       }
     }
 
@@ -477,7 +486,7 @@ export class RouterService {
         modelId = pinned.id;
         tier = pinned.tier;
       } else {
-        rationale = `${rationale} · ${plan.modelId} is not enabled`;
+        rationale = interpolate(RATIONALE.notEnabled, { rationale, model: plan.modelId });
       }
     }
     if (modelId === null) {
@@ -486,7 +495,11 @@ export class RouterService {
       modelId = resolved.modelId;
       tier = resolved.tier;
       if (resolved.substituted) {
-        rationale = `${rationale} · no enabled ${plan.tier} model, using ${resolved.tier}`;
+        rationale = interpolate(RATIONALE.substituted, {
+          rationale,
+          tier: plan.tier,
+          resolved: resolved.tier,
+        });
       }
     }
     return {

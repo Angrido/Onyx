@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { useT } from "@/lib/i18n/client";
@@ -41,10 +42,11 @@ export function MemoryCard({ initial }: { initial: MemorySettings }) {
         <CardTitle className="flex items-center gap-2">
           <Brain className="size-4 text-primary" />
           {t("Project memory")}
+          <HelpTip term="memory" />
         </CardTitle>
         <CardDescription>
           {t(
-            "Facts collected from earlier runs enter the system prompt of each new session. Each project has its own memory page, where you confirm, edit and forget facts.",
+            "Onyx remembers short facts about each project, such as the test command or the files that matter, and gives them to new sessions so Claude explores less. You confirm, edit and forget them on the memory page of each project.",
           )}
         </CardDescription>
       </CardHeader>

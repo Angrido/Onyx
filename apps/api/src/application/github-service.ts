@@ -20,6 +20,7 @@ import { cloneRepository, redact } from "../infrastructure/git-clone";
 import { GitRepo } from "../infrastructure/git-worktree";
 import { isSealed, type SecretVault } from "../infrastructure/secret-vault";
 import {
+  GITHUB_FAILURE_KEYS,
   GitHubError,
   type GitHubClient,
   type GitHubRepo,
@@ -27,7 +28,7 @@ import {
   type RepoPage,
 } from "../infrastructure/github-client";
 import { isWithinRoot, type ProjectService } from "./project-service";
-import { msg, tx } from "../i18n";
+import { msg, tx, txKnown } from "../i18n";
 
 type ImportRepoInput = z.output<typeof ImportRepoRequestSchema>;
 
@@ -150,7 +151,7 @@ export class GitHubService {
         login: null,
         name: null,
         avatarUrl: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: txKnown(error instanceof Error ? error.message : String(error), GITHUB_FAILURE_KEYS),
       };
     }
   }

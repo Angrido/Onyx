@@ -19,16 +19,23 @@ HEALTH_DELAY="${ONYX_HEALTH_DELAY:-1}"
 KEEP_RELEASES="${ONYX_KEEP_RELEASES:-3}"
 MACHINE_CHECKS="claude-cli disk"
 
+english() {
+  case "${ONYX_LANG:-}" in
+    en | en_* | en-* | en.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+text() { if english; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+say() { printf '%s\n' "$*"; }
+error() { printf '%s: %s\n' "$(text errore error)" "$*" >&2; }
+
 AS_SELF=false
 if [ "${ONYX_RELEASE_AS_SELF:-}" = 1 ]; then
   AS_SELF=true
 elif [ "$(id -u)" -ne 0 ]; then
-  printf 'release.sh must run as root\n' >&2
+  say "$(text "release.sh deve girare come root" "release.sh must run as root")" >&2
   exit 1
 fi
-
-say() { printf '%s\n' "$*"; }
-error() { printf 'error: %s\n' "$*" >&2; }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -123,7 +130,7 @@ tolerated() {
 
 wait_ready() {
   local attempt failing
-  NOT_READY="$VERSION does not answer on $HEALTH_URL"
+  NOT_READY="$(text "$VERSION non risponde su $HEALTH_URL" "$VERSION does not answer on $HEALTH_URL")"
   TOLERATED=""
   for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
     if ready_now; then
@@ -135,9 +142,9 @@ wait_ready() {
         return 0
       fi
       if [ -n "$failing" ]; then
-        NOT_READY="$VERSION is not ready on $HEALTH_URL (failing checks: $failing)"
+        NOT_READY="$(text "$VERSION non è pronta su $HEALTH_URL (controlli falliti: $failing)" "$VERSION is not ready on $HEALTH_URL (failing checks: $failing)")"
       else
-        NOT_READY="$VERSION did not become ready on $HEALTH_URL"
+        NOT_READY="$(text "$VERSION non è diventata pronta su $HEALTH_URL" "$VERSION did not become ready on $HEALTH_URL")"
       fi
     fi
     if [ "$attempt" -lt "$HEALTH_ATTEMPTS" ]; then sleep "$HEALTH_DELAY"; fi
@@ -158,29 +165,29 @@ restore_database() {
 rollback() {
   error "$1"
   if [ -z "$PREVIOUS" ]; then
-    error "there is no previous release to go back to: $VERSION stays installed; check journalctl -u onyx-api"
+    error "$(text "non c'è una release precedente a cui tornare: $VERSION resta installata; controlla journalctl -u onyx-api" "there is no previous release to go back to: $VERSION stays installed; check journalctl -u onyx-api")"
     exit 1
   fi
-  say "Going back to $(basename "$PREVIOUS")"
+  say "$(text "Torno a" "Going back to") $(basename "$PREVIOUS")"
   "$SYSTEMCTL" stop onyx-web.service onyx-api.service || true
   switch_current "$PREVIOUS"
   install_units "$PREVIOUS"
   local restored=true
   if $MIGRATED && [ -n "$BACKUP_FILE" ]; then
-    say "Putting back the database saved before the migration ($BACKUP_FILE)"
+    say "$(text "Rimetto il database salvato prima della migrazione ($BACKUP_FILE)" "Putting back the database saved before the migration ($BACKUP_FILE)")"
     if ! restore_database; then
       restored=false
-      error "the database could not be put back: stop Onyx and run onyx restore $BACKUP_FILE"
+      error "$(text "non è stato possibile rimettere il database: ferma Onyx ed esegui onyx restore $BACKUP_FILE" "the database could not be put back: stop Onyx and run onyx restore $BACKUP_FILE")"
     fi
   fi
   if $WAS_RUNNING; then
-    "$SYSTEMCTL" start onyx-api.service onyx-web.service || error "the previous release did not start: check journalctl -u onyx-api"
+    "$SYSTEMCTL" start onyx-api.service onyx-web.service || error "$(text "la release precedente non è partita: controlla journalctl -u onyx-api" "the previous release did not start: check journalctl -u onyx-api")"
   fi
   rm -rf "$TARGET"
   if $restored; then
-    error "the update failed and was undone: $(basename "$PREVIOUS") is the current release again"
+    error "$(text "l'aggiornamento non è riuscito ed è stato annullato: $(basename "$PREVIOUS") è di nuovo la release corrente" "the update failed and was undone: $(basename "$PREVIOUS") is the current release again")"
   else
-    error "the update failed: $(basename "$PREVIOUS") is the current release again, but the database still has the new migrations"
+    error "$(text "l'aggiornamento non è riuscito: $(basename "$PREVIOUS") è di nuovo la release corrente, ma il database ha ancora le nuove migrazioni" "the update failed: $(basename "$PREVIOUS") is the current release again, but the database still has the new migrations")"
   fi
   exit 1
 }
@@ -198,7 +205,7 @@ prune_releases() {
       continue
     fi
     if [ -e "$dir/$PENDING_MARK" ] || [ "$kept" -ge "$KEEP_RELEASES" ]; then
-      say "Removing release $(basename "$dir")"
+      say "$(text "Rimozione della release" "Removing release") $(basename "$dir")"
       rm -rf "$dir"
     else
       kept=$((kept + 1))
@@ -207,11 +214,11 @@ prune_releases() {
 }
 
 [ -d "$SOURCE" ] || {
-  error "$SOURCE is not a staged release"
+  error "$(text "$SOURCE non è una release preparata" "$SOURCE is not a staged release")"
   exit 1
 }
 if [ -e "$TARGET" ]; then
-  error "release $VERSION already exists in $RELEASES"
+  error "$(text "la release $VERSION esiste già in $RELEASES" "release $VERSION already exists in $RELEASES")"
   exit 1
 fi
 
@@ -257,10 +264,10 @@ fi
 MIGRATED=false
 if adds_migrations; then MIGRATED=true; fi
 if ! onyx_cli "$TARGET" migrate --prisma-dir "$TARGET/db" | tee "$WORK/migrate.log"; then
-  error "the migration failed: the database is as it was before the update"
+  error "$(text "la migrazione non è riuscita: il database è com'era prima dell'aggiornamento" "the migration failed: the database is as it was before the update")"
   rm -rf "$TARGET"
   if $WAS_RUNNING; then
-    error "starting the previous release again"
+    error "$(text "riavvio la release precedente" "starting the previous release again")"
     "$SYSTEMCTL" start onyx-api.service onyx-web.service || true
   fi
   exit 1
@@ -269,18 +276,18 @@ BACKUP_FILE="$(sed -n 's/^Backup written before the migration: //p' "$WORK/migra
 
 switch_current "$TARGET"
 install_units "$TARGET"
-"$SYSTEMCTL" restart onyx-api.service onyx-web.service || rollback "the services of $VERSION did not start"
+"$SYSTEMCTL" restart onyx-api.service onyx-web.service || rollback "$(text "i servizi di $VERSION non sono partiti" "the services of $VERSION did not start")"
 
 wait_ready || rollback "$NOT_READY"
 if [ -n "$TOLERATED" ]; then
   if $BASELINE_KNOWN; then
-    say "warning: $VERSION is running but not ready (failing checks: $TOLERATED), as before the update" >&2
+    say "$(text "attenzione: $VERSION è in esecuzione ma non è pronta (controlli falliti: $TOLERATED), come prima dell'aggiornamento" "warning: $VERSION is running but not ready (failing checks: $TOLERATED), as before the update")" >&2
   else
-    say "warning: $VERSION is running but not ready (failing checks: $TOLERATED): these depend on this machine, not on the release" >&2
+    say "$(text "attenzione: $VERSION è in esecuzione ma non è pronta (controlli falliti: $TOLERATED): dipendono da questa macchina, non dalla release" "warning: $VERSION is running but not ready (failing checks: $TOLERATED): these depend on this machine, not on the release")" >&2
   fi
 fi
 
 rm -f "$TARGET/$PENDING_MARK"
 touch "$TARGET"
 prune_releases
-say "Released $VERSION"
+say "$(text "Rilasciata" "Released") $VERSION"

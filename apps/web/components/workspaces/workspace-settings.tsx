@@ -12,6 +12,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { useT } from "@/lib/i18n/client";
 import { splitList } from "@/lib/router";
+import { FENCE_LABELS } from "@/components/projects/workspace-grid";
 import { RESET_STRATEGY_LABELS } from "@/lib/sessions";
 
 const RUNNER_EXAMPLE = "pnpm --filter web exec vitest";
@@ -76,7 +77,7 @@ export function WorkspaceSettings({
               >
                 {RESET_STRATEGIES.map((option) => (
                   <option key={option} value={option}>
-                    {t(RESET_STRATEGY_LABELS[option].label)}
+                    {t(FENCE_LABELS[option])}
                   </option>
                 ))}
               </Select>

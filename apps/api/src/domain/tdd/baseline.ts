@@ -1,3 +1,4 @@
+import { interpolate, msg } from "../../i18n";
 import { failureId, type TestFailure } from "./report";
 
 export function baselineKey(failure: TestFailure): string {
@@ -31,9 +32,20 @@ export function splitBaseline(
   return { kept, ignored };
 }
 
+export const IGNORED_NOTE = {
+  one: msg(" · ignored {count} failure that already failed before this work: {labels}"),
+  many: msg(" · ignored {count} failures that already failed before this work: {labels}"),
+  more: msg("{labels} and {count} more"),
+} as const;
+
 export function ignoredNote(labels: readonly string[]): string {
   if (labels.length === 0) return "";
   const shown = labels.slice(0, 3).join("; ");
-  const more = labels.length > 3 ? ` and ${labels.length - 3} more` : "";
-  return ` · ignored ${labels.length} failure${labels.length === 1 ? "" : "s"} that already failed before this work: ${shown}${more}`;
+  return interpolate(labels.length === 1 ? IGNORED_NOTE.one : IGNORED_NOTE.many, {
+    count: labels.length,
+    labels:
+      labels.length > 3
+        ? interpolate(IGNORED_NOTE.more, { labels: shown, count: labels.length - 3 })
+        : shown,
+  });
 }

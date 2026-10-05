@@ -50,7 +50,6 @@ export const projects: Record<string, string> = {
   workspaces: "workspace",
   tasks: "task",
   "Scanning files": "Scansione dei file",
-  "Parsing with tree-sitter": "Parsing con tree-sitter",
   "Resolving imports": "Risoluzione degli import",
   "Ranking the graph": "Ranking del grafo",
   "Saving the index": "Salvataggio dell'indice",
@@ -64,15 +63,9 @@ export const projects: Record<string, string> = {
   Files: "File",
   "{parsed} parsed, {reused} reused from cache":
     "{parsed} analizzati, {reused} riusati dalla cache",
-  Symbols: "Simboli",
   "{count} external packages": "Pacchetti esterni: {count}",
-  "Skeleton saving": "Risparmio skeleton",
-  "{raw} tokens of source → {l1} as L1 signatures": "{raw} token di sorgente → {l1} come firme L1",
-  Cycles: "Cicli",
   "Indexed in": "Indicizzato in",
   "{count} files withheld by the secret scan": "File esclusi dalla scansione dei segreti: {count}",
-  "Index the project to give agents a project map, skeletons of nearby files and the onyx MCP tools.":
-    "Indicizza il progetto per dare agli agenti una mappa del progetto, gli skeleton dei file vicini e i tool MCP di onyx.",
   Draft: "Bozza",
   checked: "verificata",
   "Checks of pull request {number}": "Check della pull request {number}",
@@ -309,15 +302,12 @@ export const projects: Record<string, string> = {
   "Preparing the description…": "Preparazione della descrizione…",
   "The project has no GitHub remote, so pull requests cannot be opened from Onyx.":
     "Il progetto non ha un remote GitHub, quindi non si possono aprire pull request da Onyx.",
-  "Repositories Onyx can orchestrate. Each project is split into domain workspaces with their own sessions.":
-    "Repository che Onyx può orchestrare. Ogni progetto è diviso in workspace di dominio, ciascuno con le proprie sessioni.",
   Memory: "Memoria",
   Workspaces: "Workspace",
   Tasks: "Task",
   GitHub: "GitHub",
   "Issues, pull requests and the changelog of the project.":
     "Issue, pull request e changelog del progetto.",
-  "{domain} compartment": "Compartimento {domain}",
   "1 failed": "1 fallito",
   "1 running": "1 in esecuzione",
   "1 passed": "1 superato",

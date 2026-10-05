@@ -22,6 +22,8 @@ import type {
   TokenLog,
   Workspace,
 } from "@onyx/db";
+import { localizeRationale } from "../domain/routing/rationale";
+import { localizeRunText } from "../domain/run-texts";
 
 export function toStringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -142,7 +144,7 @@ export function toRunDto(run: RunWithRelations): RunDto {
     numTurns: run.numTurns,
     durationMs: run.durationMs,
     costUsd: run.costUsd,
-    errorMessage: run.errorMessage,
+    errorMessage: localizeRunText(run.errorMessage),
     cliVersion: run.cliVersion,
     usage: usageFromTokenLog(run.tokenLogs[0]),
     context: {
@@ -169,7 +171,7 @@ export function toRunDto(run: RunWithRelations): RunDto {
       ? {
           strategy: run.routingDecision.strategy,
           tier: run.routingDecision.tier,
-          rationale: run.routingDecision.rationale,
+          rationale: localizeRationale(run.routingDecision.rationale),
         }
       : null,
     startedAt: iso(run.startedAt),

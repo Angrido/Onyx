@@ -15,7 +15,7 @@ import {
   truncateDiff,
   type QaOutcome,
 } from "../domain/qa";
-import { msg, tx } from "../i18n";
+import { msg, txKnownOrNull } from "../i18n";
 import type { GitRepo } from "../infrastructure/git-worktree";
 import { READ_ONLY_TOOLS, WRITE_TOOLS, structuredOf, type AgentRunner } from "./agent-runner";
 import { toStringArray } from "./mappers";
@@ -34,8 +34,22 @@ const FIXED_TEXTS: ReadonlySet<string> = new Set([
   msg("No test runner: tests not run."),
 ]);
 
+export const RESOLUTION_CHECK = {
+  clean: msg("Tests and type check on the proposal: no new failures."),
+  cleanBefore: msg(
+    "Tests and type check on the proposal: no new failures ({count} already failing before).",
+  ),
+  failing: msg("Tests or type check fail on the proposal: {failures}."),
+  more: msg("{labels} and {count} more"),
+} as const;
+
+export const REVIEW_TEXT_KEYS: readonly string[] = [
+  ...FIXED_TEXTS,
+  ...Object.values(RESOLUTION_CHECK),
+];
+
 function localized<T extends string | null>(text: T): T {
-  return (text !== null && FIXED_TEXTS.has(text) ? tx(text) : text) as T;
+  return txKnownOrNull(text, REVIEW_TEXT_KEYS) as T;
 }
 
 export interface ReviewServiceDeps {

@@ -33,6 +33,7 @@ export interface MissionServiceDeps {
   gitSummary: (rootPath: string, now: Date) => Promise<GitSummary>;
   limitOf: (projectId: string) => number | null;
   health?: (project: HealthProject, git: GitSummary, now: Date) => Promise<HealthFinding[]>;
+  globalHealth?: (now: Date) => Promise<HealthFinding[]>;
   maxConcurrent: number;
   now?: () => Date;
 }
@@ -175,6 +176,7 @@ export class MissionService {
             })
           ).map((task) => [task.id, task.title]),
     );
+    const globalChecks = this.deps.globalHealth ? await this.deps.globalHealth(now) : [];
     const gitSummaries = await mapLimited(projects, GIT_CONCURRENCY, (project) =>
       this.gitOf(project.id, project.rootPath, now),
     );
@@ -273,6 +275,7 @@ export class MissionService {
 
     return {
       projects: items,
+      globalChecks: globalChecks.map(renderFinding),
       running: active.length,
       queued: queued.length,
       maxConcurrent: this.deps.maxConcurrent,

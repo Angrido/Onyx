@@ -9,22 +9,16 @@ import type {
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Command, defaultFilter } from "cmdk";
 import {
-  Activity,
+  BookOpen,
   DatabaseBackup,
   FileCode2,
   FolderGit2,
-  Inbox,
   Languages,
-  LayoutDashboard,
-  LayoutGrid,
   ListTodo,
   LogOut,
-  PiggyBank,
   Map as MapIcon,
-  ScrollText,
   Play,
   Plus,
-  Route,
   Search,
   Settings,
   Stethoscope,
@@ -36,27 +30,16 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { useLocale, useSwitchLocale, useT } from "@/lib/i18n/client";
-import { msg } from "@/lib/i18n/core";
+import { APPROVALS_HREF, NAV_ITEMS } from "@/lib/nav";
 import {
   CREATE_LINKS,
+  GLOSSARY_LINKS,
   isPaletteShortcut,
   OPEN_PALETTE_EVENT,
   PROJECT_PAGES,
   SETTINGS_LINKS,
 } from "@/lib/palette";
 import { SEARCH_PREFIX, searchHint, searchMinLength, snippetParts } from "@/lib/search";
-
-const PAGES = [
-  { href: "/", label: msg("Mission control"), icon: LayoutDashboard },
-  { href: "/projects", label: msg("Projects"), icon: FolderGit2 },
-  { href: "/agents", label: msg("Agent grid"), icon: LayoutGrid },
-  { href: "/approvals", label: msg("Approvals"), icon: Inbox },
-  { href: "/router", label: msg("Router"), icon: Route },
-  { href: "/telemetry", label: msg("Telemetry"), icon: Activity },
-  { href: "/savings", label: msg("Savings"), icon: PiggyBank },
-  { href: "/logs", label: msg("Logs"), icon: ScrollText },
-  { href: "/settings", label: msg("Settings"), icon: Settings },
-] as const;
 
 function Item({
   value,
@@ -235,13 +218,13 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
               </Command.Group>
             ) : null}
             <Command.Group heading={t("Pages")} className={GROUP}>
-              {PAGES.map((page) => (
+              {NAV_ITEMS.map((page) => (
                 <Item
                   key={page.href}
                   value={`page ${page.label} ${t(page.label)}`}
                   onSelect={() => go(page.href)}
                   icon={<page.icon />}
-                  {...(page.href === "/approvals" && approvals.data
+                  {...(page.href === APPROVALS_HREF && approvals.data
                     ? { hint: t("{count} waiting", { count: approvals.data }) }
                     : {})}
                 >
@@ -330,6 +313,27 @@ export function CommandPalette({ initiallyOpen = false }: { initiallyOpen?: bool
                     hint={t(statusText(task.status))}
                   >
                     {task.title}
+                  </Item>
+                ))}
+              </Command.Group>
+            ) : null}
+            {input.trim().length > 0 ? (
+              <Command.Group
+                heading={t("Glossary")}
+                className={GROUP}
+                data-testid="palette-glossary"
+              >
+                {GLOSSARY_LINKS.map((link) => (
+                  <Item
+                    key={link.id}
+                    value={`glossary ${t("Glossary")} ${link.label} ${t(link.label)}`}
+                    onSelect={() => go(link.href)}
+                    icon={<BookOpen />}
+                  >
+                    <span className="block truncate">{t(link.label)}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {t(link.definition)}
+                    </span>
                   </Item>
                 ))}
               </Command.Group>

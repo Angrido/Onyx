@@ -272,21 +272,13 @@ export const context: Record<string, string> = {
     "Claude ha letto {tokens} token di snippet per {cost}",
   "No suspicious code found by the rules.": "Le regole non hanno trovato codice sospetto.",
   "Context Surgeon": "Context Surgeon",
-  "Choose what agents can see. Excluded files become Claude Code deny rules and are blocked at runtime by a PreToolUse guard on Read, Grep, Glob and Bash.":
-    "Scegli cosa possono vedere gli agenti. I file esclusi diventano regole deny di Claude Code e vengono bloccati a runtime da una guardia PreToolUse su Read, Grep, Glob e Bash.",
   "Dependency graph": "Grafo delle dipendenze",
-  "Import graph built by Graphify from tree-sitter. Agents receive the same neighbourhood as skeletons in their context pack.":
-    "Grafo degli import costruito da Graphify con tree-sitter. Gli agenti ricevono lo stesso vicinato come scheletri nel loro pacchetto di contesto.",
-  "Index the project from its page to build the graph.":
-    "Indicizza il progetto dalla sua pagina per costruire il grafo.",
   "Project memory": "Memoria del progetto",
   "Stable facts from earlier runs, each with its source. You decide what stays.":
     "Fatti stabili dalle run precedenti, ognuno con la sua fonte. Decidi tu cosa resta.",
   "Claude studies the project and suggests what to do next. Move the ideas you want to To do, start them, and publish the result on a branch.":
     "Claude studia il progetto e suggerisce cosa fare dopo. Sposta le idee che vuoi in Da fare, avviale e pubblica il risultato su un branch.",
   Insights: "Insights",
-  "Questions about the code and a security and performance review, model last.":
-    "Domande sul codice e una revisione di sicurezza e prestazioni, con il modello per ultimo.",
   Tests: "Test",
   Command: "Comando",
   "Key file": "File chiave",

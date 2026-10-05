@@ -9,12 +9,13 @@ import type {
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
 import { RouterConsole } from "@/components/router/router-console";
+import { HelpTip } from "@/components/ui/help-tip";
 import { serverFetch } from "@/lib/api/server";
 import { getT } from "@/lib/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
-  return { title: t("Router") };
+  return { title: t("Models") };
 }
 
 export default async function RouterPage() {
@@ -31,10 +32,15 @@ export default async function RouterPage() {
   return (
     <>
       <PageHeader
-        eyebrow={t("Model router")}
-        title={t("Router")}
+        eyebrow={
+          <span className="inline-flex items-center gap-0.5">
+            {t("Model router")}
+            <HelpTip term="router" />
+          </span>
+        }
+        title={t("Models")}
         description={t(
-          "Every run gets the cheapest tier that should finish it: rules first, then a weighted heuristic, then the classifier when the heuristic is unsure. Failures on max turns move up one tier.",
+          "Onyx picks a Claude model for every run: the cheapest that should finish the task, and a stronger one if it fails. Here you see what this saves, try a task in the simulator and set your own rules.",
         )}
       />
       <RouterConsole

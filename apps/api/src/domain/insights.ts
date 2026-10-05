@@ -1,5 +1,5 @@
 import type { InsightIntent, InsightSource } from "@onyx/contracts";
-import { currentLocale, interpolate, msg, tx } from "../i18n";
+import { interpolate, msg, txKnown } from "../i18n";
 
 export const INSIGHT_MARKER = "ONYX_INSIGHT_QUESTION";
 export const INSIGHT_MAX_TURNS = 10;
@@ -123,46 +123,15 @@ export function citedSources(text: string): InsightSource[] {
   return [...found.values()].slice(0, 20);
 }
 
-const keyPatterns = new Map<string, { pattern: RegExp; names: string[] }>();
-
-function keyPattern(key: string): { pattern: RegExp; names: string[] } {
-  const cached = keyPatterns.get(key);
-  if (cached) return cached;
-  const names: string[] = [];
-  const source = key
-    .split(/(\{\w+\})/)
-    .map((part) => {
-      const name = /^\{(\w+)\}$/.exec(part)?.[1];
-      if (name === undefined) return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      names.push(name);
-      return "([\\s\\S]*?)";
-    })
-    .join("");
-  const entry = { pattern: new RegExp(`^${source}$`), names };
-  keyPatterns.set(key, entry);
-  return entry;
-}
-
-export function translateKnown(text: string, keys: readonly string[]): string {
-  if (currentLocale() === "en") return text;
-  for (const key of keys) {
-    const { pattern, names } = keyPattern(key);
-    const match = pattern.exec(text);
-    if (!match) continue;
-    return tx(key, Object.fromEntries(names.map((name, index) => [name, match[index + 1] ?? ""])));
-  }
-  return text;
-}
-
 export function translateAnswer(answer: string, keys: readonly string[]): string {
   return answer
     .split("\n")
     .map((line) => {
       const caveat = /^_([\s\S]+)_$/.exec(line);
-      if (caveat) return `_${translateKnown(caveat[1] ?? "", keys)}_`;
+      if (caveat) return `_${txKnown(caveat[1] ?? "", keys)}_`;
       const item = /^(- (?:`[^`]*` — )?)([\s\S]*)$/.exec(line);
-      if (item) return `${item[1] ?? ""}${translateKnown(item[2] ?? "", keys)}`;
-      return translateKnown(line, keys);
+      if (item) return `${item[1] ?? ""}${txKnown(item[2] ?? "", keys)}`;
+      return txKnown(line, keys);
     })
     .join("\n");
 }

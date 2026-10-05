@@ -65,11 +65,26 @@ function readPayload(value: Prisma.JsonValue): ApprovalPayload {
 
 export class ApprovalService {
   private readonly handlers = new Map<ApprovalKind, ApprovalHandler>();
+  private readonly localizers = new Map<ApprovalKind, (text: string) => string>();
 
   constructor(private readonly deps: ApprovalServiceDeps) {}
 
-  register(kind: ApprovalKind, handler: ApprovalHandler): void {
+  register(
+    kind: ApprovalKind,
+    handler: ApprovalHandler,
+    localize?: (text: string) => string,
+  ): void {
     this.handlers.set(kind, handler);
+    if (localize) this.localizers.set(kind, localize);
+  }
+
+  localizedTitle(approval: Pick<Approval, "kind" | "title">): string {
+    return this.localize(approval.kind, approval.title);
+  }
+
+  private localize(kind: ApprovalKind, text: string): string {
+    const localize = this.localizers.get(kind);
+    return localize ? localize(text) : text;
   }
 
   async create(input: CreateApprovalInput): Promise<Approval> {
@@ -202,8 +217,8 @@ export class ApprovalService {
       id: row.id,
       kind: row.kind,
       status: row.status,
-      title: row.title,
-      detail: payload.detail ?? null,
+      title: this.localize(row.kind, row.title),
+      detail: payload.detail ? this.localize(row.kind, payload.detail) : (payload.detail ?? null),
       projectId: row.projectId,
       projectName: row.project?.name ?? null,
       taskId: row.taskId,

@@ -30,6 +30,7 @@ export function Providers({ locale, children }: { locale: Locale; children: Reac
         <Toaster
           theme="dark"
           position="bottom-right"
+          mobileOffset={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
           toastOptions={{ className: "glass border border-border text-foreground" }}
         />
       </QueryClientProvider>

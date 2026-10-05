@@ -4,9 +4,9 @@ import type {
   SessionListResponse,
   TerminalListResponse,
 } from "@onyx/contracts";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
+import { HelpTip } from "@/components/ui/help-tip";
 import { WorkspaceConsole } from "@/components/workspaces/workspace-console";
 import { serverFetch } from "@/lib/api/server";
 import { DOMAIN_LABELS } from "@/lib/domains";
@@ -33,16 +33,14 @@ export default async function WorkspacePage({
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href={`/projects/${project.id}`} className="hover:text-foreground">
-            ← {project.name}
-          </Link>
-        }
         title={workspace.name}
         description={
           <>
-            {t("{domain} compartment", { domain: t(DOMAIN_LABELS[workspace.domain]) })} ·{" "}
-            <span className="font-mono text-xs">{workspace.pathGlobs.join(", ")}</span>
+            {t("Workspace for the {domain} area", {
+              domain: t(DOMAIN_LABELS[workspace.domain]),
+            })}{" "}
+            <HelpTip term="workspace" /> ·{" "}
+            <span className="break-all font-mono text-xs">{workspace.pathGlobs.join(", ")}</span>
           </>
         }
       />

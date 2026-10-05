@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import type { FindingCategory, FindingSeverity, FindingVerdict, TaskKind } from "@onyx/contracts";
-import { interpolate, msg, tx } from "../i18n";
-import { translateKnown } from "./insights";
+import { interpolate, msg, tx, txKnown } from "../i18n";
 
 export const IDEATION_MARKER = "ONYX_IDEATION_REVIEW";
 export const MAX_SCAN_BYTES = 200_000;
@@ -356,12 +355,12 @@ export function translateFinding(finding: {
   excerpt: string | null;
   explanation: string;
 }): { title: string; excerpt: string | null; explanation: string } {
-  const title = translateKnown(finding.title, [VULNERABLE_TITLE]);
+  const title = txKnown(finding.title, [VULNERABLE_TITLE]);
   return {
     title: title === finding.title ? tx(title) : title,
     excerpt:
       finding.rule === "hotspot" && finding.excerpt !== null
-        ? translateKnown(finding.excerpt, [HOTSPOT_EXCERPT])
+        ? txKnown(finding.excerpt, [HOTSPOT_EXCERPT])
         : finding.excerpt,
     explanation: tx(finding.explanation),
   };

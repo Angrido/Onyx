@@ -1,9 +1,9 @@
 import type { IdeationDto, InsightListResponse, ProjectDetailDto } from "@onyx/contracts";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { IdeationPanel } from "@/components/insights/ideation-panel";
 import { InsightsPanel } from "@/components/insights/insights-panel";
 import { PageHeader } from "@/components/layout/page-header";
+import { HelpTip } from "@/components/ui/help-tip";
 import { serverFetch } from "@/lib/api/server";
 import { getT } from "@/lib/i18n/server";
 
@@ -27,15 +27,15 @@ export default async function ProjectInsightsPage({
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href={`/projects/${project.id}`} className="hover:text-foreground">
-            ← {project.name}
-          </Link>
-        }
         title={t("Insights")}
-        description={t(
-          "Questions about the code and a security and performance review, model last.",
-        )}
+        description={
+          <>
+            {t(
+              "Ask questions about the code and check it for security and performance problems. Onyx answers from the index when it can and calls Claude only when needed.",
+            )}{" "}
+            <HelpTip term="insights" />
+          </>
+        }
       />
       <InsightsPanel projectId={project.id} initial={insights} />
       <IdeationPanel projectId={project.id} workspaces={project.workspaces} initial={ideation} />

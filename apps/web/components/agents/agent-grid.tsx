@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { TerminalView } from "@/components/workspaces/terminal-view";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
@@ -358,6 +359,7 @@ export function AgentGrid({
           <Link href="/telemetry#quota" className="text-primary hover:underline">
             {t("Limits")}
           </Link>
+          <HelpTip term="limits" />
         </p>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <LayoutGrid className="size-3.5" />
@@ -380,7 +382,7 @@ export function AgentGrid({
           </Select>
         </label>
       </div>
-      <div className={cn("grid gap-4", gridColumns(count))}>
+      <section aria-label={t("Agent grid")} className={cn("grid gap-4", gridColumns(count))}>
         {fitPanels(panels, count).map((source, index) => (
           <Panel
             key={`${index}-${sourceKey(source)}`}
@@ -397,7 +399,7 @@ export function AgentGrid({
             }
           />
         ))}
-      </div>
+      </section>
     </div>
   );
 }

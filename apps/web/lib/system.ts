@@ -15,7 +15,8 @@ export const HEALTH_CHECK_LABELS: Record<HealthCheckId, string> = {
   git: msg("Git"),
   tests: msg("Test runner"),
   disk: msg("Disk space"),
-  credentials: msg("Credentials"),
+  claude: msg("Claude account"),
+  github: msg("GitHub token"),
 };
 
 export const HEALTH_LEVEL_LABELS: Record<ProjectHealth, string> = {

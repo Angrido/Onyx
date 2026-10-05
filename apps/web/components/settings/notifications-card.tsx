@@ -272,6 +272,11 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
               </label>
               <TestButton channel="ntfy" disabled={!settings.ntfy.topic} />
             </div>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "A free phone app: Onyx publishes on a topic and the app shows the messages of that topic.",
+              )}
+            </p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <label className="space-y-1 text-xs">
                 <span className="text-muted-foreground">{t("Server")}</span>
@@ -329,6 +334,11 @@ export function NotificationsCard({ initial }: { initial: NotificationSettingsDt
               </label>
               <TestButton channel="telegram" disabled={!settings.telegram.hasToken} />
             </div>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "A bot of yours writes to you in a chat: create it with @BotFather, then paste its token and your chat id.",
+              )}
+            </p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <label className="space-y-1 text-xs">
                 <span className="flex items-center gap-2 text-muted-foreground">

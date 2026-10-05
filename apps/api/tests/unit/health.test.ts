@@ -12,8 +12,9 @@ import {
   type HealthProject,
 } from "../../src/application/health-service";
 import {
-  credentialsCheck,
+  claudeCheck,
   diskCheck,
+  githubCheck,
   formatBytes,
   gitCheck,
   indexCheck,
@@ -248,23 +249,23 @@ describe("disk check", () => {
   });
 });
 
-describe("credentials check", () => {
-  it("maps the accounts to levels", () => {
-    expect(credentialsCheck({ claude: true, githubRemote: false, githubToken: false }).level).toBe(
-      "OK",
-    );
-    expect(credentialsCheck({ claude: true, githubRemote: true, githubToken: true }).level).toBe(
-      "OK",
-    );
-    expect(credentialsCheck({ claude: true, githubRemote: true, githubToken: false }).level).toBe(
-      "ATTENTION",
-    );
-    expect(credentialsCheck({ claude: false, githubRemote: false, githubToken: true }).level).toBe(
-      "ATTENTION",
-    );
-    expect(
-      credentialsCheck({ claude: false, githubRemote: true, githubToken: false }).message,
-    ).toBe("No Claude account and no GitHub token: add them in Settings");
+describe("account checks", () => {
+  it("tells whether agents can start", () => {
+    expect(claudeCheck(true)).toMatchObject({ id: "claude", level: "OK" });
+    expect(claudeCheck(false)).toMatchObject({
+      id: "claude",
+      level: "ATTENTION",
+      message: "Claude is not connected: agents cannot start",
+    });
+  });
+
+  it("checks the GitHub token only for projects with a GitHub remote", () => {
+    expect(githubCheck({ githubRemote: false, githubToken: false })).toBeNull();
+    expect(githubCheck({ githubRemote: true, githubToken: true })?.level).toBe("OK");
+    expect(githubCheck({ githubRemote: true, githubToken: false })).toMatchObject({
+      id: "github",
+      level: "ATTENTION",
+    });
   });
 });
 
@@ -309,8 +310,18 @@ describe("health service", () => {
     };
   }
 
-  function service(options: { space?: FolderSpace; claude?: boolean; token?: boolean } = {}) {
+  function service(
+    options: {
+      space?: FolderSpace;
+      projectSpace?: FolderSpace;
+      claude?: boolean;
+      token?: boolean;
+      projectDevice?: number;
+    } = {},
+  ) {
     const calls = { statfs: 0, claude: 0 };
+    const data = join(root, "_data");
+    mkdirSync(data, { recursive: true });
     const health = new HealthService({
       prisma: {} as PrismaClient,
       isIndexing: () => false,
@@ -320,11 +331,13 @@ describe("health service", () => {
         return options.claude ?? true;
       },
       githubToken: async () => options.token ?? false,
-      folders: [root, root],
-      statfs: async () => {
+      dataDir: data,
+      statfs: async (path) => {
         calls.statfs += 1;
+        if (path === root && options.projectSpace) return options.projectSpace;
         return options.space ?? { bavail: 800, blocks: 1000, bsize: GIB };
       },
+      deviceOf: async (path) => (path === root ? (options.projectDevice ?? 1) : 1),
       searchPath: () => bin,
       now: () => NOW,
       ttlMs: 30_000,
@@ -332,15 +345,18 @@ describe("health service", () => {
     return { health, calls };
   }
 
-  it("runs every check and caches the facts for a short time", async () => {
+  it("keeps the shared checks out of the project and caches the facts for a short time", async () => {
     const { health, calls } = service();
     const first = await health.findings(project(), GIT, NOW);
     expect(first.map((finding) => [finding.id, finding.level])).toEqual([
       ["index", "OK"],
       ["git", "OK"],
       ["tests", "OK"],
+    ]);
+    const global = await health.globalFindings(NOW);
+    expect(global.map((finding) => [finding.id, finding.level])).toEqual([
+      ["claude", "OK"],
       ["disk", "OK"],
-      ["credentials", "OK"],
     ]);
     await health.findings(project(), GIT, new Date(NOW.getTime() + 10_000));
     expect(calls).toEqual({ statfs: 1, claude: 1 });
@@ -352,32 +368,48 @@ describe("health service", () => {
     write(".git/config", '[remote "origin"]\n\turl = git@github.com:acme/app.git\n');
     const { health } = service({ token: false });
     const findings = await health.findings(project(), GIT, NOW);
-    expect(findings.find((finding) => finding.id === "credentials")?.level).toBe("ATTENTION");
+    expect(findings.find((finding) => finding.id === "github")?.level).toBe("ATTENTION");
+    const withToken = await service({ token: true }).health.findings(project(), GIT, NOW);
+    expect(withToken.find((finding) => finding.id === "github")?.level).toBe("OK");
   });
 
-  it("reports low disk and missing accounts", async () => {
+  it("checks the project disk only when it is not the data disk", async () => {
+    const low = { bavail: 1, blocks: 100, bsize: GIB };
+    const same = await service({ projectSpace: low }).health.findings(project(), GIT, NOW);
+    expect(same.some((finding) => finding.id === "disk")).toBe(false);
+    const other = await service({ projectSpace: low, projectDevice: 2 }).health.findings(
+      project(),
+      GIT,
+      NOW,
+    );
+    expect(other.find((finding) => finding.id === "disk")).toMatchObject({
+      level: "ERROR",
+      params: { path: root },
+    });
+  });
+
+  it("reports low disk and a missing account once, outside the projects", async () => {
     const { health } = service({ space: { bavail: 1, blocks: 100, bsize: GIB }, claude: false });
     const findings = await health.findings(project({ indexError: "boom" }), GIT, NOW);
     expect(Object.fromEntries(findings.map((finding) => [finding.id, finding.level]))).toEqual({
       index: "ERROR",
       git: "OK",
       tests: "OK",
+    });
+    const global = await health.globalFindings(NOW);
+    expect(Object.fromEntries(global.map((finding) => [finding.id, finding.level]))).toEqual({
+      claude: "ATTENTION",
       disk: "ERROR",
-      credentials: "ATTENTION",
     });
   });
 
   it("translates after the cache, so each request gets its own language", async () => {
     const { health } = service();
-    const findings = await health.findings(project(), GIT, NOW);
+    const findings = await health.globalFindings(NOW);
     const english = findings.map(renderFinding);
     const italian = runWithLocale("it", () => findings.map(renderFinding));
-    expect(english.find((check) => check.id === "credentials")?.reason).toBe(
-      "Claude account connected",
-    );
-    expect(italian.find((check) => check.id === "credentials")?.reason).toBe(
-      "Account Claude connesso",
-    );
+    expect(english.find((check) => check.id === "claude")?.reason).toBe("Claude account connected");
+    expect(italian.find((check) => check.id === "claude")?.reason).toBe("Account Claude connesso");
     expect(italian.find((check) => check.id === "disk")?.reason).toBe("800 GB liberi (80%)");
   });
 });

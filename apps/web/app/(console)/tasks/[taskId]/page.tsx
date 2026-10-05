@@ -1,6 +1,7 @@
 import type {
   BlockedCommandsResponse,
   CatalogResponse,
+  ProjectDetailDto,
   RunEventsResponse,
   TaskDetailDto,
   TddLoopListResponse,
@@ -16,14 +17,15 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
     serverFetch<CatalogResponse>("/api/catalog"),
   ]);
   const latest = task.runs[0];
-  const [blocked, events] = latest
-    ? await Promise.all([
-        latest.guardDenials >= 1
-          ? serverFetch<BlockedCommandsResponse>(`/api/runs/${latest.id}/blocked`)
-          : null,
-        serverFetch<RunEventsResponse>(`/api/runs/${latest.id}/events?after=0&limit=200`),
-      ])
-    : [null, null];
+  const [project, blocked, events] = await Promise.all([
+    serverFetch<ProjectDetailDto>(`/api/projects/${task.projectId}`),
+    latest && latest.guardDenials >= 1
+      ? serverFetch<BlockedCommandsResponse>(`/api/runs/${latest.id}/blocked`)
+      : null,
+    latest
+      ? serverFetch<RunEventsResponse>(`/api/runs/${latest.id}/events?after=0&limit=200`)
+      : null,
+  ]);
   return (
     <TaskDetail
       initial={task}
@@ -31,6 +33,7 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
       initialBlocked={blocked}
       initialEvents={events}
       catalog={catalog}
+      projectName={project.name}
     />
   );
 }

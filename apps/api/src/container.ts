@@ -222,7 +222,7 @@ export async function createContainer(
 
   const runs: { service: RunService | null } = { service: null };
   const hub = new WsHub((runId, after, before) =>
-    runs.service ? runs.service.storedEvents(runId, after, before) : Promise.resolve([]),
+    runs.service ? runs.service.shownEvents(runId, after, before) : Promise.resolve([]),
   );
 
   const estimator = new AdjustableTokenEstimator();
@@ -352,7 +352,7 @@ export async function createContainer(
           notifications.approvalCreated({
             id: approval.id,
             kind: approval.kind,
-            title: approval.title,
+            title: approvals.localizedTitle(approval),
             projectName: project?.name ?? null,
           }),
         )
@@ -593,7 +593,7 @@ export async function createContainer(
     gitSummary: (projectId, rootPath, now) => mission.gitOf(projectId, rootPath, now),
     claudeConnected: async () => (await credentials.resolve()).credentials.kind !== "none",
     githubToken: async () => (await github.token()) !== null,
-    folders: [config.dataDir, config.projectsDir],
+    dataDir: config.dataDir,
     ...(overrides.diskSpace ? { statfs: overrides.diskSpace } : {}),
     ...(overrides.now ? { now: overrides.now } : {}),
   });
@@ -603,6 +603,7 @@ export async function createContainer(
     gitSummary: (rootPath, now) => git.summary(rootPath, now),
     limitOf: (projectId) => queue.limitOf(projectId),
     health: (project, summary, now) => health.findings(project, summary, now),
+    globalHealth: (now) => health.globalFindings(now),
     maxConcurrent: config.maxConcurrentAgents,
     ...(overrides.now ? { now: overrides.now } : {}),
   });

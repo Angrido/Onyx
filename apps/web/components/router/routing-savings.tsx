@@ -3,6 +3,7 @@
 import type { RoutingTelemetry } from "@onyx/contracts";
 import { TrendingDown } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { formatPercent, formatUsd } from "@/lib/format";
 import { useT } from "@/lib/i18n/client";
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
@@ -39,6 +40,7 @@ export function RoutingSavings({ telemetry }: { telemetry: RoutingTelemetry }) {
             "Every run of the last {days} days is also priced as if it had run on {model} with the same token usage.",
             { days: telemetry.windowDays, model: reference },
           )}
+          <HelpTip term="token" className="ml-1" />
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">

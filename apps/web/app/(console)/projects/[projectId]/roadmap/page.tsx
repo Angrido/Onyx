@@ -5,7 +5,6 @@ import type {
   ProjectDetailDto,
 } from "@onyx/contracts";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { GitPanel } from "@/components/git/git-panel";
 import { RoadmapBoard } from "@/components/roadmap/roadmap-board";
@@ -29,11 +28,6 @@ export default async function RoadmapPage({ params }: { params: Promise<{ projec
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href={`/projects/${project.id}`} className="hover:text-foreground">
-            ← {project.name}
-          </Link>
-        }
         title={t("Roadmap")}
         description={t(
           "Claude studies the project and suggests what to do next. Move the ideas you want to To do, start them, and publish the result on a branch.",

@@ -6,6 +6,7 @@ import type { PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import { worktreeVerdict } from "../domain/orphan-worktrees";
 import { readPendingRun } from "../domain/pending-run";
+import { RUN_TEXT } from "../domain/run-texts";
 import { GitRepo } from "../infrastructure/git-worktree";
 import type { ProcessLedger, ProcessSweep } from "../infrastructure/process-ledger";
 import type { OrchestratorService, PlanRecovery } from "./orchestrator-service";
@@ -49,7 +50,7 @@ export type StartupRecovery = {
   removed: string[];
 };
 
-const INTERRUPTED_MESSAGE = "Interrupted by Onyx restart";
+const INTERRUPTED_MESSAGE = RUN_TEXT.interrupted;
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ["QUEUED", "RUNNING", "TDD_LOOP"];
 const LISTED_ENTRIES = 20;
 

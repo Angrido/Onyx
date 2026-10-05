@@ -33,8 +33,15 @@ fi
 step() { printf '%s==>%s %s%s%s\n' "$ACCENT" "$RESET" "$BOLD" "$*" "$RESET"; }
 info() { printf '    %s\n' "$*"; }
 ok() { printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
-warn() { printf '%swarning:%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
-error() { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; }
+english() {
+  case "${ONYX_LANG:-}" in
+    en | en_* | en-* | en.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+text() { if english; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+warn() { printf '%s%s:%s %s\n' "$YELLOW" "$(text attenzione warning)" "$RESET" "$*" >&2; }
+error() { printf '%s%s:%s %s\n' "$RED" "$(text errore error)" "$RESET" "$*" >&2; }
 fail() {
   error "$@"
   exit 1
@@ -42,6 +49,38 @@ fail() {
 has() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
+  if ! english; then
+    cat <<'USAGE'
+Uso: onyx <comando>    (oppure onyx-start, onyx-stop, onyx-update, …)
+
+  start      avvia Onyx (servizi systemd, oppure pnpm dev in background)
+  stop       ferma Onyx
+  restart    ferma e poi avvia
+  update     scarica il codice più recente, installa, migra, ricompila e riavvia
+  status     mostra se Onyx è in esecuzione e dove raggiungerlo
+  logs       segue i log
+  use-claude usa il vero Claude Code (installato se manca), così Onyx può
+             accedere con il tuo account Claude; riavvia Onyx
+  use-stub   torna al simulatore incluso (sviluppo e test)
+  update-claude
+             aggiorna Claude Code, controlla che accetti tutte le opzioni che
+             Onyx passa (nessuna richiesta inviata) e riavvia Onyx
+  backup     scrive subito un backup del database
+  backups    elenca i backup
+  restore [nome|latest]
+             ferma Onyx, salva il database attuale, ripristina il backup,
+             applica le migrazioni e riavvia Onyx
+  install    mette onyx-start, onyx-stop, onyx-update, onyx-restart,
+             onyx-status, onyx-logs, onyx-use-claude, onyx-backup e
+             onyx-restore nel PATH
+
+Onyx gira come servizi systemd quando onyx-api.service è installato
+(deploy/lxc/bootstrap.sh); altrimenti esegue pnpm dev da questo checkout.
+Imposta ONYX_MODE=service o ONYX_MODE=dev per scegliere tu.
+Messaggi in inglese: ONYX_LANG=en.
+USAGE
+    return 0
+  fi
   cat <<'USAGE'
 Usage: onyx <command>    (or onyx-start, onyx-stop, onyx-update, …)
 
@@ -69,6 +108,7 @@ Usage: onyx <command>    (or onyx-start, onyx-stop, onyx-update, …)
 Onyx runs as systemd services when onyx-api.service is installed
 (deploy/lxc/bootstrap.sh); otherwise it runs pnpm dev from this checkout.
 Set ONYX_MODE=service or ONYX_MODE=dev to choose explicitly.
+Italian messages are the default: ONYX_LANG=en switches to English.
 USAGE
 }
 
@@ -78,7 +118,7 @@ as_root() {
   elif has sudo; then
     sudo "$@"
   else
-    fail "this needs root: run it again as root"
+    fail "$(text "serve root: eseguilo di nuovo come root" "this needs root: run it again as root")"
   fi
 }
 
@@ -172,9 +212,9 @@ claude_line() {
   local bin
   bin="$(claude_bin)"
   if [ -z "$bin" ]; then
-    info "Claude   not configured (CLAUDE_BIN missing in $(env_file))"
+    info "Claude   $(text "non configurato (CLAUDE_BIN manca in $(env_file))" "not configured (CLAUDE_BIN missing in $(env_file))")"
   elif is_stub "$bin"; then
-    printf '    %sClaude   simulator (no real agents, no real sign-in): run onyx use-claude%s\n' "$YELLOW" "$RESET"
+    printf '    %sClaude   %s%s\n' "$YELLOW" "$(text "simulatore (nessun agente reale, nessun accesso reale): esegui onyx use-claude" "simulator (no real agents, no real sign-in): run onyx use-claude")" "$RESET"
   else
     info "Claude   $bin"
   fi
@@ -189,8 +229,8 @@ find_claude() {
 }
 
 install_claude() {
-  step "Installing Claude Code"
-  has curl || fail "curl is needed to install Claude Code"
+  step "$(text "Installazione di Claude Code" "Installing Claude Code")"
+  has curl || fail "$(text "serve curl per installare Claude Code" "curl is needed to install Claude Code")"
   if [ "$(mode)" = service ]; then
     as_root runuser -u onyx -- bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
   else
@@ -208,7 +248,7 @@ restart_if_running() {
   if $running; then
     run restart
   else
-    info "Start Onyx with: onyx-start"
+    info "$(text "Avvia Onyx con: onyx-start" "Start Onyx with: onyx-start")"
   fi
 }
 
@@ -219,44 +259,48 @@ use_claude() {
     install_claude
     bin="$(find_claude || true)"
   fi
-  [ -n "$bin" ] || fail "Claude Code is still missing: install it with  curl -fsSL https://claude.ai/install.sh | bash"
+  [ -n "$bin" ] || fail "$(text "Claude Code manca ancora: installalo con  curl -fsSL https://claude.ai/install.sh | bash" "Claude Code is still missing: install it with  curl -fsSL https://claude.ai/install.sh | bash")"
   local version
   version="$("$bin" --version 2>/dev/null | awk 'NR == 1' || true)"
-  step "Using Claude Code ${version:-at $bin}"
+  step "$(text "Uso di Claude Code ${version:-in $bin}" "Using Claude Code ${version:-at $bin}")"
   set_env_value "$(env_file)" CLAUDE_BIN "$bin"
   ok "CLAUDE_BIN=$bin in $(env_file)"
   restart_if_running
-  printf '\nOpen Settings in the console and press %sSign in with Claude%s.\n' "$BOLD" "$RESET"
+  if english; then
+    printf '\nOpen Settings in the console and press %sSign in with Claude%s.\n' "$BOLD" "$RESET"
+  else
+    printf '\nApri Impostazioni nella console e premi %sAccedi con Claude%s.\n' "$BOLD" "$RESET"
+  fi
 }
 
 update_claude() {
   local bin before after
   bin="$(claude_bin)"
-  [ -n "$bin" ] || fail "CLAUDE_BIN is not set: run onyx use-claude first"
-  if is_stub "$bin"; then fail "Onyx uses the simulator: run onyx use-claude first"; fi
+  [ -n "$bin" ] || fail "$(text "CLAUDE_BIN non è impostato: esegui prima onyx use-claude" "CLAUDE_BIN is not set: run onyx use-claude first")"
+  if is_stub "$bin"; then fail "$(text "Onyx usa il simulatore: esegui prima onyx use-claude" "Onyx uses the simulator: run onyx use-claude first")"; fi
   before="$("$bin" --version 2>/dev/null | awk 'NR == 1' || true)"
-  step "Updating Claude Code (${before:-unknown version})"
+  step "$(text "Aggiornamento di Claude Code (${before:-versione sconosciuta})" "Updating Claude Code (${before:-unknown version})")"
   if [ "$(mode)" = service ]; then
     as_root runuser -u onyx -- env DISABLE_AUTOUPDATER=0 "$bin" update
   else
     DISABLE_AUTOUPDATER=0 "$bin" update
   fi
   after="$("$bin" --version 2>/dev/null | awk 'NR == 1' || true)"
-  if [ "$before" = "$after" ]; then ok "Claude Code is already up to date (${after:-?})"; else ok "Claude Code $before -> $after"; fi
-  step "Checking Claude Code with Onyx"
+  if [ "$before" = "$after" ]; then ok "$(text "Claude Code è già aggiornato (${after:-?})" "Claude Code is already up to date (${after:-?})")"; else ok "Claude Code $before -> $after"; fi
+  step "$(text "Verifica di Claude Code con Onyx" "Checking Claude Code with Onyx")"
   if ! onyx_cli check-claude; then
-    warn "this Claude Code version lacks options Onyx needs: update Onyx (onyx-update) or go back with: $bin install ${before%% *}"
+    warn "$(text "a questa versione di Claude Code mancano opzioni che servono a Onyx: aggiorna Onyx (onyx-update) o torna indietro con: $bin install ${before%% *}" "this Claude Code version lacks options Onyx needs: update Onyx (onyx-update) or go back with: $bin install ${before%% *}")"
   fi
   restart_if_running
   if [ "$before" != "$after" ] && [ "$(mode)" = dev ]; then
-    info "To record fresh transcripts for the contract tests (spends a few cents of Claude usage):"
+    info "$(text "Per registrare trascrizioni nuove per i test di contratto (spende pochi centesimi di uso di Claude):" "To record fresh transcripts for the contract tests (spends a few cents of Claude usage):")"
     info "  pnpm --filter @onyx/agent-runtime fixtures:record -- --yes"
   fi
 }
 
 use_stub() {
-  [ "$(mode)" = dev ] || fail "the simulator is only available in a development checkout"
-  step "Using the Claude Code simulator"
+  [ "$(mode)" = dev ] || fail "$(text "il simulatore è disponibile solo in un checkout di sviluppo" "the simulator is only available in a development checkout")"
+  step "$(text "Uso del simulatore di Claude Code" "Using the Claude Code simulator")"
   set_env_value "$(env_file)" CLAUDE_BIN "$STUB_BIN"
   ok "CLAUDE_BIN=$STUB_BIN"
   restart_if_running
@@ -266,7 +310,7 @@ onyx_cli() {
   if [ "$(mode)" = service ]; then
     as_root runuser -u onyx -- bash -c 'set -a; . /etc/onyx/onyx.env; set +a; cd /opt/onyx/current/api && exec node dist/cli.js "$@"' onyx-cli "$@"
   else
-    [ -f "$ROOT/apps/api/.env" ] || fail "apps/api/.env is missing: run scripts/dev-setup.sh first"
+    [ -f "$ROOT/apps/api/.env" ] || fail "$(text "manca apps/api/.env: esegui prima scripts/dev-setup.sh" "apps/api/.env is missing: run scripts/dev-setup.sh first")"
     (
       set -a
       . "$ROOT/apps/api/.env"
@@ -289,13 +333,13 @@ migrate() {
     as_root bash -c 'set -a; . /etc/onyx/onyx.env; set +a; cd /opt/onyx/current/db && runuser -u onyx -- env DATABASE_URL="$DATABASE_URL" ./node_modules/.bin/prisma migrate deploy'
   else
     load_dev_env
-    [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is not set in apps/api/.env"
+    [ -n "${DATABASE_URL:-}" ] || fail "$(text "DATABASE_URL non è impostato in apps/api/.env" "DATABASE_URL is not set in apps/api/.env")"
     (cd "$ROOT" && DATABASE_URL="$DATABASE_URL" pnpm --filter @onyx/db migrate:deploy)
   fi
 }
 
 backup_now() {
-  step "Backing up the database"
+  step "$(text "Backup del database" "Backing up the database")"
   onyx_cli backup --reason "${1:-manual}"
 }
 
@@ -303,25 +347,23 @@ restore_backup() {
   local reference="${1:-}"
   if [ -z "$reference" ]; then
     onyx_cli list
-    printf '
-Choose one: onyx restore <name>   (or onyx restore latest)
-'
+    printf '\n%s\n' "$(text "Scegline uno: onyx restore <nome>   (oppure onyx restore latest)" "Choose one: onyx restore <name>   (or onyx restore latest)")"
     return 0
   fi
-  onyx_cli verify "$reference" || fail "the backup is damaged: nothing was changed"
+  onyx_cli verify "$reference" || fail "$(text "il backup è danneggiato: non è stato cambiato nulla" "the backup is damaged: nothing was changed")"
   local was_running=false
   if is_running; then
     was_running=true
     run stop
   fi
-  step "Restoring $reference"
+  step "$(text "Ripristino di $reference" "Restoring $reference")"
   onyx_cli restore "$reference"
-  step "Applying the migrations"
+  step "$(text "Applicazione delle migrazioni" "Applying the migrations")"
   migrate
   if $was_running; then
     run start
   else
-    ok "Restored. Start Onyx with: onyx-start"
+    ok "$(text "Ripristinato. Avvia Onyx con: onyx-start" "Restored. Start Onyx with: onyx-start")"
   fi
 }
 
@@ -336,20 +378,20 @@ load_dev_env() {
 dev_start() {
   local pid
   if pid="$(dev_pid)"; then
-    ok "Onyx is already running (pid $pid)"
+    ok "$(text "Onyx è già in esecuzione (pid $pid)" "Onyx is already running (pid $pid)")"
     dev_status
     return 0
   fi
-  [ -d "$ROOT/node_modules" ] || fail "dependencies are missing: run scripts/install.sh first"
-  [ -f "$ROOT/apps/api/.env" ] || fail "apps/api/.env is missing: run scripts/dev-setup.sh first"
-  has pnpm || fail "pnpm is not on the PATH"
+  [ -d "$ROOT/node_modules" ] || fail "$(text "mancano le dipendenze: esegui prima scripts/install.sh" "dependencies are missing: run scripts/install.sh first")"
+  [ -f "$ROOT/apps/api/.env" ] || fail "$(text "manca apps/api/.env: esegui prima scripts/dev-setup.sh" "apps/api/.env is missing: run scripts/dev-setup.sh first")"
+  has pnpm || fail "$(text "pnpm non è nel PATH" "pnpm is not on the PATH")"
   mkdir -p "$LOG_DIR"
-  step "Starting Onyx (pnpm dev)"
+  step "$(text "Avvio di Onyx (pnpm dev)" "Starting Onyx (pnpm dev)")"
   (cd "$ROOT" && exec nohup setsid pnpm dev) >>"$LOG_FILE" 2>&1 < /dev/null &
   printf '%s\n' "$!" > "$PID_FILE"
-  info "logs: $LOG_FILE"
-  if wait_for "$API_URL/api/health" 90; then ok "API ready"; else warn "the API did not answer within 90 s: check onyx-logs"; fi
-  if wait_for "$WEB_URL" 120; then ok "Web console ready"; else warn "the web console did not answer within 120 s: check onyx-logs"; fi
+  info "$(text log logs): $LOG_FILE"
+  if wait_for "$API_URL/api/health" 90; then ok "$(text "API pronta" "API ready")"; else warn "$(text "l'API non ha risposto entro 90 s: controlla onyx-logs" "the API did not answer within 90 s: check onyx-logs")"; fi
+  if wait_for "$WEB_URL" 120; then ok "$(text "Console web pronta" "Web console ready")"; else warn "$(text "la console web non ha risposto entro 120 s: controlla onyx-logs" "the web console did not answer within 120 s: check onyx-logs")"; fi
   dev_status
 }
 
@@ -357,10 +399,10 @@ dev_stop() {
   local pid
   if ! pid="$(dev_pid)"; then
     rm -f "$PID_FILE"
-    ok "Onyx is not running"
+    ok "$(text "Onyx non è in esecuzione" "Onyx is not running")"
     return 0
   fi
-  step "Stopping Onyx (pid $pid)"
+  step "$(text "Arresto di Onyx (pid $pid)" "Stopping Onyx (pid $pid)")"
   pkill -TERM -s "$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   local waited=0
   while pgrep -s "$pid" >/dev/null 2>&1 && [ "$waited" -lt 20 ]; do
@@ -368,25 +410,25 @@ dev_stop() {
     waited=$((waited + 1))
   done
   if pgrep -s "$pid" >/dev/null 2>&1; then
-    warn "still running after 20 s: forcing it to stop"
+    warn "$(text "ancora in esecuzione dopo 20 s: lo fermo forzatamente" "still running after 20 s: forcing it to stop")"
     pkill -KILL -s "$pid" 2>/dev/null || true
   fi
   rm -f "$PID_FILE"
-  ok "Onyx stopped"
+  ok "$(text "Onyx fermato" "Onyx stopped")"
 }
 
 dev_status() {
   local pid
   if pid="$(dev_pid)"; then
-    ok "running in development mode (pid $pid)"
+    ok "$(text "in esecuzione in modalità sviluppo (pid $pid)" "running in development mode (pid $pid)")"
   else
-    printf '%s•%s not running (development mode)\n' "$YELLOW" "$RESET"
+    printf '%s•%s %s\n' "$YELLOW" "$RESET" "$(text "non in esecuzione (modalità sviluppo)" "not running (development mode)")"
     claude_line
     return 0
   fi
-  if curl --noproxy '*' -fsS -o /dev/null --max-time 2 "$API_URL/api/health" 2>/dev/null; then info "API      $API_URL  ok"; else info "API      $API_URL  not answering"; fi
+  if curl --noproxy '*' -fsS -o /dev/null --max-time 2 "$API_URL/api/health" 2>/dev/null; then info "API      $API_URL  ok"; else info "API      $API_URL  $(text "non risponde" "not answering")"; fi
   claude_line
-  info "Console  open one of:"
+  info "Console  $(text "apri uno di questi:" "open one of:")"
   lan_urls ":3000"
 }
 
@@ -404,45 +446,45 @@ checkout_git() {
 update_code() {
   local branch upstream before after status=0
   if ! checkout_git rev-parse --is-inside-work-tree >/dev/null; then
-    error "git cannot read the checkout in $ROOT (see the git message above): the code was not updated"
+    error "$(text "git non riesce a leggere il checkout in $ROOT (vedi il messaggio di git qui sopra): il codice non è stato aggiornato" "git cannot read the checkout in $ROOT (see the git message above): the code was not updated")"
     return 1
   fi
   branch="$(checkout_git symbolic-ref --quiet --short HEAD)" || status=$?
   if [ "$status" -eq 1 ]; then
-    warn "HEAD is detached in $ROOT: skipping git pull"
+    warn "$(text "HEAD è staccato in $ROOT: salto git pull" "HEAD is detached in $ROOT: skipping git pull")"
     return 0
   elif [ "$status" -ne 0 ]; then
-    error "git could not read the current branch in $ROOT: the code was not updated"
+    error "$(text "git non è riuscito a leggere il branch corrente in $ROOT: il codice non è stato aggiornato" "git could not read the current branch in $ROOT: the code was not updated")"
     return 1
   fi
   if ! upstream="$(checkout_git for-each-ref --format='%(upstream:short)' "refs/heads/$branch")"; then
-    error "git could not read the upstream of $branch in $ROOT: the code was not updated"
+    error "$(text "git non è riuscito a leggere l'upstream di $branch in $ROOT: il codice non è stato aggiornato" "git could not read the upstream of $branch in $ROOT: the code was not updated")"
     return 1
   fi
   if [ -z "$upstream" ]; then
-    warn "the branch $branch has no upstream: skipping git pull"
+    warn "$(text "il branch $branch non ha un upstream: salto git pull" "the branch $branch has no upstream: skipping git pull")"
     return 0
   fi
   before="$(checkout_git rev-parse --short HEAD)" || {
-    error "git could not read HEAD in $ROOT: the code was not updated"
+    error "$(text "git non è riuscito a leggere HEAD in $ROOT: il codice non è stato aggiornato" "git could not read HEAD in $ROOT: the code was not updated")"
     return 1
   }
   if ! checkout_git pull --ff-only; then
-    error "git pull from $upstream failed (see the git message above): the code was not updated"
+    error "$(text "git pull da $upstream non è riuscito (vedi il messaggio di git qui sopra): il codice non è stato aggiornato" "git pull from $upstream failed (see the git message above): the code was not updated")"
     return 1
   fi
   after="$(checkout_git rev-parse --short HEAD)" || after="?"
-  if [ "$before" = "$after" ]; then ok "the code is up to date ($after)"; else ok "code updated: $before -> $after"; fi
+  if [ "$before" = "$after" ]; then ok "$(text "il codice è già aggiornato ($after)" "the code is up to date ($after)")"; else ok "$(text "codice aggiornato: $before -> $after" "code updated: $before -> $after")"; fi
 }
 
 dev_update_steps() {
-  step "Updating the code"
+  step "$(text "Aggiornamento del codice" "Updating the code")"
   update_code || return 3
-  step "Installing dependencies"
+  step "$(text "Installazione delle dipendenze" "Installing dependencies")"
   (cd "$ROOT" && pnpm install --frozen-lockfile) || return 1
-  step "Backing up and migrating the database"
+  step "$(text "Backup e migrazione del database" "Backing up and migrating the database")"
   onyx_cli migrate --prisma-dir "$ROOT/packages/db" || return 1
-  step "Building the MCP server"
+  step "$(text "Build del server MCP" "Building the MCP server")"
   (cd "$ROOT" && pnpm --filter @onyx/mcp-server build) || return 1
 }
 
@@ -456,44 +498,44 @@ dev_update() {
   dev_update_steps || status=$?
   if [ "$status" -eq 3 ]; then
     if $was_running; then dev_start; fi
-    fail "the code was not updated: fix the git error above and run onyx-update again"
+    fail "$(text "il codice non è stato aggiornato: correggi l'errore di git qui sopra ed esegui di nuovo onyx-update" "the code was not updated: fix the git error above and run onyx-update again")"
   elif [ "$status" -ne 0 ]; then
-    if $was_running; then warn "Onyx was stopped for the update and is still stopped"; fi
-    fail "the update did not finish: fix the error above and run onyx-update again (a failed migration puts the database back as it was; the backups are listed by onyx backups)"
+    if $was_running; then warn "$(text "Onyx è stato fermato per l'aggiornamento ed è ancora fermo" "Onyx was stopped for the update and is still stopped")"; fi
+    fail "$(text "l'aggiornamento non è finito: correggi l'errore qui sopra ed esegui di nuovo onyx-update (una migrazione fallita rimette il database com'era; i backup li elenca onyx backups)" "the update did not finish: fix the error above and run onyx-update again (a failed migration puts the database back as it was; the backups are listed by onyx backups)")"
   fi
   if $was_running; then
     dev_start
   else
-    ok "Updated. Start Onyx with: onyx-start"
+    ok "$(text "Aggiornato. Avvia Onyx con: onyx-start" "Updated. Start Onyx with: onyx-start")"
   fi
   install_commands >/dev/null || true
   if is_stub "$(claude_bin)"; then
-    warn "Onyx is using the Claude Code simulator: run onyx use-claude to sign in with your Claude account"
+    warn "$(text "Onyx usa il simulatore di Claude Code: esegui onyx use-claude per accedere con il tuo account Claude" "Onyx is using the Claude Code simulator: run onyx use-claude to sign in with your Claude account")"
   fi
 }
 
 service_start() {
-  step "Starting Onyx services"
+  step "$(text "Avvio dei servizi di Onyx" "Starting Onyx services")"
   as_root systemctl start "${SERVICES[@]}"
   if has caddy; then as_root systemctl start caddy.service 2>/dev/null || true; fi
-  if wait_for "$API_URL/api/health" 60; then ok "API ready"; else warn "the API did not answer: journalctl -u onyx-api"; fi
+  if wait_for "$API_URL/api/health" 60; then ok "$(text "API pronta" "API ready")"; else warn "$(text "l'API non ha risposto: journalctl -u onyx-api" "the API did not answer: journalctl -u onyx-api")"; fi
   service_status
 }
 
 service_stop() {
-  step "Stopping Onyx services"
+  step "$(text "Arresto dei servizi di Onyx" "Stopping Onyx services")"
   as_root systemctl stop onyx-web.service onyx-api.service
-  ok "Onyx stopped"
+  ok "$(text "Onyx fermato" "Onyx stopped")"
 }
 
 service_status() {
   local unit
   for unit in "${SERVICES[@]}"; do
-    if systemctl is-active --quiet "$unit"; then ok "$unit active"; else printf '%s•%s %s %s\n' "$YELLOW" "$RESET" "$unit" "$(systemctl is-active "$unit" 2>/dev/null || true)"; fi
+    if systemctl is-active --quiet "$unit"; then ok "$unit $(text attivo active)"; else printf '%s•%s %s %s\n' "$YELLOW" "$RESET" "$unit" "$(systemctl is-active "$unit" 2>/dev/null || true)"; fi
   done
   if [ -L /opt/onyx/current ]; then info "release  $(basename "$(readlink -f /opt/onyx/current)")"; fi
   claude_line
-  info "Console  open one of:"
+  info "Console  $(text "apri uno di questi:" "open one of:")"
   lan_urls ""
   info "      http://$(hostname).local"
 }
@@ -508,18 +550,18 @@ remove_stage() {
 }
 
 service_update() {
-  step "Updating the code in $ROOT"
-  update_code || fail "the update stopped before touching Onyx: fix the git error above and run onyx-update again"
+  step "$(text "Aggiornamento del codice in $ROOT" "Updating the code in $ROOT")"
+  update_code || fail "$(text "l'aggiornamento si è fermato prima di toccare Onyx: correggi l'errore di git qui sopra ed esegui di nuovo onyx-update" "the update stopped before touching Onyx: fix the git error above and run onyx-update again")"
   STAGE="$(mktemp -d "${TMPDIR:-/tmp}/onyx-release-XXXXXX")"
   trap remove_stage EXIT
-  step "Building a release"
-  "$ROOT/deploy/scripts/build.sh" "$STAGE/release" || fail "the build failed: Onyx was not touched"
-  step "Installing the release"
-  as_root "$ROOT/deploy/scripts/release.sh" "$STAGE/release" || fail "the new release was not installed: see the messages above"
+  step "$(text "Build di una release" "Building a release")"
+  "$ROOT/deploy/scripts/build.sh" "$STAGE/release" || fail "$(text "la build non è riuscita: Onyx non è stato toccato" "the build failed: Onyx was not touched")"
+  step "$(text "Installazione della release" "Installing the release")"
+  as_root env ONYX_LANG="${ONYX_LANG:-}" "$ROOT/deploy/scripts/release.sh" "$STAGE/release" || fail "$(text "la nuova release non è stata installata: vedi i messaggi qui sopra" "the new release was not installed: see the messages above")"
   remove_stage
   trap - EXIT
   install_commands >/dev/null || true
-  ok "Onyx updated"
+  ok "$(text "Onyx aggiornato" "Onyx updated")"
   service_status
 }
 
@@ -527,7 +569,7 @@ logs() {
   if [ "$(mode)" = service ]; then
     as_root journalctl -f -u onyx-api.service -u onyx-web.service
   else
-    [ -f "$LOG_FILE" ] || fail "no log yet: start Onyx with onyx-start"
+    [ -f "$LOG_FILE" ] || fail "$(text "ancora nessun log: avvia Onyx con onyx-start" "no log yet: start Onyx with onyx-start")"
     tail -n 200 -f "$LOG_FILE"
   fi
 }
@@ -544,10 +586,10 @@ install_commands() {
   ln -sfn "$SCRIPT" "$target/onyx"
   local name
   for name in "${COMMANDS[@]}"; do ln -sfn "$SCRIPT" "$target/$name"; done
-  ok "installed onyx, ${COMMANDS[*]} in $target"
+  ok "$(text "installati onyx, ${COMMANDS[*]} in $target" "installed onyx, ${COMMANDS[*]} in $target")"
   case ":$PATH:" in
     *":$target:"*) ;;
-    *) warn "$target is not in your PATH: add  export PATH=\"$target:\$PATH\"  to your shell profile" ;;
+    *) warn "$(text "$target non è nel tuo PATH: aggiungi  export PATH=\"$target:\$PATH\"  al profilo della shell" "$target is not in your PATH: add  export PATH=\"$target:\$PATH\"  to your shell profile")" ;;
   esac
 }
 

@@ -8,21 +8,24 @@ import type {
   TaskListResponse,
   TelemetrySummary,
 } from "@onyx/contracts";
+import { ChevronDown, Smartphone } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PendingApprovals } from "@/components/approvals/pending-approvals";
 import { NetworkCard } from "@/components/layout/network-card";
 import { GettingStarted } from "@/components/onboarding/getting-started";
 import { PageHeader } from "@/components/layout/page-header";
+import { GlobalHealth } from "@/components/mission/global-health";
 import { MissionControl } from "@/components/mission/mission-control";
+import { RecentTasks } from "@/components/mission/recent-tasks";
 import { QueuePanel } from "@/components/queue/queue-panel";
-import { TaskList } from "@/components/tasks/task-list";
 import { KpiTiles } from "@/components/telemetry/kpi-tiles";
 import { Button } from "@/components/ui/button";
 import { GitHubMark } from "@/components/ui/github-mark";
 import { serverFetch } from "@/lib/api/server";
 import { getT } from "@/lib/i18n/server";
 import { onboardingSteps } from "@/lib/onboarding";
+import { RECENT_TASKS_FETCHED } from "@/lib/project-tasks";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
@@ -33,7 +36,7 @@ export default async function ConsolePage() {
   const t = await getT();
   const [telemetry, tasks, approvals, queue, mission, claude, projects] = await Promise.all([
     serverFetch<TelemetrySummary>("/api/telemetry/summary"),
-    serverFetch<TaskListResponse>("/api/tasks?limit=20"),
+    serverFetch<TaskListResponse>(`/api/tasks?limit=${RECENT_TASKS_FETCHED}`),
     serverFetch<ApprovalListResponse>("/api/approvals?status=PENDING&limit=4"),
     serverFetch<QueueDto>("/api/queue"),
     serverFetch<MissionControlDto>("/api/mission-control"),
@@ -77,6 +80,7 @@ export default async function ConsolePage() {
           </>
         }
       />
+      <GlobalHealth initial={mission} />
       <GettingStarted steps={steps} />
       <KpiTiles initial={telemetry} />
       <PendingApprovals initial={approvals} />
@@ -89,18 +93,27 @@ export default async function ConsolePage() {
         }
       />
       <QueuePanel initial={queue} />
-      <NetworkCard />
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">{t("Recent tasks")}</h2>
-        <TaskList
-          initial={tasks.items}
-          emptyAction={
-            <Button asChild size="sm">
-              <Link href="/projects?new=github">{t("Pick a project")}</Link>
-            </Button>
-          }
-        />
-      </section>
+      <RecentTasks
+        initial={tasks.items}
+        emptyAction={
+          <Button asChild size="sm">
+            <Link href="/projects?new=github">{t("Pick a project")}</Link>
+          </Button>
+        }
+      />
+      <details className="group rounded-xl border border-border" data-testid="network-details">
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-4 py-3 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <Smartphone className="size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">{t("Open Onyx from another device")}</span>
+          <ChevronDown
+            className="size-4 shrink-0 transition-transform group-open:rotate-180"
+            aria-hidden
+          />
+        </summary>
+        <div className="px-4 pb-4">
+          <NetworkCard />
+        </div>
+      </details>
     </>
   );
 }

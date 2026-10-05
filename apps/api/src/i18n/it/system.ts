@@ -23,12 +23,10 @@ export const SYSTEM: Record<string, string> = {
   "Space is running low: {free} free ({percent}%) in {path}":
     "Lo spazio sta finendo: {free} liberi ({percent}%) in {path}",
   "{free} free ({percent}%)": "{free} liberi ({percent}%)",
-  "No Claude account and no GitHub token: add them in Settings":
-    "Nessun account Claude e nessun token GitHub: aggiungili in Impostazioni",
-  "No Claude account connected: sign in from Settings":
-    "Nessun account Claude connesso: accedi da Impostazioni",
+  "Claude is not connected: agents cannot start":
+    "Claude non è collegato: gli agenti non possono partire",
   "The project has a GitHub remote but no GitHub token: add one in Settings":
     "Il progetto ha un remote GitHub ma manca il token GitHub: aggiungilo in Impostazioni",
-  "Claude account and GitHub token are set": "Account Claude e token GitHub impostati",
+  "GitHub token set": "Token GitHub impostato",
   "Claude account connected": "Account Claude connesso",
 };

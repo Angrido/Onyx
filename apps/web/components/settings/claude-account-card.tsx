@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
@@ -338,6 +339,19 @@ export function ClaudeAccountCard({ initial }: { initial: ClaudeAccountDto }) {
             "Agents, terminals and roadmaps run Claude Code with this account. With Claude Max the usage counts against your subscription instead of API credits.",
           )}
         </CardDescription>
+        <ul className="space-y-1 text-xs text-muted-foreground">
+          <li className="flex flex-wrap items-center gap-x-1">
+            <span>
+              <span className="font-medium text-foreground">{t("Subscription (Max or Pro):")}</span>{" "}
+              {t("runs use the limits of your subscription, with no extra cost.")}
+            </span>
+            <HelpTip term="limits" />
+          </li>
+          <li>
+            <span className="font-medium text-foreground">{t("API key:")}</span>{" "}
+            {t("you pay Anthropic for every token, at API prices.")}
+          </li>
+        </ul>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-0/60 px-3 py-2.5">

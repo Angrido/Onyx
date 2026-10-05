@@ -189,4 +189,44 @@ export const SAVINGS: Record<string, string> = {
   "Appears after the first completed task.": "Compare dopo il primo task completato.",
   "{percent} less than running every completed task on the reference model with the same tokens.":
     "{percent} in meno rispetto a eseguire ogni task completato sul modello di riferimento con gli stessi token.",
+  "Rule {rule} matched ({reasons})": "Regola {rule} applicata ({reasons})",
+  "Score {score} {band}: {signals}": "Punteggio {score} {band}: {signals}",
+  "< {threshold} for a {kind} task": "< {threshold} per un task {kind}",
+  "Model chosen by the operator for this run": "Modello scelto dall'operatore per questa run",
+  "Model pinned on the task by the operator": "Modello fissato sul task dall'operatore",
+  "Escalated to {tier}: {reason}. Base routing: {base}":
+    "Scalato a {tier}: {reason}. Routing di base: {base}",
+  "Escalated from {previous} to {tier}: the last run hit the turn limit. Base routing: {base}":
+    "Scalato da {previous} a {tier}: l'ultima run ha raggiunto il limite di turni. Routing di base: {base}",
+  "Back to {tier} after the escalated {previous} run succeeded. {base}":
+    "Di nuovo {tier} dopo la riuscita della run scalata a {previous}. {base}",
+  "Keeping the escalated tier {tier} until a run succeeds. Base routing: {base}":
+    "Resta il tier scalato {tier} finché una run non riesce. Routing di base: {base}",
+  "Classifier {model}: {verdict} (heuristic: {heuristic})":
+    "Classificatore {model}: {verdict} (euristica: {heuristic})",
+  "{rationale} · classifier unavailable": "{rationale} · classificatore non disponibile",
+  "{rationale} · {model} is not enabled": "{rationale} · {model} non è abilitato",
+  "{rationale} · no enabled {tier} model, using {resolved}":
+    "{rationale} · nessun modello {tier} abilitato, uso {resolved}",
+  "suggested by the plan": "suggerito dal piano",
+  "the TDD loop made no progress in {count} attempts on {tier}":
+    "il TDD loop non ha fatto progressi in {count} tentativi su {tier}",
+  "blast radius {count}": "raggio d'impatto {count}",
+  "cross-domain ({domains})": "multi-dominio ({domains})",
+  "{count} target file": "{count} file target",
+  "{count} target files": "{count} file target",
+  "architecture keywords: {keywords}": "parole chiave di architettura: {keywords}",
+  "~{count}k tokens of targets": "~{count}k token dei target",
+  "~{count} tokens of targets": "~{count} token dei target",
+  "{count} failed run": "{count} run fallita",
+  "{count} failed runs": "{count} run fallite",
+  "no complexity signals": "nessun segnale di complessità",
+  "kind {kind}": "tipo {kind}",
+  "workspace {workspace}": "workspace {workspace}",
+  "path {path}": "percorso {path}",
+  'keyword "{keyword}"': 'parola chiave "{keyword}"',
+  "{count} files ≤ {max}": "{count} file ≤ {max}",
+  "blast radius {count} ≤ {max}": "raggio d'impatto {count} ≤ {max}",
+  "style files only": "solo file di stile",
+  "not only style files": "non solo file di stile",
 };

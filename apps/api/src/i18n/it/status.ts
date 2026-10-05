@@ -79,4 +79,35 @@ export const STATUS: Record<string, string> = {
   "{project} reached the hard budget of {amount}":
     "{project} ha raggiunto il limite hard di {amount}",
   Project: "Progetto",
+  "Interrupted by Onyx restart": "Interrotta da un riavvio di Onyx",
+  "Aborted by operator": "Annullata dall'operatore",
+  "Interrupted by Onyx shutdown": "Interrotta dallo spegnimento di Onyx",
+  "Run exceeded its wall-clock limit": "La run ha superato il limite di durata",
+  "Run produced no output within the idle limit":
+    "La run non ha prodotto output entro il limite di inattività",
+  "Claude Code did not initialise in time": "Claude Code non si è avviato in tempo",
+  "Unable to start Claude Code: {error}": "Impossibile avviare Claude Code: {error}",
+  "Run aborted by Claude Code": "Run annullata da Claude Code",
+  "Claude Code reported an error: {error}": "Claude Code ha segnalato un errore: {error}",
+  "Claude Code finished with {subtype}: {cause}": "Claude Code è terminato con {subtype}: {cause}",
+  "Claude Code finished with {subtype}": "Claude Code è terminato con {subtype}",
+  "Claude Code exited without a result ({exit}): {detail}":
+    "Claude Code è uscito senza un risultato ({exit}): {detail}",
+  "Claude Code exited without a result ({exit})":
+    "Claude Code è uscito senza un risultato ({exit})",
+  "signal {signal}": "segnale {signal}",
+  "exit code {code}": "codice di uscita {code}",
+  "unknown error": "errore sconosciuto",
+  "no details": "nessun dettaglio",
+  "Run failed": "Run fallita",
+  "{error}. Claude Code no longer has this session: re-queued in a new one.":
+    "{error}. Claude Code non ha più questa sessione: rimessa in coda in una nuova.",
+  "{error}. Re-queued on a higher tier.": "{error}. Rimessa in coda su un tier superiore.",
+  "No target files: set target paths on the task or name files in the prompt":
+    "Nessun file target: imposta i percorsi target sul task o nomina i file nel prompt",
+  "Excluded by the context profile: {files}": "Esclusi dal profilo di contesto: {files}",
+  "All projects": "Tutti i progetti",
+  "{label}: soft budget of {amount} passed": "{label}: limite soft di {amount} superato",
+  "Spent {spent} in {period}. New runs in this scope wait until you approve; the hard limit is {hard}.":
+    "Spesi {spent} in {period}. Le nuove run in questo ambito aspettano la tua approvazione; il limite hard è {hard}.",
 };

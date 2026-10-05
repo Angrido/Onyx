@@ -45,11 +45,12 @@ function commit(content: string): string {
 function updateCode(
   directory: string,
   extra: Record<string, string> = {},
+  english = true,
 ): { code: number | null; stdout: string; stderr: string } {
   const result = spawnSync(
     "bash",
     ["-c", 'source "$1"; ROOT="$2"; update_code', "onyx", ONYX_SCRIPT, directory],
-    { env: environment(extra), encoding: "utf8" },
+    { env: environment({ ...(english ? { ONYX_LANG: "en" } : {}), ...extra }), encoding: "utf8" },
   );
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -93,6 +94,16 @@ describe("onyx-update code step", () => {
     const result = updateCode(checkout);
     expect(result.code).toBe(0);
     expect(result.stdout).toMatch(/the code is up to date/);
+  });
+
+  it("speaks Italian unless ONYX_LANG=en", () => {
+    const current = updateCode(checkout, {}, false);
+    expect(current.code).toBe(0);
+    expect(current.stdout).toMatch(/il codice è già aggiornato/);
+    git(checkout, ["switch", "-q", "--detach"]);
+    const detached = updateCode(checkout, {}, false);
+    expect(detached.code).toBe(0);
+    expect(detached.stderr).toMatch(/^attenzione: HEAD è staccato in .*: salto git pull$/m);
   });
 
   it("stops with an error when the pull fails", () => {

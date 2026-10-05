@@ -4,9 +4,10 @@ import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { GitSummary, IndexState, ProjectHealthReport } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
 import {
-  credentialsCheck,
+  claudeCheck,
   diskCheck,
   gitCheck,
+  githubCheck,
   indexCheck,
   renderFinding,
   resolveTestCommand,
@@ -47,8 +48,9 @@ export interface HealthServiceDeps {
   gitSummary: (projectId: string, rootPath: string, now: Date) => Promise<GitSummary>;
   claudeConnected: () => Promise<boolean>;
   githubToken: () => Promise<boolean>;
-  folders: readonly string[];
+  dataDir: string;
   statfs?: (path: string) => Promise<FolderSpace>;
+  deviceOf?: (path: string) => Promise<number | bigint>;
   searchPath?: () => string;
   now?: () => Date;
   ttlMs?: number;
@@ -59,11 +61,13 @@ interface LocalFacts {
   at: number;
   tests: TestRunnerFacts;
   githubRemote: boolean;
+  disk: DiskFacts | null;
 }
 
 interface SharedFacts {
   at: number;
-  disks: DiskFacts[];
+  disk: DiskFacts;
+  device: string | null;
   claude: boolean;
   githubToken: boolean;
 }
@@ -139,6 +143,17 @@ export async function folderSpace(
   }
 }
 
+async function deviceKey(
+  path: string,
+  read: (path: string) => Promise<number | bigint>,
+): Promise<string | null> {
+  try {
+    return String(await read(path));
+  } catch {
+    return null;
+  }
+}
+
 export class HealthService {
   private readonly local = new Map<string, LocalFacts>();
   private shared: SharedFacts | null = null;
@@ -158,11 +173,14 @@ export class HealthService {
     } else this.local.delete(projectId);
   }
 
+  async globalFindings(now: Date): Promise<HealthFinding[]> {
+    const shared = await this.sharedFacts(now);
+    return [claudeCheck(shared.claude), diskCheck([shared.disk])];
+  }
+
   async findings(project: HealthProject, git: GitSummary, now: Date): Promise<HealthFinding[]> {
-    const [local, shared] = await Promise.all([
-      this.localFacts(project, now),
-      this.sharedFacts(now),
-    ]);
+    const shared = await this.sharedFacts(now);
+    const local = await this.localFacts(project, now, shared);
     const state: IndexState = this.deps.isIndexing(project.id)
       ? "indexing"
       : project.indexError !== null
@@ -170,16 +188,16 @@ export class HealthService {
         : project.indexedAt
           ? "ready"
           : "never";
+    const github = githubCheck({
+      githubRemote: local.githubRemote,
+      githubToken: shared.githubToken,
+    });
     return [
       indexCheck({ state, error: project.indexError, indexedAt: project.indexedAt }, now),
       gitCheck(git),
       testsCheck(local.tests),
-      diskCheck(shared.disks),
-      credentialsCheck({
-        claude: shared.claude,
-        githubRemote: local.githubRemote,
-        githubToken: shared.githubToken,
-      }),
+      ...(github ? [github] : []),
+      ...(local.disk ? [diskCheck([local.disk])] : []),
     ];
   }
 
@@ -198,16 +216,20 @@ export class HealthService {
     });
     if (!project) throw notFound("Project");
     const git = await this.deps.gitSummary(project.id, project.rootPath, now);
-    const findings = await this.findings(project, git, now);
+    const [findings, global] = await Promise.all([
+      this.findings(project, git, now),
+      this.globalFindings(now),
+    ]);
     return {
       projectId,
       health: worstLevel(findings.map((finding) => finding.level)),
       checks: findings.map(renderFinding),
+      globalChecks: global.map(renderFinding),
       checkedAt: now.toISOString(),
     };
   }
 
-  private localFacts(project: HealthProject, now: Date): Promise<LocalFacts> {
+  private localFacts(project: HealthProject, now: Date, shared: SharedFacts): Promise<LocalFacts> {
     const allowed = toStringArray(project.allowedTools);
     const key = `${project.rootPath}\n${project.gitRemote ?? ""}\n${allowed.join("\n")}`;
     const cached = this.local.get(project.id);
@@ -217,17 +239,19 @@ export class HealthService {
     if (running) return running;
     const started = (async (): Promise<LocalFacts> => {
       const searchPath = this.deps.searchPath?.() ?? process.env["PATH"] ?? "";
-      const [tests, urls] = await Promise.all([
+      const [tests, urls, disk] = await Promise.all([
         inspectTestRunner(project.rootPath, allowed, searchPath).catch(() => ({
           command: null,
           missing: [],
         })),
         remoteUrls(project.rootPath),
+        this.separateDisk(project.rootPath, shared),
       ]);
       const facts: LocalFacts = {
         key,
         at: now.getTime(),
         tests,
+        disk,
         githubRemote: [project.gitRemote, ...urls].some(
           (url) => githubRepoOf(url ?? null) !== null,
         ),
@@ -239,19 +263,32 @@ export class HealthService {
     return started;
   }
 
+  private async separateDisk(root: string, shared: SharedFacts): Promise<DiskFacts | null> {
+    const device = await deviceKey(root, this.readDevice);
+    if (device !== null && device === shared.device) return null;
+    return folderSpace(root, this.readSpace);
+  }
+
+  private get readSpace(): (path: string) => Promise<FolderSpace> {
+    return this.deps.statfs ?? ((path: string) => statfs(path));
+  }
+
+  private get readDevice(): (path: string) => Promise<number | bigint> {
+    return this.deps.deviceOf ?? (async (path: string) => (await stat(path)).dev);
+  }
+
   private sharedFacts(now: Date): Promise<SharedFacts> {
     if (this.shared && now.getTime() - this.shared.at < this.ttl)
       return Promise.resolve(this.shared);
     if (this.sharing) return this.sharing;
-    const read = this.deps.statfs ?? ((path: string) => statfs(path));
     this.sharing = (async (): Promise<SharedFacts> => {
-      const folders = [...new Set(this.deps.folders)];
-      const [disks, claude, githubToken] = await Promise.all([
-        Promise.all(folders.map((folder) => folderSpace(folder, read))),
+      const [disk, device, claude, githubToken] = await Promise.all([
+        folderSpace(this.deps.dataDir, this.readSpace),
+        deviceKey(this.deps.dataDir, this.readDevice),
         this.deps.claudeConnected().catch(() => false),
         this.deps.githubToken().catch(() => false),
       ]);
-      const facts = { at: now.getTime(), disks, claude, githubToken };
+      const facts = { at: now.getTime(), disk, device, claude, githubToken };
       this.shared = facts;
       return facts;
     })().finally(() => {

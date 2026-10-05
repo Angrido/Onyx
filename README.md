@@ -65,7 +65,7 @@ onyx-start
 | `onyx-backup` | Scrive subito un backup del database (`onyx backups` li elenca) |
 | `onyx-restore [nome\|latest]` | Ferma Onyx, salva il database corrente, ripristina il backup, applica le migrazioni e riavvia |
 
-Funzionano in due modi, scelti da soli: in sviluppo eseguono `pnpm dev` dalla cartella del repository (log in `.onyx-data/logs/onyx-dev.log`); nel container di produzione (installato con `deploy/lxc/bootstrap.sh`) gestiscono i servizi systemd e `onyx-update` costruisce e installa una nuova release, tenendo le ultime tre. `ONYX_MODE=dev` o `ONYX_MODE=service` forzano la scelta.
+Funzionano in due modi, scelti da soli: in sviluppo eseguono `pnpm dev` dalla cartella del repository (log in `.onyx-data/logs/onyx-dev.log`); nel container di produzione (installato con `deploy/lxc/bootstrap.sh`) gestiscono i servizi systemd e `onyx-update` costruisce e installa una nuova release, tenendo le ultime tre. `ONYX_MODE=dev` o `ONYX_MODE=service` forzano la scelta. I messaggi dei comandi, di `scripts/install.sh` e di `release.sh` sono in italiano; con `ONYX_LANG=en` sono in inglese (per esempio `ONYX_LANG=en onyx-update`).
 
 `scripts/install.sh` installa solo ciò che manca e si può rilanciare quando si vuole:
 

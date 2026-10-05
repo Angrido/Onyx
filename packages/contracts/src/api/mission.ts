@@ -21,6 +21,7 @@ export const ProjectHealthReportSchema = z.object({
   projectId: z.string(),
   health: ProjectHealthSchema,
   checks: z.array(HealthCheckDtoSchema),
+  globalChecks: z.array(HealthCheckDtoSchema),
   checkedAt: IsoDateSchema,
 });
 export type ProjectHealthReport = z.infer<typeof ProjectHealthReportSchema>;
@@ -88,6 +89,7 @@ export type MissionProjectDto = z.infer<typeof MissionProjectDtoSchema>;
 
 export const MissionControlDtoSchema = z.object({
   projects: z.array(MissionProjectDtoSchema),
+  globalChecks: z.array(HealthCheckDtoSchema),
   running: z.number().int(),
   queued: z.number().int(),
   maxConcurrent: z.number().int(),

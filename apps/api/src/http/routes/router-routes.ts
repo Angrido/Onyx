@@ -14,6 +14,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Container } from "../../container";
+import { localizeRationale } from "../../domain/routing/rationale";
 import { idParam } from "../params";
 
 const ProjectScopeSchema = z.object({ projectId: z.string().min(1).max(64).optional() });
@@ -69,7 +70,7 @@ export function registerRouterRoutes(app: FastifyInstance, container: Container)
         strategy: evaluation.plan.strategy,
         tier: evaluation.tier,
         modelId: evaluation.modelId,
-        rationale: evaluation.rationale,
+        rationale: localizeRationale(evaluation.rationale),
         score: evaluation.plan.score?.value ?? null,
         confidence: evaluation.plan.confidence,
         ruleId: evaluation.plan.rule?.id ?? null,

@@ -12,6 +12,7 @@ import type {
   SavingsCheck,
   SavingsLedgerRow,
   SavingsReport,
+  SavingsSource,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -37,10 +38,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import { glossaryEntry, type GlossaryId } from "@/lib/glossary";
 import { useT } from "@/lib/i18n/client";
 import { msg, type Translate } from "@/lib/i18n/core";
 import { useLiveSystem } from "@/lib/live";
@@ -59,6 +62,7 @@ import {
   type Evidence,
   type SavingsTone,
 } from "@/lib/savings";
+import { SOURCE_TERMS, savingsSummary, summarySentence } from "@/lib/savings-summary";
 import { modelLabel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 
@@ -138,6 +142,61 @@ function Stat({
       </p>
       {hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
     </div>
+  );
+}
+
+const PAGE_TERMS: readonly GlossaryId[] = ["token", "context", "map", "cache", "memory", "tier"];
+
+function SummaryCard({ ledger }: { ledger: SavingsLedgerRow[] }) {
+  const t = useT();
+  const summary = savingsSummary(ledger);
+  return (
+    <Card data-testid="savings-summary" data-evidence={summary.evidence}>
+      <CardContent className="space-y-4 p-6">
+        <p className="text-lg font-semibold tracking-tight sm:text-xl">
+          {summarySentence(summary, t)}
+        </p>
+        {summary.sources > 1 ? (
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "A rough sum of the {count} lines of the ledger below: they are computed in different ways, so take it as an order of magnitude.",
+              { count: summary.sources },
+            )}
+          </p>
+        ) : null}
+        <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+          <div className="space-y-1 rounded-lg border border-border bg-surface-0/60 p-3">
+            <dt>
+              <EvidenceBadge evidence="measured" />
+            </dt>
+            <dd className="text-muted-foreground">
+              {t(
+                "Counted on real runs: Onyx compares the tokens Claude reports for runs with and without its help.",
+              )}
+            </dd>
+          </div>
+          <div className="space-y-1 rounded-lg border border-border bg-surface-0/60 p-3">
+            <dt>
+              <EvidenceBadge evidence="estimate" />
+            </dt>
+            <dd className="text-muted-foreground">
+              {t(
+                "Worked out from what Claude would probably read without Onyx. It becomes a measurement when there are enough runs.",
+              )}
+            </dd>
+          </div>
+        </dl>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{t("Words on this page:")}</span>
+          {PAGE_TERMS.map((term) => (
+            <span key={term} className="inline-flex items-center">
+              {t(glossaryEntry(term).term)}
+              <HelpTip term={term} />
+            </span>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -523,6 +582,7 @@ function MemoryExperimentCard({ experiment }: { experiment: MemoryExperiment }) 
         <CardTitle className="flex items-center gap-2">
           <FlaskConical className="size-4 text-primary" />
           {t("Project memory experiment")}
+          <HelpTip term="memory" />
           <EvidenceBadge evidence="measured" />
         </CardTitle>
         <CardDescription>
@@ -677,6 +737,7 @@ function PackCard({ pack }: { pack: PackAccounting }) {
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Calculator className="size-4 text-primary" />
           {t("Context pack accounting · last {days} days", { days: pack.windowDays })}
+          <HelpTip term="context" />
           <EvidenceBadge evidence="estimate" />
         </CardTitle>
         <CardDescription>
@@ -796,6 +857,7 @@ function OtherCard({ other }: { other: OtherSavings }) {
         <div className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium">{t("Prompt cache")}</p>
+            <HelpTip term="cache" />
             <EvidenceBadge evidence="measured" />
           </div>
           <p className="tabular text-2xl font-semibold">{formatUsd(other.cacheSavedUsd)}</p>
@@ -809,6 +871,7 @@ function OtherCard({ other }: { other: OtherSavings }) {
         <div className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium">{t("Model routing")}</p>
+            <HelpTip term="tier" />
             <EvidenceBadge evidence="estimate" />
           </div>
           <p className="tabular text-2xl font-semibold">
@@ -846,6 +909,11 @@ function ledgerValue(row: SavingsLedgerRow, t: Translate): string {
   return "—";
 }
 
+function SourceTip({ source }: { source: SavingsSource }) {
+  const term = SOURCE_TERMS[source];
+  return term ? <HelpTip term={term} /> : null;
+}
+
 function LedgerCard({ ledger }: { ledger: SavingsLedgerRow[] }) {
   const t = useT();
   return (
@@ -868,6 +936,7 @@ function LedgerCard({ ledger }: { ledger: SavingsLedgerRow[] }) {
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <p className="text-sm font-medium">{t(SOURCE_LABELS[row.source])}</p>
+                <SourceTip source={row.source} />
                 <EvidenceBadge evidence={row.evidence === "MEASURED" ? "measured" : "estimate"} />
                 {row.runs > 0 ? (
                   <span className="text-[11px] text-muted-foreground">{runCount(row.runs, t)}</span>
@@ -898,6 +967,7 @@ function CacheCard({ cache }: { cache: CacheReport }) {
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>{t("Prompt cache on resumed runs")}</CardTitle>
+          <HelpTip term="cache" />
           <EvidenceBadge evidence="measured" />
         </div>
         <CardDescription>
@@ -962,6 +1032,7 @@ export function SavingsDashboard({ initial }: { initial: SavingsReport }) {
   });
   return (
     <div className="space-y-6">
+      <SummaryCard ledger={data.ledger} />
       <VerdictCard verdict={data.verdict} />
       <LedgerCard ledger={data.ledger} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

@@ -1,4 +1,6 @@
+import { GLOSSARY } from "@/lib/glossary";
 import { msg } from "@/lib/i18n/core";
+import { HELP_HREF } from "@/lib/nav";
 
 export const OPEN_PALETTE_EVENT = "onyx:command-palette";
 
@@ -46,3 +48,12 @@ export const PROJECT_PAGES: readonly { suffix: string; label: string }[] = [
   { suffix: "/graph", label: msg("Graph") },
   { suffix: "/surgeon", label: msg("Context Surgeon") },
 ];
+
+export const GLOSSARY_LINKS: readonly (PaletteLink & { definition: string })[] = GLOSSARY.map(
+  (entry) => ({
+    id: entry.id,
+    label: entry.term,
+    definition: entry.definition,
+    href: `${HELP_HREF}#${entry.id}`,
+  }),
+);

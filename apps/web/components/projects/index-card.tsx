@@ -3,13 +3,13 @@
 import type { IndexProgress, IndexStatusDto, ServerMessage } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Network, RefreshCw, ScanSearch, Scissors } from "lucide-react";
+import { AlertTriangle, RefreshCw, ScanSearch } from "lucide-react";
 import { motion } from "motion/react";
-import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
@@ -20,7 +20,7 @@ import { useChannel } from "@/lib/ws/context";
 
 const PHASE_LABELS: Record<IndexProgress["phase"], string> = {
   enumerating: msg("Scanning files"),
-  analyzing: msg("Parsing with tree-sitter"),
+  analyzing: msg("Reading the code"),
   linking: msg("Resolving imports"),
   ranking: msg("Ranking the graph"),
   saving: msg("Saving the index"),
@@ -56,10 +56,23 @@ function ProgressBar({ progress }: { progress: IndexProgress | null }) {
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string | undefined }) {
+function Stat({
+  label,
+  value,
+  hint,
+  help,
+}: {
+  label: string;
+  value: string;
+  hint?: string | undefined;
+  help?: ReactNode;
+}) {
   return (
     <div className="rounded-lg bg-surface-0/60 px-3 py-2" title={hint}>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+        {help}
+      </p>
       <p className="font-mono text-sm">{value}</p>
     </div>
   );
@@ -111,9 +124,10 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
   return (
     <Card className="space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <ScanSearch className="size-4 text-primary" />
-          <span className="text-sm font-medium">{t("Code index")}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <ScanSearch className="size-4 text-primary" aria-hidden />
+          <h3 className="text-sm font-medium">{t("Code index")}</h3>
+          <HelpTip term="index" />
           <span className="text-xs text-muted-foreground">
             {status.state === "indexing" ? (
               t("indexing…")
@@ -126,29 +140,15 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
             )}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={status.state === "indexing" || reindex.isPending}
-            onClick={() => reindex.mutate()}
-          >
-            <RefreshCw className={status.state === "indexing" ? "animate-spin" : undefined} />
-            {t("Re-index")}
-          </Button>
-          <Button asChild variant="secondary" size="sm" disabled={!status.indexedAt}>
-            <Link href={`/projects/${projectId}/graph`}>
-              <Network />
-              {t("Graph")}
-            </Link>
-          </Button>
-          <Button asChild variant="secondary" size="sm">
-            <Link href={`/projects/${projectId}/surgeon`}>
-              <Scissors />
-              {t("Context Surgeon")}
-            </Link>
-          </Button>
-        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={status.state === "indexing" || reindex.isPending}
+          onClick={() => reindex.mutate()}
+        >
+          <RefreshCw className={status.state === "indexing" ? "animate-spin" : undefined} />
+          {t("Re-index")}
+        </Button>
       </div>
 
       {status.state === "indexing" ? <ProgressBar progress={status.progress} /> : null}
@@ -169,21 +169,22 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
               reused: stats.reusedFiles,
             })}
           />
-          <Stat label={t("Symbols")} value={formatTokens(stats.symbols)} />
+          <Stat label={t("Functions and types")} value={formatTokens(stats.symbols)} />
           <Stat
             label={t("Imports")}
             value={formatTokens(stats.internalEdges)}
             hint={t("{count} external packages", { count: stats.externalModules })}
           />
           <Stat
-            label={t("Skeleton saving")}
+            label={t("Context saved")}
+            help={<HelpTip term="context" className="-my-1.5" />}
             value={compression === null ? "—" : formatPercent(compression)}
-            hint={t("{raw} tokens of source → {l1} as L1 signatures", {
+            hint={t("{raw} tokens of code become {l1} tokens of summaries for the agents", {
               raw: formatTokens(stats.rawTokens),
               l1: formatTokens(stats.l1Tokens),
             })}
           />
-          <Stat label={t("Cycles")} value={String(stats.cycles)} />
+          <Stat label={t("Circular imports")} value={String(stats.cycles)} />
           <Stat
             label={t("Indexed in")}
             value={formatDuration(stats.durationMs)}
@@ -196,9 +197,7 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
         </div>
       ) : status.state !== "indexing" ? (
         <p className="text-xs text-muted-foreground">
-          {t(
-            "Index the project to give agents a project map, skeletons of nearby files and the onyx MCP tools.",
-          )}
+          {t("Index the project so that agents get a map of the code and read fewer files.")}
         </p>
       ) : null}
     </Card>

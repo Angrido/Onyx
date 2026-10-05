@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS } from "@/lib/domains";
@@ -95,7 +96,8 @@ function PreviewResult({
         </div>
         <p className="mt-2 text-sm leading-relaxed">{decision.rationale}</p>
         <p className="mt-2 text-xs text-muted-foreground">
-          {t("Workspace")}{" "}
+          {t("Workspace")}
+          <HelpTip term="workspace" />{" "}
           <span className="font-medium text-foreground">{preview.workspaceName ?? "—"}</span>
           {preview.workspaceSource
             ? ` · ${t(WORKSPACE_SOURCE_LABELS[preview.workspaceSource])}`

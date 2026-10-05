@@ -8,7 +8,7 @@ import type { Logger } from "pino";
 import type { z } from "zod";
 import { budgetLevel, periodKey, periodStart, type BudgetLevel } from "../domain/budget";
 import { badRequest, notFound } from "../errors";
-import { tx } from "../i18n";
+import { interpolate, msg, tx, txKnown } from "../i18n";
 import type { ApprovalService } from "./approval-service";
 
 type CreateInput = z.output<typeof CreateBudgetRequestSchema>;
@@ -38,8 +38,24 @@ function money(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+const BUDGET_TEXT = {
+  allProjects: msg("All projects"),
+  project: msg("Project"),
+  softTitle: msg("{label}: soft budget of {amount} passed"),
+  softDetail: msg(
+    "Spent {spent} in {period}. New runs in this scope wait until you approve; the hard limit is {hard}.",
+  ),
+} as const;
+
+const BUDGET_TEXT_KEYS: readonly string[] = [
+  BUDGET_TEXT.softTitle,
+  BUDGET_TEXT.softDetail,
+  BUDGET_TEXT.allProjects,
+  BUDGET_TEXT.project,
+];
+
 function scopeLabel(budget: Budget, projectName: string | null): string {
-  return budget.scope === "GLOBAL" ? "All projects" : (projectName ?? "Project");
+  return budget.scope === "GLOBAL" ? BUDGET_TEXT.allProjects : (projectName ?? BUDGET_TEXT.project);
 }
 
 export class BudgetService {
@@ -48,19 +64,26 @@ export class BudgetService {
   private refreshing: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: BudgetServiceDeps) {
-    deps.approvals.register("BUDGET", {
-      approve: async (_approval, payload) => {
-        if (!payload.budgetId || !payload.periodKey) return;
-        await this.deps.prisma.budget
-          .update({ where: { id: payload.budgetId }, data: { approvedPeriod: payload.periodKey } })
-          .catch(() => undefined);
-        await this.refresh();
-        this.deps.onChange?.();
+    deps.approvals.register(
+      "BUDGET",
+      {
+        approve: async (_approval, payload) => {
+          if (!payload.budgetId || !payload.periodKey) return;
+          await this.deps.prisma.budget
+            .update({
+              where: { id: payload.budgetId },
+              data: { approvedPeriod: payload.periodKey },
+            })
+            .catch(() => undefined);
+          await this.refresh();
+          this.deps.onChange?.();
+        },
+        reject: async () => {
+          await this.refresh();
+        },
       },
-      reject: async () => {
-        await this.refresh();
-      },
-    });
+      (text) => txKnown(text, BUDGET_TEXT_KEYS),
+    );
   }
 
   async list(): Promise<BudgetDto[]> {
@@ -177,13 +200,20 @@ export class BudgetService {
       if (state.level === "soft" && !state.softApproved) {
         await this.deps.approvals.create({
           kind: "BUDGET",
-          title: `${label}: soft budget of ${money(state.budget.softUsd ?? 0)} passed`,
+          title: interpolate(BUDGET_TEXT.softTitle, {
+            label,
+            amount: money(state.budget.softUsd ?? 0),
+          }),
           projectId: state.budget.projectId,
           payload: {
             key: `budget:${state.budget.id}:${state.periodKey}`,
             budgetId: state.budget.id,
             periodKey: state.periodKey,
-            detail: `Spent ${money(state.spentUsd)} in ${state.periodKey}. New runs in this scope wait until you approve; the hard limit is ${money(state.budget.hardUsd)}.`,
+            detail: interpolate(BUDGET_TEXT.softDetail, {
+              spent: money(state.spentUsd),
+              period: state.periodKey,
+              hard: money(state.budget.hardUsd),
+            }),
             link: "/settings",
             approveLabel: "Continue this period",
             rejectLabel: "Keep runs paused",
@@ -207,7 +237,7 @@ export class BudgetService {
     if (state.budget.scope === "GLOBAL")
       return tx("All projects reached the hard budget of {amount}", { amount });
     return tx("{project} reached the hard budget of {amount}", {
-      project: this.names.get(state.budget.projectId ?? "") ?? tx("Project"),
+      project: this.names.get(state.budget.projectId ?? "") ?? tx(BUDGET_TEXT.project),
       amount,
     });
   }

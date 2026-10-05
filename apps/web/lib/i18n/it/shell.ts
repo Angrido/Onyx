@@ -61,11 +61,7 @@ export const shell: Record<string, string> = {
   Disconnect: "Disconnetti",
   "Replace the token": "Sostituisci il token",
   "Personal access token": "Personal access token",
-  "Fine-grained token with Contents read and write on the repositories Onyx works on (read-only is enough to clone, write is needed to push branches), plus Pull requests read and write to open pull requests and Issues, Checks and Commit statuses read to import issues and follow the checks.":
-    "Token fine-grained con Contents in lettura e scrittura sui repository su cui lavora Onyx (la sola lettura basta per clonare, la scrittura serve per fare push dei branch), più Pull requests in lettura e scrittura per aprire pull request e Issues, Checks e Commit statuses in lettura per importare le issue e seguire i check.",
   "Memory settings saved": "Impostazioni della memoria salvate",
-  "Facts collected from earlier runs enter the system prompt of each new session. Each project has its own memory page, where you confirm, edit and forget facts.":
-    "I fatti raccolti dalle run precedenti entrano nel system prompt di ogni nuova sessione. Ogni progetto ha la sua pagina della memoria, dove confermi, modifichi e dimentichi i fatti.",
   "Give new sessions the project memory": "Dai alle nuove sessioni la memoria del progetto",
   Limit: "Limite",
   "Forget facts not seen for": "Dimentica i fatti non visti da",
@@ -234,8 +230,6 @@ export const shell: Record<string, string> = {
   Setup: "Configurazione",
   "Skip to content": "Vai al contenuto",
   Accounts: "Account",
-  "Connect the Claude account your agents run with and the GitHub account Onyx clones from and pushes to.":
-    "Collega l'account Claude con cui girano i tuoi agenti e l'account GitHub da cui Onyx clona e su cui fa push.",
   "Orchestration console for Claude Code agents":
     "Console di orchestrazione per agenti Claude Code",
   "Nothing here": "Qui non c'è niente",

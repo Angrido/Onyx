@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
@@ -173,8 +174,9 @@ export function IdeationPanel({
     <Card data-testid="ideation">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Lightbulb className="size-4 text-primary" />
+          <Lightbulb className="size-4 text-primary" aria-hidden />
           {t("Ideation: security and performance")}
+          <HelpTip term="ideation" />
         </CardTitle>
         <CardDescription>
           {t(

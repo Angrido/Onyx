@@ -65,7 +65,9 @@ export function BlockedCommands({
 
   return (
     <div
-      className="space-y-3 rounded-lg border border-warning/40 bg-warning/8 p-4"
+      id="blocked-commands"
+      tabIndex={-1}
+      className="scroll-mt-24 space-y-3 rounded-lg border border-warning/40 bg-warning/8 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-testid="blocked-commands"
     >
       <div className="flex items-start gap-2">

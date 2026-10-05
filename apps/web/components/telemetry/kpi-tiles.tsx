@@ -6,9 +6,11 @@ import { Bot, Coins, Database, Gauge } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import type { GlossaryId } from "@/lib/glossary";
 import { useT } from "@/lib/i18n/client";
 import { useLiveSystem } from "@/lib/live";
 
@@ -18,22 +20,30 @@ function Tile({
   value,
   detail,
   accent,
+  term,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   detail: string;
   accent: string;
+  term?: GlossaryId;
 }) {
   return (
-    <Card className="relative overflow-hidden p-5">
+    <Card className="relative p-5">
       <div
-        className="pointer-events-none absolute -top-12 -right-12 size-32 rounded-full opacity-25 blur-2xl"
-        style={{ background: accent }}
-      />
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl"
+        aria-hidden="true"
+      >
+        <div
+          className="absolute -top-12 -right-12 size-32 rounded-full opacity-25 blur-2xl"
+          style={{ background: accent }}
+        />
+      </div>
+      <div className="relative flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {icon}
         {label}
+        {term ? <HelpTip term={term} className="-my-1" /> : null}
       </div>
       <div className="mt-3 h-9 overflow-hidden">
         <AnimatePresence mode="popLayout" initial={false}>
@@ -89,6 +99,7 @@ export function KpiTiles({ initial }: { initial: TelemetrySummary }) {
       <Tile
         icon={<Database className="size-3.5" />}
         label={t("Tokens today")}
+        term="token"
         value={formatTokens(totalTokens)}
         detail={t("{tokens} generated", { tokens: formatTokens(today.usage.outputTokens) })}
         accent="var(--tier-scout)"
@@ -96,6 +107,7 @@ export function KpiTiles({ initial }: { initial: TelemetrySummary }) {
       <Tile
         icon={<Gauge className="size-3.5" />}
         label={t("Cache hit ratio")}
+        term="cache"
         value={formatPercent(today.cacheHitRatio)}
         detail={t("{tokens} tokens from cache", {
           tokens: formatTokens(today.usage.cacheReadTokens),

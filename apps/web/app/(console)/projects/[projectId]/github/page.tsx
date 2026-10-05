@@ -9,7 +9,6 @@ import type {
   TaskListResponse,
 } from "@onyx/contracts";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { ChangelogCard } from "@/components/github/changelog-card";
 import { IssuesCard } from "@/components/github/issues-card";
 import { PullRequestsCard } from "@/components/github/pull-requests-card";
@@ -67,11 +66,6 @@ export default async function ProjectGitHubPage({
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href={`/projects/${project.id}`} className="hover:text-foreground">
-            ← {project.name}
-          </Link>
-        }
         title={t("GitHub")}
         description={
           pulls.repo ? (

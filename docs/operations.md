@@ -26,6 +26,8 @@ I comandi `onyx` riconoscono la modalità da soli (servizio se `onyx-api.service
 | `onyx-update-claude` | Aggiorna Claude Code, ne verifica la compatibilità e riavvia Onyx (vedi §5) |
 | `onyx install` | Rimette i comandi sul `PATH` (lo fa anche `onyx-update`) |
 
+I comandi rispondono in italiano; `ONYX_LANG=en` li fa rispondere in inglese (vedi §21).
+
 ## 3. Dove stanno i dati
 
 | Cosa | Sviluppo | Servizio |
@@ -157,7 +159,7 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | **Risparmi → Prompt cache nelle run riprese** (**Savings → Prompt cache on resumed runs**): *System prompt cambiato* (*System prompt changed*) | Tra due run della stessa sessione sono cambiati il primer del workspace, le istruzioni dell'agente o i sotto-agenti (per esempio un TDD loop usa l'agente `test-fixer`) | Normale se il cambio è voluto; altrimenti evita di modificare il primer mentre un workspace lavora |
 | **Risparmi → Prompt cache nelle run riprese**: *Cache scaduta durante la pausa* (*Cache expired during the pause*) | La sessione è stata ripresa dopo la durata della cache (5 minuti di default per Claude) | Manda i follow-up prima; se il tuo account ha una cache più lunga, alza `ONYX_PROMPT_CACHE_TTL_MINUTES` perché Onyx la classifichi bene |
 | **Risparmi → Prompt cache nelle run riprese**: *Senza spiegazione* (*Unexplained*) | Claude Code ha riscritto la conversazione per un motivo che Onyx non vede (per esempio il suo prompt di sistema è cambiato) | Nessuna azione: se succede spesso, registra una trascrizione reale (§5) e segnalalo |
-| Nodo di un piano *Green … ignored N failures that already failed before this work* | Il progetto aveva già test o errori di tipo prima del piano | Nessuna azione: sono elencati nel messaggio; correggili con un task a parte se vuoi la suite verde |
+| Nodo di un piano *Verde … ignorati N errori che fallivano già prima di questo lavoro* (*Green … ignored N failures that already failed before this work*) | Il progetto aveva già test o errori di tipo prima del piano | Nessuna azione: sono elencati nel messaggio; correggili con un task a parte se vuoi la suite verde |
 | **Risparmi**: *Non conviene* (*Not paying off*) | Con il pacchetto le run consumano più token di quelle senza | Controlla riletture e budget del pacchetto; con `ONYX_CONTEXT_ENABLED=false` le run girano senza contesto |
 
 ## 9. Accessibilità e prestazioni
@@ -450,8 +452,12 @@ Cosa resta in inglese, di proposito:
 | Prompt, pacchetti di contesto, primer, motivi di rifiuto del guard mandati a Claude | In inglese costano meno token e il comportamento del modello è quello misurato |
 | Risposte, piani e spiegazioni scritti da Claude | Sono suoi |
 | Messaggi d'errore dell'API | Il web li traduce con la mappa degli errori, aggiungendo la soluzione |
-| Testi salvati con valori dentro (es. *Merged N tasks into …*, motivazioni del router) | Salvati una volta sola: tradurli alla lettura non è affidabile |
 | Log, commit, pull request, changelog | Leggibili da chiunque lavori sul repository |
+| Output della CLI di Node (`onyx-cli`: backup, migrazioni) | `release.sh` ne legge alcune righe |
+
+**Testi salvati con valori dentro.** Titoli e dettagli delle approvazioni (*Piano per …*, budget, merge, QA), messaggi di piani, nodi e TDD loop (*Uniti 2 task in …*, *I test non sono passati: …*), note di contesto ed errori delle run (*Interrotta da un riavvio di Onyx*), motivazioni del router (*Punteggio 0.00 < 0.55: nessun segnale di complessità*) ed errori dell'account GitHub restano in inglese nel database, perché Claude ne rilegge alcuni, e si traducono quando l'API li manda alla console. Una parte scritta da Claude o dall'utente dentro il testo (titoli, sintesi, nomi dei test) resta com'è.
+
+**Comandi.** `onyx-*`, `scripts/install.sh` e `release.sh` scrivono in italiano; con `ONYX_LANG=en` (anche `en_US.UTF-8`) scrivono in inglese, per esempio `ONYX_LANG=en onyx-update`. `LANG` non conta, perché su molti server vale `en_US` anche per chi legge in italiano. `onyx-update` passa la scelta a `release.sh`.
 
 **Primo progetto.** La guida *Per iniziare* della home si calcola dallo stato reale: account Claude collegato, almeno un progetto, workspace, comandi consentiti, un task. Non salva nulla nel database; *Nascondi la guida* vale per il browser.
 
@@ -490,13 +496,13 @@ Il riepilogo dell'ultimo avvio è nella diagnostica (*recovery*).
 
 **Diagnostica** (Impostazioni → *Diagnostica*). *Mostra l'anteprima della diagnostica* prepara un file JSON con versione e commit di Onyx, Node, sistema, versione e compatibilità di Claude Code, configurazione senza segreti (per ogni segreto solo *impostato* o *non impostato*), readiness, riepilogo del recupero, ultimi 200 avvisi ed errori, dimensione e righe del database, migrazioni, coda e spazio su disco. *Scarica il file* salva esattamente quello che vedi. È il file da mandare quando chiedi aiuto.
 
-**Aggiornamenti.** `onyx-update` esegue git come proprietario del checkout anche quando lo lanci da root e si ferma con un messaggio chiaro su ogni errore di git (checkout illeggibile, HEAD staccato, nessun upstream, pull fallito) senza dire *Onyx updated*. In servizio, `release.sh` aspetta che la release nuova risponda su `/api/ready`; se non succede rimette la precedente e, se c'erano migrazioni, il backup `pre-update`, poi esce con errore. Chi sviluppa crea le migrazioni con `pnpm --filter @onyx/db migrate:new <nome>`, che le nomina dopo l'ultima; `pnpm --filter @onyx/db migrate:check` fallisce se schema e migrazioni non coincidono.
+**Aggiornamenti.** `onyx-update` esegue git come proprietario del checkout anche quando lo lanci da root e si ferma con un messaggio chiaro su ogni errore di git (checkout illeggibile, HEAD staccato, nessun upstream, pull fallito) senza dire *Onyx aggiornato* (*Onyx updated*). In servizio, `release.sh` aspetta che la release nuova risponda su `/api/ready`; se non succede rimette la precedente e, se c'erano migrazioni, il backup `pre-update`, poi esce con errore. Chi sviluppa crea le migrazioni con `pnpm --filter @onyx/db migrate:new <nome>`, che le nomina dopo l'ultima; `pnpm --filter @onyx/db migrate:check` fallisce se schema e migrazioni non coincidono.
 
 | Problema | Causa probabile | Cosa fare |
 |---|---|---|
 | Semaforo rosso su *Spazio su disco* | Meno di 1 GiB libero | Libera spazio o cancella backup vecchi (`onyx backups`) |
 | *Runner dei test* in attenzione | Dipendenze non installate nel progetto | Installa le dipendenze del progetto (`npm install` o simile) |
-| Una run è *Interrupted by Onyx restart* | Onyx si è fermato mentre girava | Rilancia il task: riparte nella stessa sessione se esiste ancora |
-| `onyx-update` dice *git cannot read the checkout* | Il checkout appartiene a un altro utente e git non è eseguibile come quell'utente | Esegui `onyx-update` come proprietario del checkout |
-| `release.sh` esce con *the update failed and was undone* | La release nuova non diventava pronta | Guarda `onyx-logs` e la diagnostica: Onyx gira ancora sulla release precedente |
+| Una run è *Interrotta da un riavvio di Onyx* (*Interrupted by Onyx restart*) | Onyx si è fermato mentre girava | Rilancia il task: riparte nella stessa sessione se esiste ancora |
+| `onyx-update` dice *git non riesce a leggere il checkout* (*git cannot read the checkout*) | Il checkout appartiene a un altro utente e git non è eseguibile come quell'utente | Esegui `onyx-update` come proprietario del checkout |
+| `release.sh` esce con *l'aggiornamento non è riuscito ed è stato annullato* (*the update failed and was undone*) | La release nuova non diventava pronta | Guarda `onyx-logs` e la diagnostica: Onyx gira ancora sulla release precedente |
 

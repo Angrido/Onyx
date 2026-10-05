@@ -22,7 +22,15 @@ import type { z } from "zod";
 import type { AppConfig } from "../config";
 import { raiseTier, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import { isActive } from "../domain/task-state";
-import { baselineKey, baselineLabel, ignoredNote, splitBaseline } from "../domain/tdd/baseline";
+import { RATIONALE } from "../domain/routing/rationale";
+import { RUN_TEXT, RUN_TEXT_KEYS } from "../domain/run-texts";
+import {
+  baselineKey,
+  baselineLabel,
+  IGNORED_NOTE,
+  ignoredNote,
+  splitBaseline,
+} from "../domain/tdd/baseline";
 import { buildDigest, DIGEST_BUDGET_TOKENS } from "../domain/tdd/digest";
 import { commandFailure, parseLintOutput, parseTypecheckOutput } from "../domain/tdd/gates";
 import {
@@ -34,6 +42,7 @@ import {
   observe,
   recordFix,
   regressionsOf,
+  STOP_REASON,
   type LoopProgress,
   type TddStage,
 } from "../domain/tdd/loop-policy";
@@ -48,7 +57,7 @@ import {
 } from "../domain/tdd/runners";
 import { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, conflict, notFound } from "../errors";
-import { msg, tx } from "../i18n";
+import { interpolate, msg, txKnownOrNull } from "../i18n";
 import {
   listProjectFiles,
   ProtectedSnapshot,
@@ -190,17 +199,32 @@ const STAGE_LABEL: Readonly<Record<TddStage, string>> = {
   lint: "lint",
 };
 
-const FIXED_TEXTS: ReadonlySet<string> = new Set([
-  msg("Stopped by the operator"),
-  msg("The test runner found no tests to run"),
-  msg("Already green: tests and gates passed before any fix"),
-  msg("Interrupted by an Onyx restart"),
-]);
+const LOOP_TEXT = {
+  stopped: msg("Stopped by the operator"),
+  noTests: msg("The test runner found no tests to run"),
+  alreadyGreen: msg("Already green: tests and gates passed before any fix{note}"),
+  greenMany: msg("Green after {count} fix attempts{note}"),
+  greenOne: msg("Green after {count} fix attempt{note}"),
+  interrupted: msg("Interrupted by an Onyx restart"),
+  restored: msg("Interrupted by an Onyx restart; restored {count} test file(s)"),
+  cannotStart: msg("The test command could not start (exit {code}): {detail}"),
+  fixEnded: msg("The fix run ended with {status}: {error}"),
+  fixNotStarted: msg("The fix run could not start: {error}"),
+} as const;
+
+export const TDD_TEXT_KEYS: readonly string[] = [
+  ...Object.values(LOOP_TEXT),
+  ...Object.values(STOP_REASON),
+  IGNORED_NOTE.one,
+  IGNORED_NOTE.many,
+  ...RUN_TEXT_KEYS,
+  IGNORED_NOTE.more,
+];
 
 function localizeLoop(loop: TddLoopDto): TddLoopDto {
-  return loop.message !== null && FIXED_TEXTS.has(loop.message)
-    ? { ...loop, message: tx(loop.message) }
-    : loop;
+  return loop.message === null
+    ? loop
+    : { ...loop, message: txKnownOrNull(loop.message, TDD_TEXT_KEYS) };
 }
 
 function iso(date: Date | null): string | null {
@@ -562,8 +586,8 @@ export class TddService {
           endedAt: new Date(),
           message:
             restored.length > 0
-              ? `Interrupted by an Onyx restart; restored ${restored.length} test file(s)`
-              : "Interrupted by an Onyx restart",
+              ? interpolate(LOOP_TEXT.restored, { count: restored.length })
+              : LOOP_TEXT.interrupted,
         },
       });
       logger.warn(
@@ -599,12 +623,12 @@ export class TddService {
         `${ACCENT}Onyx TDD loop${RESET} · ${loop.runner.toLowerCase()} · up to ${loop.maxIterations} fix attempts · ${loop.snapshot.size} protected test files\r\n`,
       );
       for (;;) {
-        if (loop.aborted) return await this.finish(loop, "ABORTED", "Stopped by the operator");
+        if (loop.aborted) return await this.finish(loop, "ABORTED", LOOP_TEXT.stopped);
         const evaluation = await this.evaluate(loop);
-        if (loop.aborted) return await this.finish(loop, "ABORTED", "Stopped by the operator");
+        if (loop.aborted) return await this.finish(loop, "ABORTED", LOOP_TEXT.stopped);
         if (evaluation.noTests) {
           await this.recordIteration(loop, index, evaluation, null, []);
-          return await this.finish(loop, "FAILED", "The test runner found no tests to run");
+          return await this.finish(loop, "FAILED", LOOP_TEXT.noTests);
         }
         if (
           evaluation.stage === "run" &&
@@ -614,7 +638,10 @@ export class TddService {
           return await this.finish(
             loop,
             "FAILED",
-            `The test command could not start (exit ${evaluation.exitCode}): ${evaluation.failures[0]?.message.split("\n").at(-1) ?? "command not found"}`,
+            interpolate(LOOP_TEXT.cannotStart, {
+              code: evaluation.exitCode,
+              detail: evaluation.failures[0]?.message.split("\n").at(-1) ?? "command not found",
+            }),
           );
         }
         if (evaluation.green) {
@@ -623,10 +650,14 @@ export class TddService {
           return await this.finish(
             loop,
             "GREEN",
-            (attempts === 0
-              ? "Already green: tests and gates passed before any fix"
-              : `Green after ${attempts} fix attempt${attempts === 1 ? "" : "s"}`) +
-              ignoredNote([...loop.ignoredLabels.values()]),
+            interpolate(
+              attempts === 0
+                ? LOOP_TEXT.alreadyGreen
+                : attempts === 1
+                  ? LOOP_TEXT.greenOne
+                  : LOOP_TEXT.greenMany,
+              { count: attempts, note: ignoredNote([...loop.ignoredLabels.values()]) },
+            ),
           );
         }
 
@@ -719,13 +750,16 @@ export class TddService {
           const run = await this.afterFix(loop, currentIteration, result);
           if (run) lastRunId = run.id;
           if (loop.aborted || result?.status === "ABORTED")
-            return await this.finish(loop, "ABORTED", "Stopped by the operator");
+            return await this.finish(loop, "ABORTED", LOOP_TEXT.stopped);
           if (!run) return await this.finish(loop, "FAILED", await this.startFailure(loop.taskId));
           if (run.status !== "COMPLETED" && run.resultSubtype !== "error_max_turns")
             return await this.finish(
               loop,
               "FAILED",
-              `The fix run ended with ${run.status.toLowerCase()}: ${run.errorMessage ?? "no details"}`,
+              interpolate(LOOP_TEXT.fixEnded, {
+                status: run.status.toLowerCase(),
+                error: run.errorMessage ?? RUN_TEXT.noDetails,
+              }),
             );
 
           loop.phase = "guard";
@@ -1137,7 +1171,9 @@ export class TddService {
       where: { id: taskId },
       select: { resultSummary: true },
     });
-    return `The fix run could not start: ${task?.resultSummary ?? "unknown error"}`;
+    return interpolate(LOOP_TEXT.fixNotStarted, {
+      error: task?.resultSummary ?? RUN_TEXT.unknownError,
+    });
   }
 
   private async revert(
@@ -1338,7 +1374,10 @@ export class TddService {
     if (TIER_ORDER[next] <= TIER_ORDER[decision.tier]) return null;
     return {
       tier: next,
-      reason: `the TDD loop made no progress in ${NO_PROGRESS_BEFORE_ESCALATION} attempts on ${decision.tier}`,
+      reason: interpolate(RATIONALE.tddStalled, {
+        count: NO_PROGRESS_BEFORE_ESCALATION,
+        tier: decision.tier,
+      }),
     };
   }
 

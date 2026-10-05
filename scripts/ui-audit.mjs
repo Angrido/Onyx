@@ -79,6 +79,7 @@ async function discover(cookie) {
     "/savings",
     "/settings",
     "/telemetry",
+    "/help",
   ];
   const projects = (await get("/api/projects"))?.items ?? [];
   const project = projects.find((entry) => entry.taskCount > 0) ?? projects[0];

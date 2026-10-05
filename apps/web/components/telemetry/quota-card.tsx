@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent } from "@/lib/format";
@@ -82,15 +83,18 @@ function SettingsForm({ quota }: { quota: QuotaDto }) {
           />
         </label>
       </div>
-      <label className="flex min-h-6 items-center gap-2.5 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 accent-[var(--primary)]"
-          checked={deferEnabled}
-          onChange={(event) => setDeferEnabled(event.target.checked)}
-        />
-        {t("Hold tasks marked “can wait” near the limit")}
-      </label>
+      <div className="flex items-center gap-1">
+        <label className="flex min-h-6 items-center gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--primary)]"
+            checked={deferEnabled}
+            onChange={(event) => setDeferEnabled(event.target.checked)}
+          />
+          {t("Hold tasks marked “can wait” near the limit")}
+        </label>
+        <HelpTip term="canWait" />
+      </div>
       <Button size="sm" variant="secondary" disabled={save.isPending}>
         {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
         {t("Save")}
@@ -117,6 +121,7 @@ export function QuotaCard({ initial }: { initial: QuotaDto }) {
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Gauge className="size-4 text-primary" />
           {t("Claude subscription limits")}
+          <HelpTip term="limits" />
           <Badge tone={style.tone} data-testid="quota-level">
             {t(style.label)}
           </Badge>

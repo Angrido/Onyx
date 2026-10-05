@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatUsd } from "@/lib/format";
@@ -50,7 +51,7 @@ function BudgetRow({ budget }: { budget: BudgetDto }) {
     onError: (error) => toast.error(errorMessage(error, t)),
   });
   return (
-    <div className={cn("space-y-2 py-3", !budget.enabled && "opacity-60")} data-testid="budget">
+    <div className="space-y-2 py-3" data-testid="budget">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">
           {budget.scope === "GLOBAL" ? t("All projects") : (budget.projectName ?? t("Project"))}
@@ -83,7 +84,12 @@ function BudgetRow({ budget }: { budget: BudgetDto }) {
           </Button>
         </div>
       </div>
-      <div className="relative h-2 overflow-hidden rounded-full bg-surface-3">
+      <div
+        className={cn(
+          "relative h-2 overflow-hidden rounded-full bg-surface-3",
+          !budget.enabled && "grayscale",
+        )}
+      >
         <motion.div
           className={cn(
             "h-full rounded-full",
@@ -166,6 +172,7 @@ export function BudgetsCard({
         <CardTitle className="flex items-center gap-2">
           <Wallet className="size-4 text-primary" />
           {t("Budgets")}
+          <HelpTip term="budget" />
         </CardTitle>
         <CardDescription>
           {t(
@@ -239,8 +246,12 @@ export function BudgetsCard({
               </Select>
             </Field>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-            <Field label={t("Soft limit (USD)")} htmlFor="budget-soft">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field
+              label={t("Soft limit (USD)")}
+              htmlFor="budget-soft"
+              hint={t("Optional. Past it, new runs wait for your approval.")}
+            >
               <Input
                 id="budget-soft"
                 type="number"
@@ -252,7 +263,11 @@ export function BudgetsCard({
                 onChange={(event) => setSoft(event.target.value)}
               />
             </Field>
-            <Field label={t("Hard limit (USD)")} htmlFor="budget-hard">
+            <Field
+              label={t("Hard limit (USD)")}
+              htmlFor="budget-hard"
+              hint={t("At this amount Onyx stops every run.")}
+            >
               <Input
                 id="budget-hard"
                 type="number"
@@ -264,11 +279,11 @@ export function BudgetsCard({
                 onChange={(event) => setHard(event.target.value)}
               />
             </Field>
-            <Button type="submit" disabled={create.isPending || !hard}>
-              {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-              {t("Add")}
-            </Button>
           </div>
+          <Button type="submit" disabled={create.isPending || !hard}>
+            {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
+            {t("Add")}
+          </Button>
         </form>
       </CardContent>
     </Card>

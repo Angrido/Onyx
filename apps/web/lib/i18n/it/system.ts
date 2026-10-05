@@ -1,7 +1,6 @@
 export const system: Record<string, string> = {
   Git: "Git",
   "Disk space": "Spazio su disco",
-  Credentials: "Credenziali",
   OK: "OK",
   Warning: "Attenzione",
   "No checks yet": "Ancora nessun controllo",

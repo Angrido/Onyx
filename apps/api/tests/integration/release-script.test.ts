@@ -154,10 +154,11 @@ function running(): void {
   writeFileSync(join(state, "running"), "");
 }
 
-function release(stage: string, version: string): Promise<Result> {
+function release(stage: string, version: string, english = true): Promise<Result> {
   return new Promise((done) => {
     const child = spawn("bash", [RELEASE_SCRIPT, stage, version], {
       env: {
+        ...(english ? { ONYX_LANG: "en" } : {}),
         PATH: process.env["PATH"] ?? "/usr/bin:/bin",
         HOME: root,
         ONYX_RELEASE_AS_SELF: "1",
@@ -238,6 +239,23 @@ describe("release.sh", () => {
     expect(readFileSync(join(root, "units", "onyx-api.service"), "utf8")).toContain("v1");
     expect(systemctlCalls().at(-1)).toBe("start onyx-api.service onyx-web.service");
     expect(existsSync(join(state, "running"))).toBe(true);
+  });
+
+  it("speaks Italian unless ONYX_LANG=en", async () => {
+    makeCurrent(installed("v1", { migrations: ["m1"], health: "ready" }));
+    running();
+    const result = await release(
+      staged({ migrations: ["m1", "m2"], health: "database" }),
+      "v2",
+      false,
+    );
+    expect(result.code).toBe(1);
+    expect(result.stdout).toMatch(/Torno a v1/);
+    expect(result.stderr).toMatch(/^errore: v2 non è pronta .*controlli falliti: database/m);
+    expect(result.stderr).toMatch(
+      /l'aggiornamento non è riuscito ed è stato annullato: v1 è di nuovo la release corrente/,
+    );
+    expect(currentRelease()).toBe(join(base, "releases", "v1"));
   });
 
   it("keeps the database when the failed release brought no migration", async () => {

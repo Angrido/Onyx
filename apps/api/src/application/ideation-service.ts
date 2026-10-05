@@ -30,9 +30,8 @@ import {
   translateFinding,
   type StaticFinding,
 } from "../domain/ideation";
-import { translateKnown } from "../domain/insights";
 import { badRequest, conflict, notFound } from "../errors";
-import { interpolate, msg } from "../i18n";
+import { interpolate, msg, txKnown } from "../i18n";
 import { READ_ONLY_TOOLS, WRITE_TOOLS, structuredOf, type AgentRunner } from "./agent-runner";
 import type { IndexService } from "./index-service";
 import type { ProjectContext } from "./project-context";
@@ -74,7 +73,7 @@ function toRunDto(run: IdeationRun): IdeationRunDto {
     id: run.id,
     status: run.status,
     files: run.files,
-    audit: run.audit === null ? null : translateKnown(run.audit, AUDIT_KEYS),
+    audit: run.audit === null ? null : txKnown(run.audit, AUDIT_KEYS),
     projectTokens: run.projectTokens,
     snippetTokens: run.snippetTokens,
     modelTokens: run.modelTokens,

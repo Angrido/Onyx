@@ -24,7 +24,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         <main
           id="main"
           tabIndex={-1}
-          className="min-w-0 flex-1 px-4 py-6 outline-none md:px-8 md:py-8"
+          className="min-w-0 flex-1 px-4 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] outline-none md:px-8 md:py-8 md:pb-8"
         >
           <div className="mx-auto max-w-6xl space-y-8">{children}</div>
         </main>
