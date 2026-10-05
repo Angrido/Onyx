@@ -1,11 +1,12 @@
 import type { Domain } from "@onyx/contracts";
+import { msg } from "@/lib/i18n/core";
 
 export const DOMAIN_LABELS: Record<Domain, string> = {
-  FRONTEND: "Frontend",
-  BACKEND: "Backend",
-  DATABASE: "Database",
-  INFRA: "Infra",
-  CUSTOM: "Custom",
+  FRONTEND: msg("Frontend"),
+  BACKEND: msg("Backend"),
+  DATABASE: msg("Database"),
+  INFRA: msg("Infra"),
+  CUSTOM: msg("Custom"),
 };
 
 export const DOMAIN_COLORS: Record<Domain | "SHARED", string> = {

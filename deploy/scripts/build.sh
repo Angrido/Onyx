@@ -31,6 +31,6 @@ cp packages/mcp-server/dist/onyx-statusline.js "$OUT/mcp/onyx-statusline.js"
 
 mkdir -p "$OUT/deploy"
 cp -r deploy/scripts deploy/systemd deploy/caddy deploy/env deploy/avahi deploy/nftables "$OUT/deploy/"
-git rev-parse --short HEAD > "$OUT/REVISION" 2>/dev/null || date +%Y%m%d%H%M%S > "$OUT/REVISION"
+git -c safe.directory="$(pwd -P)" rev-parse --short HEAD > "$OUT/REVISION" 2>/dev/null || date +%Y%m%d%H%M%S > "$OUT/REVISION"
 
 printf 'Release staged in %s (revision %s)\n' "$OUT" "$(cat "$OUT/REVISION")"

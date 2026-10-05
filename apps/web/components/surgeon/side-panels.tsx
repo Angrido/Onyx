@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/form-controls";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import { msg } from "@/lib/i18n/core";
+import { useT } from "@/lib/i18n/client";
 import {
   ruleLabel,
   usdFor,
@@ -32,12 +34,13 @@ function Panel({
   children: ReactNode;
   className?: string;
 }) {
+  const t = useT();
   return (
     <Card className={cn("space-y-3 p-4", className)}>
       <div className="flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <span className="text-primary">{icon}</span>
-          {title}
+          {t(title)}
         </h2>
         {action}
       </div>
@@ -53,15 +56,24 @@ const SOURCE_TONES = {
   SECURITY: "danger",
 } as const;
 
+const SOURCE_LABELS: Record<PolicyRule["source"], string> = {
+  PRESET: msg("preset"),
+  HEURISTIC: msg("heuristic"),
+  MANUAL: msg("manual"),
+  SECURITY: msg("security"),
+};
+
 function SourceBadge({ rule }: { rule: PolicyRule }) {
+  const t = useT();
   return (
     <Badge tone={SOURCE_TONES[rule.source]} className="px-1.5 py-0 text-[9px] uppercase">
-      {rule.source.toLowerCase()}
+      {t(SOURCE_LABELS[rule.source])}
     </Badge>
   );
 }
 
 function FileList({ files, tone }: { files: readonly SurgeonFile[]; tone: "add" | "remove" }) {
+  const t = useT();
   const shown = files.slice(0, 40);
   return (
     <ul className="scrollbar-thin max-h-40 space-y-0.5 overflow-y-auto">
@@ -75,7 +87,9 @@ function FileList({ files, tone }: { files: readonly SurgeonFile[]; tone: "add" 
         </li>
       ))}
       {files.length > shown.length ? (
-        <li className="text-[11px] text-muted-foreground">… {files.length - shown.length} more</li>
+        <li className="text-[11px] text-muted-foreground">
+          {t("… {count} more", { count: files.length - shown.length })}
+        </li>
       ) : null}
     </ul>
   );
@@ -94,30 +108,36 @@ export function ImpactPanel({
   warnings: readonly CentralWarning[];
   pricing: { modelId: string; inputUsdPerMTok: number } | null;
 }) {
+  const t = useT();
   const share = draft.totalTokens > 0 ? draft.excludedTokens / draft.totalTokens : 0;
   const changed = diff.newlyExcluded.length + diff.newlyIncluded.length;
   const delta = diff.tokenDelta;
   const savedUsd = usdFor(draft.excludedTokens, pricing?.inputUsdPerMTok);
   const deltaUsd = usdFor(Math.abs(delta), pricing?.inputUsdPerMTok);
   return (
-    <Panel title="Savings" icon={<ShieldCheck className="size-4" />}>
+    <Panel title={msg("Savings")} icon={<ShieldCheck className="size-4" />}>
       <div className="space-y-2" data-testid="surgeon-savings">
         <div className="flex items-baseline justify-between gap-2">
           <span className="font-mono text-2xl font-semibold text-success">
             {formatTokens(draft.excludedTokens)}
           </span>
           <span className="text-xs text-muted-foreground">
-            tokens kept out · {formatPercent(share)}
+            {t("tokens kept out · {percent}", { percent: formatPercent(share) })}
           </span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-success" style={{ width: `${share * 100}%` }} />
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {formatTokens(draft.totalTokens - draft.excludedTokens)} of{" "}
-          {formatTokens(draft.totalTokens)} tokens stay visible to agents
+          {t("{visible} of {total} tokens stay visible to agents", {
+            visible: formatTokens(draft.totalTokens - draft.excludedTokens),
+            total: formatTokens(draft.totalTokens),
+          })}
           {savedUsd !== null && pricing
-            ? ` · ${formatUsd(savedUsd)} of ${pricing.modelId} input per full read avoided`
+            ? ` · ${t("{cost} of {model} input per full read avoided", {
+                cost: formatUsd(savedUsd),
+                model: pricing.modelId,
+              })}`
             : ""}
           .
         </p>
@@ -125,22 +145,26 @@ export function ImpactPanel({
       <div className="rounded-lg border border-border bg-surface-0/50 p-3">
         {changed === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No changes against the saved profile ({formatTokens(saved.excludedTokens)} excluded).
+            {t("No changes against the saved profile ({tokens} excluded).", {
+              tokens: formatTokens(saved.excludedTokens),
+            })}
           </p>
         ) : (
           <div className="space-y-2" data-testid="surgeon-diff">
             <p className="text-xs">
               <span className={cn("font-semibold", delta >= 0 ? "text-success" : "text-warning")}>
                 {delta >= 0 ? "−" : "+"}
-                {formatTokens(Math.abs(delta))} tokens
+                {t("{count} tokens", { count: formatTokens(Math.abs(delta)) })}
               </span>
               {deltaUsd !== null ? (
                 <span className="text-muted-foreground"> ({formatUsd(deltaUsd)})</span>
               ) : null}
               <span className="text-muted-foreground">
                 {" "}
-                vs saved · {diff.newlyExcluded.length} excluded, {diff.newlyIncluded.length}{" "}
-                restored
+                {t("vs saved · {excluded} excluded, {restored} restored", {
+                  excluded: diff.newlyExcluded.length,
+                  restored: diff.newlyIncluded.length,
+                })}
               </span>
             </p>
             {diff.newlyExcluded.length > 0 ? (
@@ -159,11 +183,12 @@ export function ImpactPanel({
         >
           <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
             <AlertTriangle className="size-3.5" />
-            {warnings.length} central {warnings.length === 1 ? "file is" : "files are"} out of
-            context
+            {warnings.length === 1
+              ? t("1 central file is out of context")
+              : t("{count} central files are out of context", { count: warnings.length })}
           </p>
           <p className="text-[11px] text-muted-foreground">
-            Many files import these; agents will only see them through the onyx MCP tools.
+            {t("Many files import these; agents will only see them through the onyx MCP tools.")}
           </p>
           <ul className="space-y-0.5">
             {warnings.slice(0, 8).map((warning) => (
@@ -171,7 +196,7 @@ export function ImpactPanel({
                 <span className="min-w-0 flex-1 truncate font-mono">{warning.file.path}</span>
                 {warning.isNew ? (
                   <Badge tone="warning" className="px-1.5 py-0 text-[9px]">
-                    new
+                    {t("new")}
                   </Badge>
                 ) : null}
               </li>
@@ -192,6 +217,7 @@ function RuleRow({
   impact: { files: number; tokens: number } | undefined;
   onRemove?: (() => void) | undefined;
 }) {
+  const t = useT();
   return (
     <li className="group flex items-center gap-2 rounded-md px-2 py-1 hover:bg-surface-2/60">
       {rule.locked ? <Lock className="size-3 shrink-0 text-muted-foreground" /> : null}
@@ -209,14 +235,14 @@ function RuleRow({
         {impact
           ? `${impact.files} · ${formatTokens(impact.tokens)}`
           : rule.action === "INCLUDE"
-            ? "keeps"
+            ? t("keeps")
             : "—"}
       </span>
       {onRemove ? (
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remove rule ${ruleLabel(rule)}`}
+          aria-label={t("Remove rule {rule}", { rule: ruleLabel(rule) })}
           className="rounded p-0.5 text-muted-foreground opacity-60 hover:bg-surface-3 hover:text-foreground group-hover:opacity-100"
         >
           <X className="size-3" />
@@ -243,6 +269,7 @@ export function RulesPanel({
   onAdd: (raw: string) => boolean;
   onRemove: (index: number) => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState("");
   const [showInherited, setShowInherited] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
@@ -258,7 +285,7 @@ export function RulesPanel({
   };
   return (
     <Panel
-      title="Rules"
+      title={msg("Rules")}
       icon={<Lock className="size-4" />}
       action={<span className="text-[11px] text-muted-foreground">{layerLabel}</span>}
     >
@@ -266,20 +293,21 @@ export function RulesPanel({
         <Input
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          placeholder="e.g. fixtures/ or !dist/keep.js"
-          aria-label="New rule"
+          placeholder={t("e.g. fixtures/ or !dist/keep.js")}
+          aria-label={t("New rule")}
           className="h-8 font-mono text-xs"
         />
         <Button type="submit" size="sm" variant="secondary" disabled={value.trim().length === 0}>
           <Plus />
-          Add
+          {t("Add")}
         </Button>
       </form>
       <p className="text-[11px] text-muted-foreground">
-        .gitignore syntax: later rules win, <span className="font-mono">!</span> brings files back.
+        {t(".gitignore syntax: later rules win,")} <span className="font-mono">!</span>{" "}
+        {t("brings files back.")}
       </p>
       {rules.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No rules in this layer yet.</p>
+        <p className="text-xs text-muted-foreground">{t("No rules in this layer yet.")}</p>
       ) : (
         <ul
           ref={listRef}
@@ -303,7 +331,9 @@ export function RulesPanel({
             className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
             onClick={() => setShowInherited((current) => !current)}
           >
-            {showInherited ? "Hide" : "Show"} {inherited.length} rules inherited from the project
+            {showInherited
+              ? t("Hide {count} rules inherited from the project", { count: inherited.length })
+              : t("Show {count} rules inherited from the project", { count: inherited.length })}
           </button>
           {showInherited ? (
             <ul className="space-y-0.5 opacity-80">
@@ -320,7 +350,7 @@ export function RulesPanel({
       ) : null}
       <div className="space-y-1 border-t border-border pt-2">
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Always excluded
+          {t("Always excluded")}
         </p>
         <ul className="space-y-0.5">
           {security.map((rule) => (
@@ -339,12 +369,14 @@ export function SuggestionsPanel({
   suggestions: readonly Suggestion[];
   onApply: (suggestion: Suggestion) => void;
 }) {
+  const t = useT();
   return (
-    <Panel title="Suggestions" icon={<Lightbulb className="size-4" />}>
+    <Panel title={msg("Suggestions")} icon={<Lightbulb className="size-4" />}>
       {suggestions.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Nothing obvious left to cut: presets, binary assets, large data files and generated code
-          are already out.
+          {t(
+            "Nothing obvious left to cut: presets, binary assets, large data files and generated code are already out.",
+          )}
         </p>
       ) : (
         <ul className="space-y-1.5" data-testid="surgeon-suggestions">
@@ -356,12 +388,13 @@ export function SuggestionsPanel({
               <div className="min-w-0 flex-1 space-y-0.5">
                 <p className="truncate font-mono text-[11px]">{suggestion.rule.pattern}</p>
                 <p className="truncate text-[10px] text-muted-foreground">
-                  {suggestion.rule.reason ?? "Preset"} · {suggestion.files} files ·{" "}
+                  {suggestion.rule.reason ?? t("Preset")} ·{" "}
+                  {t("{count} files", { count: suggestion.files })} ·{" "}
                   {suggestion.tokens > 0
-                    ? `${formatTokens(suggestion.tokens)} tokens`
-                    : "kept out of image reads"}
+                    ? t("{count} tokens", { count: formatTokens(suggestion.tokens) })
+                    : t("kept out of image reads")}
                   {suggestion.centralFiles.length > 0
-                    ? ` · ${suggestion.centralFiles.length} central`
+                    ? ` · ${t("{count} central", { count: suggestion.centralFiles.length })}`
                     : ""}
                 </p>
               </div>
@@ -369,7 +402,7 @@ export function SuggestionsPanel({
                 size="sm"
                 variant="ghost"
                 onClick={() => onApply(suggestion)}
-                aria-label={`Apply ${suggestion.rule.pattern}`}
+                aria-label={t("Apply {pattern}", { pattern: suggestion.rule.pattern })}
               >
                 <Plus />
               </Button>

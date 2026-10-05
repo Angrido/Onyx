@@ -1,12 +1,16 @@
 import type {
+  CacheLoss,
   ContextItem,
   ExperimentResult,
   PackAccounting,
+  RunCacheDto,
   RunContextDto,
   SavingsCheckState,
+  SavingsSource,
   SavingsVerdictState,
 } from "@onyx/contracts";
-import { formatPercent } from "./format";
+import { english, msg, type Translate } from "@/lib/i18n/core";
+import { formatPercent, formatTokens } from "./format";
 
 export type Evidence = "measured" | "estimate" | "none";
 export type SavingsTone = "success" | "warning" | "danger" | "primary" | "neutral";
@@ -15,12 +19,12 @@ export const VERDICT_STYLES: Record<
   SavingsVerdictState,
   { label: string; tone: SavingsTone; evidence: Evidence }
 > = {
-  CONFIRMED: { label: "Saving confirmed", tone: "success", evidence: "measured" },
-  NOT_PAYING: { label: "Not paying off", tone: "danger", evidence: "measured" },
-  NO_DIFFERENCE: { label: "No clear difference", tone: "warning", evidence: "measured" },
-  COLLECTING: { label: "Measuring", tone: "primary", evidence: "estimate" },
-  ESTIMATE_ONLY: { label: "Estimate only", tone: "neutral", evidence: "estimate" },
-  NO_DATA: { label: "No data yet", tone: "neutral", evidence: "none" },
+  CONFIRMED: { label: msg("Saving confirmed"), tone: "success", evidence: "measured" },
+  NOT_PAYING: { label: msg("Not paying off"), tone: "danger", evidence: "measured" },
+  NO_DIFFERENCE: { label: msg("No clear difference"), tone: "warning", evidence: "measured" },
+  COLLECTING: { label: msg("Measuring"), tone: "primary", evidence: "estimate" },
+  ESTIMATE_ONLY: { label: msg("Estimate only"), tone: "neutral", evidence: "estimate" },
+  NO_DATA: { label: msg("No data yet"), tone: "neutral", evidence: "none" },
 };
 
 export const CHECK_TONES: Record<SavingsCheckState, SavingsTone> = {
@@ -38,13 +42,15 @@ export function formatChange(change: number | null): string {
   return change < 0 ? `−${formatPercent(-change)}` : `+${formatPercent(change)}`;
 }
 
-export function savingText(ratio: number | null): string {
+export function savingText(ratio: number | null, t: Translate = english): string {
   if (ratio === null) return "—";
-  return ratio >= 0 ? `${formatPercent(ratio)} fewer` : `${formatPercent(-ratio)} more`;
+  return ratio >= 0
+    ? t("{percent} fewer", { percent: formatPercent(ratio) })
+    : t("{percent} more", { percent: formatPercent(-ratio) });
 }
 
-export function formatPValue(pValue: number | null): string {
-  if (pValue === null) return "p not available";
+export function formatPValue(pValue: number | null, t: Translate = english): string {
+  if (pValue === null) return t("p not available");
   return pValue < 0.001 ? "p < 0.001" : `p = ${pValue.toFixed(3)}`;
 }
 
@@ -97,5 +103,75 @@ export function runSaving(item: ContextItem | null, context: RunContextDto | nul
     net: rereadTokens === null ? null : 1 - (delivered + rereadTokens) / baseline,
     rereadFiles: context?.rereadFiles ?? 0,
     rereadTokens: rereadTokens ?? 0,
+  };
+}
+
+export const SOURCE_LABELS: Record<SavingsSource, string> = {
+  "context-pack": msg("Onyx context (pack, map, MCP)"),
+  "stable-prefix": msg("Project map kept for the session"),
+  "pack-reuse": msg("Pack not sent again on resume"),
+  "prompt-cache": msg("Claude prompt cache"),
+  routing: msg("Model routing"),
+  "stack-commands": msg("Commands allowed for the stack"),
+  quota: msg("Tasks held near the Claude limit"),
+  "project-memory": msg("Project memory in new sessions"),
+  "target-signatures": msg("Files to edit sent as signatures"),
+  "concise-answers": msg("Short final summaries"),
+  "exploration-models": msg("Plan exploration on a cheaper model"),
+  "small-task-batching": msg("Small tasks grouped in one run"),
+  "qa-review": msg("QA before merging (cost)"),
+  "conflict-resolution": msg("Merge conflicts resolved by Claude (cost)"),
+  insights: msg("Code questions answered from the index"),
+  ideation: msg("Ideation: Claude reads only suspicious snippets"),
+};
+
+export const CACHE_LOSS_LABELS: Record<CacheLoss, string> = {
+  NEW_SESSION: msg("New session"),
+  NONE: msg("Read from the cache"),
+  PREFIX_CHANGED: msg("System prompt changed"),
+  MODEL_CHANGED: msg("Model changed"),
+  EXPIRED: msg("Cache expired during the pause"),
+  UNKNOWN: msg("Unexplained"),
+};
+
+export const CACHE_LOSS_HINTS: Record<CacheLoss, string> = {
+  NEW_SESSION: msg("A new session always writes its prompt into the cache."),
+  NONE: msg("The conversation was read back from the cache."),
+  PREFIX_CHANGED: msg(
+    "The workspace primer, the agent's instructions or its sub-agents changed between the runs of this session.",
+  ),
+  MODEL_CHANGED: msg(
+    "The cache belongs to one model: switching model mid-session writes it again.",
+  ),
+  EXPIRED: msg(
+    "The session was resumed after the cache lifetime: follow-ups sent sooner reuse it (ONYX_PROMPT_CACHE_TTL_MINUTES).",
+  ),
+  UNKNOWN: msg(
+    "Claude Code wrote the conversation again for a reason Onyx cannot see, for example its own system prompt changed.",
+  ),
+};
+
+export interface CacheNote {
+  tone: SavingsTone;
+  text: string;
+}
+
+export function cacheNote(cache: RunCacheDto, t: Translate = english): CacheNote | null {
+  if (cache.loss === null || cache.loss === "NEW_SESSION") return null;
+  if (cache.loss === "NONE")
+    return {
+      tone: "success",
+      text: t(
+        "Resumed from Claude's prompt cache: {tokens} tokens read back instead of written again.",
+        { tokens: formatTokens(cache.readTokens ?? 0) },
+      ),
+    };
+  return {
+    tone: "warning",
+    text: t("Prompt cache lost: {tokens} tokens written again ({reason}). {hint}", {
+      tokens: formatTokens(cache.lostTokens ?? 0),
+      reason: t(CACHE_LOSS_LABELS[cache.loss]).toLowerCase(),
+      hint: t(CACHE_LOSS_HINTS[cache.loss]),
+    }),
   };
 }

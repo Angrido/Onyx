@@ -9,11 +9,22 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import { runnerLabel, upsertLoop } from "@/lib/tdd";
 
-export function TddStartCard({ task, disabled }: { task: TaskDetailDto; disabled: boolean }) {
+export function TddStartCard({
+  task,
+  disabled,
+  bare = false,
+}: {
+  task: TaskDetailDto;
+  disabled: boolean;
+  bare?: boolean;
+}) {
+  const t = useT();
   const queryClient = useQueryClient();
   const defaults = useQuery({
     queryKey: queryKeys.tddDefaults(task.id),
@@ -44,7 +55,7 @@ export function TddStartCard({ task, disabled }: { task: TaskDetailDto; disabled
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.tddDefaults(task.id) });
-      toast.success("TDD loop started");
+      toast.success(t("TDD loop started"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -54,111 +65,131 @@ export function TddStartCard({ task, disabled }: { task: TaskDetailDto; disabled
     start.mutate();
   }
 
+  const form = (
+    <form className="space-y-3" onSubmit={submit}>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {t(
+          "Onyx runs the tests, gives the agent a short digest of what fails and repeats until everything is green. The tests stay read-only.",
+        )}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={t("Runner")} htmlFor="tdd-runner">
+          <Select
+            id="tdd-runner"
+            value={runner}
+            onChange={(event) =>
+              setRunner(
+                event.target.value === "" ? "" : (oneOf(TEST_RUNNERS, event.target.value) ?? ""),
+              )
+            }
+          >
+            <option value="">
+              {t("Auto · {runner}", { runner: runnerLabel(defaults.data?.runner ?? null, t) })}
+            </option>
+            <option value="VITEST">{runnerLabel("VITEST")}</option>
+            <option value="JEST">{runnerLabel("JEST")}</option>
+          </Select>
+        </Field>
+        <Field label={t("Fix attempts")} htmlFor="tdd-attempts">
+          <Input
+            id="tdd-attempts"
+            type="number"
+            min={1}
+            max={20}
+            value={attempts}
+            onChange={(event) => setAttempts(event.target.value)}
+          />
+        </Field>
+      </div>
+      <Field label={t("Budget (USD)")} htmlFor="tdd-budget" hint={t("Empty: no limit.")}>
+        <Input
+          id="tdd-budget"
+          type="number"
+          min={0.01}
+          step={0.01}
+          placeholder="2.00"
+          value={budget}
+          onChange={(event) => setBudget(event.target.value)}
+        />
+      </Field>
+      <div className="space-y-2 text-xs">
+        <label className="flex min-h-6 items-center gap-2.5 text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--primary)]"
+            checked={typecheck}
+            disabled={!typecheckAvailable}
+            onChange={(event) => setTypecheckDraft(event.target.checked)}
+          />
+          {t("Type check")} (tsc --noEmit)
+          {!typecheckAvailable ? (
+            <span className="text-[11px]">· {t("no tsconfig.json")}</span>
+          ) : null}
+        </label>
+        <label className="flex min-h-6 items-center gap-2.5 text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--primary)]"
+            checked={lint}
+            onChange={(event) => setLint(event.target.checked)}
+          />
+          {t("Lint")}
+          {defaults.data ? (
+            <span className="truncate font-mono text-[11px]">{defaults.data.lintCommand}</span>
+          ) : null}
+        </label>
+      </div>
+      {defaults.data ? (
+        <div className="space-y-1.5 rounded-lg border border-border bg-surface-0/60 p-2.5 text-[11px] text-muted-foreground">
+          <p className="flex items-center gap-1.5">
+            <ShieldCheck className="size-3.5 text-success" />
+            {defaults.data.protectedFiles === 1
+              ? t("1 test file protected")
+              : t("{count} test files protected", { count: defaults.data.protectedFiles })}
+          </p>
+          {defaults.data.relatedFiles.length > 0 ? (
+            <p className="truncate" title={defaults.data.relatedFiles.join(", ")}>
+              {t("First runs the tests related to")}{" "}
+              <span className="font-mono">{defaults.data.relatedFiles.join(", ")}</span>
+            </p>
+          ) : (
+            <p>{t("Runs the whole suite every time (no target files).")}</p>
+          )}
+        </div>
+      ) : null}
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={disabled || start.isPending || effectiveRunner === null}
+      >
+        {start.isPending ? <Loader2 className="animate-spin" /> : <Play />}
+        {t("Start TDD loop")}
+      </Button>
+    </form>
+  );
+
+  if (bare)
+    return (
+      <section className="space-y-3" data-testid="tdd-start" aria-labelledby="tdd-start-title">
+        <h3 id="tdd-start-title" className="flex items-center gap-1.5 text-sm font-semibold">
+          <FlaskConical className="size-4 text-primary" aria-hidden="true" />
+          {t("TDD loop")}
+          <HelpTip term="tdd" />
+        </h3>
+        {form}
+      </section>
+    );
+
   return (
     <Card data-testid="tdd-start">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FlaskConical className="size-4 text-primary" />
-          TDD loop
+          {t("TDD loop")}
+          <HelpTip term="tdd" />
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <form className="space-y-3" onSubmit={submit}>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Onyx runs the tests, gives the agent a short digest of what fails and repeats until
-            everything is green. The tests stay read-only.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Runner" htmlFor="tdd-runner">
-              <Select
-                id="tdd-runner"
-                value={runner}
-                onChange={(event) =>
-                  setRunner(
-                    event.target.value === ""
-                      ? ""
-                      : (oneOf(TEST_RUNNERS, event.target.value) ?? ""),
-                  )
-                }
-              >
-                <option value="">Auto · {runnerLabel(defaults.data?.runner ?? null)}</option>
-                <option value="VITEST">Vitest</option>
-                <option value="JEST">Jest</option>
-              </Select>
-            </Field>
-            <Field label="Fix attempts" htmlFor="tdd-attempts">
-              <Input
-                id="tdd-attempts"
-                type="number"
-                min={1}
-                max={20}
-                value={attempts}
-                onChange={(event) => setAttempts(event.target.value)}
-              />
-            </Field>
-          </div>
-          <Field label="Budget (USD)" htmlFor="tdd-budget" hint="Empty: no limit.">
-            <Input
-              id="tdd-budget"
-              type="number"
-              min={0.01}
-              step={0.01}
-              placeholder="2.00"
-              value={budget}
-              onChange={(event) => setBudget(event.target.value)}
-            />
-          </Field>
-          <div className="space-y-1.5 text-xs">
-            <label className="flex items-center gap-2.5 text-muted-foreground">
-              <input
-                type="checkbox"
-                className="size-4 accent-[var(--primary)]"
-                checked={typecheck}
-                disabled={!typecheckAvailable}
-                onChange={(event) => setTypecheckDraft(event.target.checked)}
-              />
-              Type check (tsc --noEmit)
-              {!typecheckAvailable ? <span className="text-[11px]">· no tsconfig.json</span> : null}
-            </label>
-            <label className="flex items-center gap-2.5 text-muted-foreground">
-              <input
-                type="checkbox"
-                className="size-4 accent-[var(--primary)]"
-                checked={lint}
-                onChange={(event) => setLint(event.target.checked)}
-              />
-              Lint
-              {defaults.data ? (
-                <span className="truncate font-mono text-[11px]">{defaults.data.lintCommand}</span>
-              ) : null}
-            </label>
-          </div>
-          {defaults.data ? (
-            <div className="space-y-1.5 rounded-lg border border-border bg-surface-0/60 p-2.5 text-[11px] text-muted-foreground">
-              <p className="flex items-center gap-1.5">
-                <ShieldCheck className="size-3.5 text-success" />
-                {defaults.data.protectedFiles} test files protected
-              </p>
-              {defaults.data.relatedFiles.length > 0 ? (
-                <p className="truncate" title={defaults.data.relatedFiles.join(", ")}>
-                  First runs the tests related to{" "}
-                  <span className="font-mono">{defaults.data.relatedFiles.join(", ")}</span>
-                </p>
-              ) : (
-                <p>Runs the whole suite every time (no target files).</p>
-              )}
-            </div>
-          ) : null}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={disabled || start.isPending || effectiveRunner === null}
-          >
-            {start.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-            Start TDD loop
-          </Button>
-        </form>
-      </CardContent>
+      <CardContent>{form}</CardContent>
     </Card>
   );
 }

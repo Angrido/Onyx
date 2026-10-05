@@ -80,7 +80,7 @@ describe("roadmap", () => {
     const generation = await generate("it");
     expect(generation).toMatchObject({
       status: "COMPLETED",
-      modelId: "claude-opus-5-5",
+      modelId: "claude-sonnet-5-5",
       language: "it",
       itemCount: 4,
       error: null,

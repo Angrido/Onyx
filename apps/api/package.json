@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "bench:surgeon": "tsx bench/surgeon-benchmark.ts"
+    "bench:surgeon": "tsx bench/surgeon-benchmark.ts",
+    "bench:telemetry": "tsx bench/telemetry-benchmark.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

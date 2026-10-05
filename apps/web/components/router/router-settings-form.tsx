@@ -12,9 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { WEIGHT_KEYS, WEIGHT_LABELS, weightSum } from "@/lib/router";
 import { TIER_STYLES, modelLabel } from "@/lib/tiers";
 
@@ -68,6 +70,7 @@ function pick(settings: RouterSettingsDto): RouterSettings {
 }
 
 export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<RouterSettings>(() => pick(settings));
   const saved = pick(settings);
@@ -79,7 +82,7 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.routerSettings, updated);
       setDraft(pick(updated));
-      toast.success("Router settings saved");
+      toast.success(t("Router settings saved"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -92,11 +95,12 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <SlidersHorizontal className="size-4 text-primary" />
-          Heuristic
+          {t("Heuristic")}
         </CardTitle>
         <CardDescription>
-          Used when no rule matches. Each signal is normalised to 0–1 and weighted; the score picks
-          the tier.
+          {t(
+            "Used when no rule matches. Each signal is normalised to 0–1 and weighted; the score picks the tier.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -105,20 +109,20 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
             <Slider
               key={key}
               id={`weight-${key}`}
-              label={WEIGHT_LABELS[key].label}
-              hint={WEIGHT_LABELS[key].hint}
+              label={t(WEIGHT_LABELS[key].label)}
+              hint={t(WEIGHT_LABELS[key].hint)}
               value={draft.weights[key]}
               onChange={(value) => setWeight(key, value)}
             />
           ))}
           <p className="text-xs text-muted-foreground">
-            Maximum score {weightSum(draft.weights).toFixed(2)}
+            {t("Maximum score {score}", { score: weightSum(draft.weights).toFixed(2) })}
           </p>
         </div>
         <div className="space-y-3 rounded-lg border border-border bg-surface-0/60 p-3">
           <Slider
             id="threshold-builder"
-            label="Builder from"
+            label={t("Builder from")}
             value={draft.thresholds.builder}
             onChange={(value) =>
               setDraft((current) => ({
@@ -129,7 +133,7 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
           />
           <Slider
             id="threshold-architect"
-            label="Architect from"
+            label={t("Architect from")}
             value={draft.thresholds.architect}
             onChange={(value) =>
               setDraft((current) => ({
@@ -146,22 +150,28 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
           />
           {!thresholdsValid ? (
             <p className="text-xs text-destructive">
-              The builder threshold must be lower than the architect threshold.
+              {t("The builder threshold must be lower than the architect threshold.")}
             </p>
           ) : null}
           <p className="text-[11px] text-muted-foreground">
-            Below the builder threshold, docs and chores go to Scout; everything else stays on
-            Builder.
+            {t(
+              "Below the builder threshold, docs and chores go to Scout; everything else stays on Builder.",
+            )}
           </p>
         </div>
         <div className="space-y-3">
           <Slider
             id="classifier-confidence"
-            label="Ask the classifier below"
+            label={t("Ask the classifier below")}
             hint={
               settings.classifierAvailable
-                ? `Heuristic confidence under ${formatPercent(draft.classifierConfidence)} goes to ${settings.classifierModelId ? modelLabel(settings.classifierModelId) : "the classifier"}.`
-                : "The classifier needs an API key; without it the heuristic decides alone."
+                ? t("Heuristic confidence under {percent} goes to {model}.", {
+                    percent: formatPercent(draft.classifierConfidence),
+                    model: settings.classifierModelId
+                      ? modelLabel(settings.classifierModelId)
+                      : t("the classifier"),
+                  })
+                : t("The classifier needs an API key; without it the heuristic decides alone.")
             }
             value={draft.classifierConfidence}
             onChange={(value) =>
@@ -177,21 +187,22 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
                 setDraft((current) => ({ ...current, autoEscalate: event.target.checked }))
               }
             />
-            Re-queue on the next tier after{" "}
+            {t("Re-queue on the next tier after")}{" "}
             <code className="font-mono text-xs">error_max_turns</code>
           </label>
         </div>
         <div className="space-y-2">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Tier models
+          <p className="flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("Tier models")}
+            <HelpTip term="tier" />
           </p>
           <div className="flex flex-wrap gap-2">
             {MODEL_TIERS.map((tier) => {
               const modelId = settings.tierModels[tier];
               return (
                 <span key={tier} className="flex items-center gap-1.5 text-xs">
-                  <span className={TIER_STYLES[tier].text}>{TIER_STYLES[tier].label}</span>
-                  {modelId ? <ModelBadge modelId={modelId} /> : <Badge>none enabled</Badge>}
+                  <span className={TIER_STYLES[tier].text}>{t(TIER_STYLES[tier].label)}</span>
+                  {modelId ? <ModelBadge modelId={modelId} /> : <Badge>{t("none enabled")}</Badge>}
                 </span>
               );
             })}
@@ -203,11 +214,11 @@ export function RouterSettingsForm({ settings }: { settings: RouterSettingsDto }
             disabled={!dirty || !thresholdsValid || save.isPending}
           >
             {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-            Save
+            {t("Save")}
           </Button>
           {dirty ? (
             <Button variant="ghost" onClick={() => setDraft(saved)}>
-              Discard
+              {t("Discard")}
             </Button>
           ) : null}
         </div>

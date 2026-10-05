@@ -1,5 +1,6 @@
 import { statfs } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
   AgentPool,
   checkCliCompatibility,
@@ -7,7 +8,7 @@ import {
   type ClaudeBinary,
   type CliCompatibility,
 } from "@onyx/agent-runtime";
-import type { ReadyResponse } from "@onyx/contracts";
+import type { ReadyResponse, RunStatus } from "@onyx/contracts";
 import { connectDatabase, seedDatabase, type PrismaClient } from "@onyx/db";
 import { AdjustableTokenEstimator, LeanAnalyzer } from "@onyx/lean-ctx";
 import type { Logger } from "pino";
@@ -15,16 +16,39 @@ import { ApprovalService } from "./application/approval-service";
 import { AuthService } from "./application/auth-service";
 import { BackupService } from "./application/backup-service";
 import { BudgetService } from "./application/budget-service";
+import { DiagnosticsService, type RecoverySummary } from "./application/diagnostics-service";
+import { HealthService, type FolderSpace } from "./application/health-service";
+import { MemoryService } from "./application/memory-service";
+import { MissionService } from "./application/mission-service";
+import { NotificationService, VAPID_KEY } from "./application/notification-service";
+import { OptionsService } from "./application/options-service";
+import { QueueService } from "./application/queue-service";
+import { SearchService } from "./application/search-service";
+import { QuotaService } from "./application/quota-service";
+import {
+  prepareAgentSandbox,
+  shareProjectTree,
+  type SandboxCheck,
+} from "./infrastructure/agent-sandbox";
+import { shareWorkTrees } from "./infrastructure/git-env";
+import { WorkTreeActivity } from "./infrastructure/work-tree-activity";
 import { CalibrationService } from "./application/calibration-service";
 import { CatalogService } from "./application/catalog-service";
 import { CompartmentService } from "./application/compartment-service";
 import { CredentialService } from "./application/credential-service";
+import { AgentRunner } from "./application/agent-runner";
+import { ChangelogService } from "./application/changelog-service";
 import { GitService } from "./application/git-service";
+import { IdeationService } from "./application/ideation-service";
+import { InsightService } from "./application/insight-service";
+import { IssueService } from "./application/issue-service";
+import { PullRequestService } from "./application/pull-request-service";
+import { ReviewService } from "./application/review-service";
 import { GitHubService } from "./application/github-service";
 import { IndexService } from "./application/index-service";
 import { OrchestratorService } from "./application/orchestrator-service";
 import { ProjectService } from "./application/project-service";
-import { recoverInterruptedWork } from "./application/recovery";
+import { RecoveryService } from "./application/recovery";
 import { RunExecutor } from "./application/run-executor";
 import { RunScheduler } from "./application/run-scheduler";
 import { RoadmapService } from "./application/roadmap-service";
@@ -46,13 +70,17 @@ import {
 import { EventWriter } from "./infrastructure/event-writer";
 import { GitHubClient } from "./infrastructure/github-client";
 import { IndexStore } from "./infrastructure/index-store";
+import { LogBuffer } from "./infrastructure/log-buffer";
+import { ProcessLedger } from "./infrastructure/process-ledger";
 import { RunTokenRegistry } from "./infrastructure/run-tokens";
+import { ensureSearchIndex } from "./infrastructure/search-index";
 import { SecretVault } from "./infrastructure/secret-vault";
 import { AnthropicTokenizer, O200kTokenizer } from "./infrastructure/token-meter";
 import { WsHub } from "./infrastructure/ws-hub";
 
 export interface ContainerOverrides {
   binary?: ClaudeBinary;
+  now?: () => Date;
   sourceEnv?: NodeJS.ProcessEnv;
   closeGraceMs?: number;
   indexRefreshDelayMs?: number;
@@ -62,6 +90,12 @@ export interface ContainerOverrides {
   summarizer?: HandoffSummarizer | null;
   checkCli?: boolean;
   armRandom?: () => number;
+  fetcher?: typeof fetch;
+  telegramApiUrl?: string;
+  pullRequestPollMs?: number;
+  dependencyAudit?: boolean;
+  logs?: LogBuffer;
+  diskSpace?: (path: string) => Promise<FolderSpace>;
 }
 
 export interface Container {
@@ -83,10 +117,22 @@ export interface Container {
   terminals: TerminalService;
   github: GitHubService;
   git: GitService;
+  issues: IssueService;
+  insights: InsightService;
+  ideation: IdeationService;
+  pulls: PullRequestService;
+  changelog: ChangelogService;
   roadmap: RoadmapService;
   tdd: TddService;
   approvals: ApprovalService;
   budgets: BudgetService;
+  quota: QuotaService;
+  queue: QueueService;
+  mission: MissionService;
+  memory: MemoryService;
+  options: OptionsService;
+  notifications: NotificationService;
+  search: SearchService;
   orchestrator: OrchestratorService;
   backups: BackupService;
   vault: SecretVault;
@@ -98,6 +144,11 @@ export interface Container {
   telemetry: TelemetryService;
   savings: SavingsService;
   catalog: CatalogService;
+  recovery: RecoveryService;
+  ledger: ProcessLedger;
+  logs: LogBuffer;
+  health: HealthService;
+  diagnostics: DiagnosticsService;
   cliVersion(): string | null;
   cliCompatibility(): CliCompatibility | null;
   checkCli(): Promise<CliCompatibility>;
@@ -149,11 +200,17 @@ export async function createContainer(
     return checking;
   };
 
+  let sandboxCheck: SandboxCheck = { ok: true, detail: "not checked yet" };
+  const ledger = new ProcessLedger(join(config.runtimeDir, "processes"), {
+    sandbox: config.agentSandbox,
+  });
   const pool = new AgentPool({
     maxConcurrent: config.maxConcurrentAgents,
     binary,
     escalationGraceMs: config.escalationGraceMs,
     ...(overrides.closeGraceMs === undefined ? {} : { closeGraceMs: overrides.closeGraceMs }),
+    sandbox: config.agentSandbox,
+    tracker: ledger,
   });
   const writer = new EventWriter(prisma, {
     onError: (error, rows) =>
@@ -165,10 +222,17 @@ export async function createContainer(
 
   const runs: { service: RunService | null } = { service: null };
   const hub = new WsHub((runId, after, before) =>
-    runs.service ? runs.service.storedEvents(runId, after, before) : Promise.resolve([]),
+    runs.service ? runs.service.shownEvents(runId, after, before) : Promise.resolve([]),
   );
 
   const estimator = new AdjustableTokenEstimator();
+  const options = new OptionsService(prisma, overrides.now);
+  const memory = new MemoryService({
+    prisma,
+    logger,
+    count: (text) => estimator.estimate(text, "markdown"),
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
   const offlineTokenizer = new O200kTokenizer();
   const auxModel =
     config.credentials.kind === "api-key"
@@ -192,7 +256,13 @@ export async function createContainer(
       : { refreshDelayMs: overrides.indexRefreshDelayMs }),
   });
   const runTokens = new RunTokenRegistry();
-  const surgeon = new SurgeonService({ prisma, indexes, calibration, logger });
+  const surgeon = new SurgeonService({
+    prisma,
+    indexes,
+    calibration,
+    logger,
+    protectedPaths: config.agentProtectedPaths,
+  });
   const scheduling: { scheduler: RunScheduler | null; terminals: TerminalService | null } = {
     scheduler: null,
     terminals: null,
@@ -233,7 +303,10 @@ export async function createContainer(
     prisma,
     router,
     contextEnabled: config.context.enabled,
+    memory,
+    options,
   });
+  const activity = new WorkTreeActivity();
   const executor = new RunExecutor({
     prisma,
     pool,
@@ -250,19 +323,84 @@ export async function createContainer(
     cliVersion: () => cliVersion,
     experiment: () => savings.experimentSettings(),
     estimator,
+    memory,
+    options,
+    onBatchLeftover: (taskId: string): Promise<void> => tasks.requeue(taskId),
     ...(overrides.armRandom ? { random: overrides.armRandom } : {}),
     onRunFinished: (change) => scheduling.terminals?.foreignChange(change),
+    onRateLimit: (item) => quota.observe(item),
+    grantedRules: (projectId, target) => projects.grantedRules(projectId, target),
+    activity,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
-  const approvals = new ApprovalService({ prisma, logger, hub });
+  const notifications = new NotificationService({
+    prisma,
+    logger,
+    vault,
+    linkBase: config.publicOrigin,
+    ...(overrides.fetcher ? { fetcher: overrides.fetcher } : {}),
+    ...(overrides.telegramApiUrl ? { telegramApiUrl: overrides.telegramApiUrl } : {}),
+  });
+  const approvals = new ApprovalService({
+    prisma,
+    logger,
+    hub,
+    onCreated: (approval) => {
+      void prisma.project
+        .findUnique({ where: { id: approval.projectId ?? "" }, select: { name: true } })
+        .then((project) =>
+          notifications.approvalCreated({
+            id: approval.id,
+            kind: approval.kind,
+            title: approvals.localizedTitle(approval),
+            projectName: project?.name ?? null,
+          }),
+        )
+        .catch(() => undefined);
+    },
+  });
   const spending: { budgets: BudgetService | null } = { budgets: null };
+  const quota = new QuotaService({
+    prisma,
+    logger,
+    publish: (dto) => hub.publishQuota(dto),
+    onChange: () => scheduling.scheduler?.poke(),
+    onLevel: (previous, next, message) => notifications.quotaChanged(previous, next, message),
+    waitingTasks: () =>
+      (scheduling.scheduler?.queuedRuns() ?? []).map((item) => ({
+        canWait: item.canWait === true,
+      })),
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
+  const queue = new QueueService({
+    prisma,
+    logger,
+    scheduler: () => scheduling.scheduler,
+    maxConcurrent: config.maxConcurrentAgents,
+    batching: () => options.current()?.batchSmallTasks === true,
+  });
   const scheduler = new RunScheduler({
     executor,
     pool,
     hub,
     logger,
     maxConcurrent: config.maxConcurrentAgents,
-    admit: (projectId) => spending.budgets?.admit(projectId) ?? { decision: "go" },
+    policy: () => queue.policy(),
+    prepare: (item) => {
+      const wait =
+        config.context.enabled && item.projectId
+          ? indexes.readyBeforeRun(item.projectId, config.context.indexWaitMs)
+          : null;
+      item.request.indexWaited = wait !== null;
+      return wait;
+    },
+    admit: (item) => {
+      const budget = spending.budgets?.admit(item.projectId ?? null) ?? { decision: "go" };
+      if (budget.decision !== "go") return budget;
+      const admission = quota.admit(item);
+      if (admission.decision === "hold") item.request.quotaDeferred = true;
+      return admission;
+    },
     reject: async (item, reason) => {
       const task = await prisma.task.update({
         where: { id: item.request.taskId },
@@ -275,7 +413,18 @@ export async function createContainer(
         runId: null,
       });
     },
-    afterRun: () => {
+    afterRun: (taskId, outcome) => {
+      router.forgetTelemetry();
+      savings.forget();
+      void memory
+        .learnFromRun(outcome.runId)
+        .catch((error: unknown) =>
+          logger.warn({ err: error, taskId }, "Could not learn from the run"),
+        );
+      void notifyRun(outcome).catch((error: unknown) =>
+        logger.warn({ err: error, taskId }, "Could not prepare the run notification"),
+      );
+      void mission.forgetTask(taskId).catch(() => undefined);
       void spending.budgets?.refresh().catch(() => undefined);
     },
   });
@@ -284,7 +433,11 @@ export async function createContainer(
     prisma,
     logger,
     approvals,
-    onHardLimit: (projectId, reason) => {
+    onHardLimit: (projectId, reason, notice) => {
+      void prisma.project
+        .findUnique({ where: { id: projectId ?? "" }, select: { name: true } })
+        .then((project) => notifications.budgetStopped(project?.name ?? null, notice))
+        .catch(() => undefined);
       void scheduler
         .abortScope(projectId)
         .then((aborted) => {
@@ -296,6 +449,7 @@ export async function createContainer(
   });
   spending.budgets = budgets;
   const terminals = new TerminalService({
+    memory,
     prisma,
     hub,
     logger,
@@ -307,13 +461,17 @@ export async function createContainer(
     runTokens,
     credentials,
     reserve: (workspaceId) => scheduler.reserve(workspaceId),
+    activity,
+    tracker: ledger,
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
       ? {}
       : { killGraceMs: overrides.terminalKillGraceMs }),
   });
   scheduling.terminals = terminals;
-  const runService = new RunService(prisma, scheduler);
+  const runService = new RunService(prisma, scheduler, (projectId, target) =>
+    projects.grantedRules(projectId, target),
+  );
   const loops: { service: TddService | null } = { service: null };
   const tasks = new TaskService(
     prisma,
@@ -323,22 +481,37 @@ export async function createContainer(
       router.inferWorkspace(projectId, targetPaths, prompt, kind),
     (taskId, actor) => loops.service?.abortForTask(taskId, actor) ?? Promise.resolve(false),
   );
-  const projects = new ProjectService(prisma, config.allowedProjectRoots, (projectId) => {
-    indexes
-      .start(projectId)
-      .catch((error: unknown) =>
-        logger.warn({ err: error, projectId }, "Initial indexing could not start"),
-      );
-  });
+  const projects = new ProjectService(
+    prisma,
+    config.allowedProjectRoots,
+    (projectId) => {
+      indexes
+        .start(projectId)
+        .catch((error: unknown) =>
+          logger.warn({ err: error, projectId }, "Initial indexing could not start"),
+        );
+    },
+    async (root) => {
+      if (!config.agentSandbox) return;
+      const report = await shareProjectTree(root, config.agentSandbox.group);
+      if (report.failed > 0)
+        logger.warn(
+          { root, failed: report.failed, group: config.agentSandbox.group },
+          "Some project files could not be shared with the agents: run deploy/scripts/agent-sandbox.sh",
+        );
+    },
+  );
+  const githubClient = new GitHubClient({ baseUrl: config.github.apiUrl });
   const github = new GitHubService({
     prisma,
     logger,
-    client: new GitHubClient({ baseUrl: config.github.apiUrl }),
+    client: githubClient,
     projects,
     config,
     vault,
   });
   const roadmap = new RoadmapService({
+    options,
     prisma,
     logger,
     pool,
@@ -359,7 +532,15 @@ export async function createContainer(
     scheduler,
     router,
     config,
+    tracker: ledger,
     estimate: (text) => estimator.estimate(text, "markdown"),
+    onGreen: (loop) => {
+      void memory
+        .learnFromLoop(loop)
+        .catch((error: unknown) =>
+          logger.warn({ err: error }, "Could not remember the test command"),
+        );
+    },
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
     ...(overrides.terminalKillGraceMs === undefined
       ? {}
@@ -367,13 +548,97 @@ export async function createContainer(
   });
   loops.service = tdd;
   runs.service = runService;
+  async function notifyRun(outcome: { runId: string; status: RunStatus }): Promise<void> {
+    const blocked =
+      outcome.status === "COMPLETED" || outcome.status === "FAILED"
+        ? (await runService.blockedCommands(outcome.runId)).commands.length
+        : 0;
+    await notifications.runFinished({ ...outcome, blockedCommands: blocked });
+  }
   const git = new GitService({
     prisma,
     logger,
     github,
     isWorkspaceBusy: (workspaceId) => scheduler.isWorkspaceBusy(workspaceId),
   });
+  const issues = new IssueService({
+    prisma,
+    logger,
+    client: githubClient,
+    github,
+    git,
+    indexes,
+    tasks,
+  });
+  const pulls = new PullRequestService({
+    prisma,
+    logger,
+    client: githubClient,
+    github,
+    git,
+    notify: (message) => notifications.notify(message),
+    ...(overrides.now ? { now: overrides.now } : {}),
+    ...(overrides.pullRequestPollMs === undefined ? {} : { tickMs: overrides.pullRequestPollMs }),
+  });
+  tasks.pullRequestOf = (task) => pulls.forTask(task);
+  const changelog = new ChangelogService({
+    prisma,
+    logger,
+    git,
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
+  const health: HealthService = new HealthService({
+    prisma,
+    isIndexing: (projectId) => indexes.isIndexing(projectId),
+    gitSummary: (projectId, rootPath, now) => mission.gitOf(projectId, rootPath, now),
+    claudeConnected: async () => (await credentials.resolve()).credentials.kind !== "none",
+    githubToken: async () => (await github.token()) !== null,
+    dataDir: config.dataDir,
+    ...(overrides.diskSpace ? { statfs: overrides.diskSpace } : {}),
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
+  const mission: MissionService = new MissionService({
+    prisma,
+    scheduler: () => scheduling.scheduler,
+    gitSummary: (rootPath, now) => git.summary(rootPath, now),
+    limitOf: (projectId) => queue.limitOf(projectId),
+    health: (project, summary, now) => health.findings(project, summary, now),
+    globalHealth: (now) => health.globalFindings(now),
+    maxConcurrent: config.maxConcurrentAgents,
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
+  const runner = new AgentRunner({
+    prisma,
+    logger,
+    pool,
+    surgeon,
+    runTokens,
+    credentials,
+    config,
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+  });
+  const reviews = new ReviewService({
+    prisma,
+    logger,
+    runner,
+    router,
+    count: (text) => estimator.estimate(text, "typescript"),
+  });
+  const insights = new InsightService({ prisma, logger, indexes, router, runner });
+  const ideation = new IdeationService({
+    prisma,
+    logger,
+    indexes,
+    router,
+    runner,
+    tasks,
+    count: (text) => estimator.estimate(text, "typescript"),
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+    ...(overrides.dependencyAudit === undefined ? {} : { audit: overrides.dependencyAudit }),
+  });
   const orchestrator = new OrchestratorService({
+    reviews,
+    options,
     prisma,
     logger,
     hub,
@@ -392,11 +657,59 @@ export async function createContainer(
     ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
   });
 
+  const recovery = new RecoveryService({
+    prisma,
+    logger,
+    ledger,
+    tdd,
+    orchestrator,
+    scheduler,
+    claudeBin: binary.args[0] ?? binary.command,
+    autoResumeQueued: config.autoResumeQueued,
+    worktreesDir: config.worktreesDir,
+    ...(overrides.sourceEnv ? { sourceEnv: overrides.sourceEnv } : {}),
+    ...(overrides.now ? { now: overrides.now } : {}),
+  });
+
   const backups = new BackupService({
     prisma,
     logger,
     config,
     keyFingerprint: vault.fingerprint(),
+  });
+
+  const logs = overrides.logs ?? new LogBuffer();
+  const startup: { recovery: RecoverySummary | null } = { recovery: null };
+  const diagnostics = new DiagnosticsService({
+    config,
+    prisma,
+    logs,
+    readiness: () => container.readiness(),
+    cliVersion: () => cliVersion,
+    cliCompatibility: () => compatibility,
+    queue: () => queue.dto(),
+    recovery: () => startup.recovery,
+    secrets: async () => {
+      const [claude, githubToken, alerts, vapid] = await Promise.all([
+        credentials.resolve(),
+        github.token(),
+        notifications.settings(),
+        prisma.appSetting.count({ where: { key: VAPID_KEY } }),
+      ]);
+      return {
+        ANTHROPIC_API_KEY: config.credentials.kind === "api-key",
+        CLAUDE_CODE_OAUTH_TOKEN: config.credentials.kind === "oauth-token",
+        claudeLoginInSettings: claude.source === "settings",
+        ONYX_GITHUB_TOKEN: config.github.token !== null,
+        githubTokenInSettings: config.github.token === null && githubToken !== null,
+        ONYX_SECRET_KEY: config.secrets.key !== null,
+        ntfyToken: alerts.ntfy.hasToken,
+        telegramBotToken: alerts.telegram.hasToken,
+        vapidKeys: vapid > 0,
+      };
+    },
+    ...(overrides.diskSpace ? { statfs: overrides.diskSpace } : {}),
+    ...(overrides.now ? { now: overrides.now } : {}),
   });
 
   const container: Container = {
@@ -420,12 +733,24 @@ export async function createContainer(
     projects,
     github,
     git,
+    issues,
+    insights,
+    ideation,
+    pulls,
+    changelog,
     workspaces: new WorkspaceService(prisma),
     tasks,
     roadmap,
     tdd,
     approvals,
     budgets,
+    quota,
+    queue,
+    mission,
+    memory,
+    options,
+    notifications,
+    search: new SearchService(prisma),
     orchestrator,
     backups,
     vault,
@@ -436,6 +761,11 @@ export async function createContainer(
       queuedTasks: scheduler.queuedCount,
     })),
     catalog: new CatalogService(prisma),
+    recovery,
+    ledger,
+    logs,
+    health,
+    diagnostics,
     cliVersion: () => cliVersion,
     cliCompatibility: () => compatibility,
     checkCli,
@@ -465,6 +795,8 @@ export async function createContainer(
               ? `${cliVersion} is not compatible: ${missing.length > 0 ? `missing ${missing.join(", ")}` : (compatibility.error ?? "check failed")}`
               : cliVersion,
       });
+      if (config.agentSandbox)
+        checks.push({ name: "agent-sandbox", ok: sandboxCheck.ok, detail: sandboxCheck.detail });
       const resolved = await credentials.resolve();
       checks.push({
         name: "credentials",
@@ -493,6 +825,15 @@ export async function createContainer(
     },
 
     async start(): Promise<void> {
+      if (config.agentSandbox) {
+        process.umask(0o027);
+        shareWorkTrees(0o007);
+      }
+      sandboxCheck = await prepareAgentSandbox(config);
+      if (!sandboxCheck.ok)
+        logger.error({ detail: sandboxCheck.detail }, "Agent sandbox is not ready");
+      else if (config.agentSandbox)
+        logger.info({ user: config.agentSandbox.user }, "Agents run in their own user");
       cliVersion = await detectCliVersion(binary);
       if (cliVersion === null)
         logger.warn({ command: binary.command }, "Claude Code CLI not found");
@@ -503,19 +844,23 @@ export async function createContainer(
       await container.github.cleanup();
       await calibration.load();
       logger.info({ seeded, cliVersion }, "Database ready");
-      await tdd.recover();
-      await orchestrator.recover();
+      await recovery.recoverState();
       await budgets.refresh();
-      const recovery = await recoverInterruptedWork(prisma, logger, {
-        claudeBin: binary.args[0] ?? binary.command,
-        autoResumeQueued: config.autoResumeQueued,
-      });
-      for (const item of recovery.requeued) scheduler.enqueue(item);
+      await quota.load();
+      await queue.load();
+      await options.get();
+      await notifications.load();
+      if (await ensureSearchIndex(prisma)) logger.info("Built the search index");
+      startup.recovery = await recovery.resumeWork();
       backups.start();
+      pulls.start();
     },
 
     async stop(): Promise<void> {
       await checking?.catch(() => undefined);
+      await pulls.stop();
+      await runner.abortAll();
+      await ideation.idle();
       await backups.stop();
       await indexes.shutdown();
       await roadmap.shutdown();
@@ -524,7 +869,11 @@ export async function createContainer(
       await terminals.shutdown();
       await credentials.shutdown();
       await scheduler.shutdown();
+      quota.stop();
+      await quota.idle();
+      await notifications.idle();
       await writer.close();
+      if (config.agentSandbox) shareWorkTrees(null);
       await prisma.$disconnect();
     },
   };

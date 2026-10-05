@@ -1,12 +1,13 @@
 import type { RoadmapPriority, TaskDto, TaskStatus } from "@onyx/contracts";
+import { msg } from "@/lib/i18n/core";
 
 export type ColumnId = "suggested" | "todo" | "inProgress" | "done";
 
 export const COLUMNS: Array<{ id: ColumnId; title: string; hint: string }> = [
-  { id: "suggested", title: "Suggested", hint: "Ideas from the roadmap" },
-  { id: "todo", title: "To do", hint: "Accepted, waiting to start" },
-  { id: "inProgress", title: "In progress", hint: "Queued or running" },
-  { id: "done", title: "Done", hint: "Completed by an agent" },
+  { id: "suggested", title: msg("Suggested"), hint: msg("Ideas from the roadmap") },
+  { id: "todo", title: msg("To do"), hint: msg("Accepted, waiting to start") },
+  { id: "inProgress", title: msg("In progress"), hint: msg("Queued or running") },
+  { id: "done", title: msg("Done"), hint: msg("Completed by an agent") },
 ];
 
 const IN_PROGRESS: ReadonlySet<TaskStatus> = new Set([
@@ -52,9 +53,12 @@ export function groupTasks(
 }
 
 export const PRIORITY_STYLES: Record<RoadmapPriority, { label: string; className: string }> = {
-  HIGH: { label: "High", className: "border-destructive/40 bg-destructive/12 text-destructive" },
-  MEDIUM: { label: "Medium", className: "border-warning/40 bg-warning/12 text-warning" },
-  LOW: { label: "Low", className: "border-border-strong bg-surface-2 text-muted-foreground" },
+  HIGH: {
+    label: msg("High"),
+    className: "border-destructive/40 bg-destructive/12 text-destructive",
+  },
+  MEDIUM: { label: msg("Medium"), className: "border-warning/40 bg-warning/12 text-warning" },
+  LOW: { label: msg("Low"), className: "border-border-strong bg-surface-2 text-muted-foreground" },
 };
 
 export function priorityOfWeight(weight: number): RoadmapPriority {

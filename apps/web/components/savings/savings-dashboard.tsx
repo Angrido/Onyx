@@ -2,18 +2,24 @@
 
 import type {
   ArmStats,
+  CacheReport,
   ContextExperimentSettings,
   ExperimentResult,
+  MemoryArmStats,
+  MemoryExperiment,
   OtherSavings,
   PackAccounting,
   SavingsCheck,
+  SavingsLedgerRow,
   SavingsReport,
+  SavingsSource,
 } from "@onyx/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calculator,
   CheckCircle2,
   CircleDashed,
+  DatabaseZap,
   FlaskConical,
   Gauge,
   Loader2,
@@ -32,23 +38,31 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatPercent, formatTokens, formatUsd } from "@/lib/format";
+import { glossaryEntry, type GlossaryId } from "@/lib/glossary";
+import { useT } from "@/lib/i18n/client";
+import { msg, type Translate } from "@/lib/i18n/core";
 import { useLiveSystem } from "@/lib/live";
 import {
   accountingBars,
   armProgress,
+  CACHE_LOSS_HINTS,
+  CACHE_LOSS_LABELS,
   CHECK_TONES,
   CONTROL_SHARES,
   formatChange,
   formatPValue,
   savingText,
+  SOURCE_LABELS,
   VERDICT_STYLES,
   type Evidence,
   type SavingsTone,
 } from "@/lib/savings";
+import { SOURCE_TERMS, savingsSummary, summarySentence } from "@/lib/savings-summary";
 import { modelLabel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 
@@ -84,20 +98,27 @@ const CHECK_ICONS: Record<SavingsCheck["state"], LucideIcon> = {
   idle: CircleDashed,
 };
 
+function runCount(count: number, t: Translate): string {
+  return count === 1 ? t("1 run") : t("{count} runs", { count });
+}
+
 function EvidenceBadge({ evidence }: { evidence: Evidence }) {
+  const t = useT();
   if (evidence === "none") return null;
   return evidence === "measured" ? (
     <Badge
       tone="success"
-      title="Computed from the token counts Claude reports for runs with and without the Onyx context"
+      title={t(
+        "Computed from the token counts Claude reports for runs with and without the Onyx context",
+      )}
     >
       <FlaskConical className="size-3" />
-      Measured
+      {t("Measured")}
     </Badge>
   ) : (
-    <Badge title="Computed from assumptions about what the agent would read without Onyx">
+    <Badge title={t("Computed from assumptions about what the agent would read without Onyx")}>
       <Calculator className="size-3" />
-      Estimate
+      {t("Estimate")}
     </Badge>
   );
 }
@@ -124,7 +145,63 @@ function Stat({
   );
 }
 
+const PAGE_TERMS: readonly GlossaryId[] = ["token", "context", "map", "cache", "memory", "tier"];
+
+function SummaryCard({ ledger }: { ledger: SavingsLedgerRow[] }) {
+  const t = useT();
+  const summary = savingsSummary(ledger);
+  return (
+    <Card data-testid="savings-summary" data-evidence={summary.evidence}>
+      <CardContent className="space-y-4 p-6">
+        <p className="text-lg font-semibold tracking-tight sm:text-xl">
+          {summarySentence(summary, t)}
+        </p>
+        {summary.sources > 1 ? (
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "A rough sum of the {count} lines of the ledger below: they are computed in different ways, so take it as an order of magnitude.",
+              { count: summary.sources },
+            )}
+          </p>
+        ) : null}
+        <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+          <div className="space-y-1 rounded-lg border border-border bg-surface-0/60 p-3">
+            <dt>
+              <EvidenceBadge evidence="measured" />
+            </dt>
+            <dd className="text-muted-foreground">
+              {t(
+                "Counted on real runs: Onyx compares the tokens Claude reports for runs with and without its help.",
+              )}
+            </dd>
+          </div>
+          <div className="space-y-1 rounded-lg border border-border bg-surface-0/60 p-3">
+            <dt>
+              <EvidenceBadge evidence="estimate" />
+            </dt>
+            <dd className="text-muted-foreground">
+              {t(
+                "Worked out from what Claude would probably read without Onyx. It becomes a measurement when there are enough runs.",
+              )}
+            </dd>
+          </div>
+        </dl>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{t("Words on this page:")}</span>
+          {PAGE_TERMS.map((term) => (
+            <span key={term} className="inline-flex items-center">
+              {t(glossaryEntry(term).term)}
+              <HelpTip term={term} />
+            </span>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function VerdictCard({ verdict }: { verdict: SavingsReport["verdict"] }) {
+  const t = useT();
   const style = VERDICT_STYLES[verdict.state];
   const Icon = VERDICT_ICONS[verdict.state];
   return (
@@ -144,7 +221,7 @@ function VerdictCard({ verdict }: { verdict: SavingsReport["verdict"] }) {
         </motion.div>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={style.tone}>{style.label}</Badge>
+            <Badge tone={style.tone}>{t(style.label)}</Badge>
             <EvidenceBadge evidence={style.evidence} />
           </div>
           <p className="text-lg font-semibold tracking-tight sm:text-xl">{verdict.headline}</p>
@@ -158,21 +235,25 @@ function VerdictCard({ verdict }: { verdict: SavingsReport["verdict"] }) {
 }
 
 function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(settings);
-  const dirty = draft.enabled !== settings.enabled || draft.controlShare !== settings.controlShare;
+  const dirty =
+    draft.enabled !== settings.enabled ||
+    draft.controlShare !== settings.controlShare ||
+    draft.variant !== settings.variant;
   const save = useMutation({
     mutationFn: () =>
       api.put<ContextExperimentSettings>("/api/telemetry/savings/experiment", draft),
     onSuccess: (saved) => {
       setDraft(saved);
       void queryClient.invalidateQueries({ queryKey: queryKeys.savings });
-      toast.success(saved.enabled ? "Experiment running" : "Experiment stopped");
+      toast.success(saved.enabled ? t("Experiment running") : t("Experiment stopped"));
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-0/50 p-3 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-0/50 p-3 sm:flex-row sm:flex-wrap sm:items-center">
       <label className="flex items-center gap-3 text-sm">
         <input
           type="checkbox"
@@ -183,12 +264,12 @@ function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
           }
           data-testid="experiment-enabled"
         />
-        Run the experiment
+        {t("Run the experiment")}
       </label>
       <label className="flex items-center gap-2 text-sm text-muted-foreground sm:ml-4">
-        Without the context
+        {t("Without the context")}
         <Select
-          aria-label="Share of runs without the context"
+          aria-label={t("Share of runs without the context")}
           className="h-8 w-24"
           value={String(draft.controlShare)}
           onChange={(event) =>
@@ -202,6 +283,24 @@ function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
           ))}
         </Select>
       </label>
+      <label className="flex items-center gap-2 text-sm text-muted-foreground sm:ml-4">
+        {t("Variant")}
+        <Select
+          aria-label={t("Variant tried against the current context")}
+          className="h-8 w-auto"
+          value={draft.variant ?? ""}
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              variant: event.target.value === "" ? null : "TARGET_L2",
+            }))
+          }
+          data-testid="experiment-variant"
+        >
+          <option value="">{t("None")}</option>
+          <option value="TARGET_L2">{t("Files to edit as signatures")}</option>
+        </Select>
+      </label>
       <Button
         size="sm"
         className="sm:ml-auto"
@@ -210,7 +309,7 @@ function ExperimentForm({ settings }: { settings: ContextExperimentSettings }) {
         data-testid="experiment-save"
       >
         {save.isPending ? <Loader2 className="animate-spin" /> : null}
-        Save
+        {t("Save")}
       </Button>
     </div>
   );
@@ -243,39 +342,58 @@ function armValue(stats: ArmStats, pick: (stats: ArmStats) => string): string {
 }
 
 function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
-  const { pack, control } = experiment;
-  const rows: { label: string; pack: string; control: string; change?: string }[] = [
-    { label: "Finished runs", pack: String(pack.runs), control: String(control.runs) },
+  const t = useT();
+  const { pack, control, variant } = experiment;
+  const variantOf = (pick: (stats: ArmStats) => string) => (variant ? armValue(variant, pick) : "");
+  const rows: {
+    label: string;
+    pack: string;
+    control: string;
+    variant?: string;
+    change?: string;
+  }[] = [
     {
-      label: "Succeeded",
+      label: t("Finished runs"),
+      pack: String(pack.runs),
+      control: String(control.runs),
+      variant: variant ? String(variant.runs) : "",
+    },
+    {
+      label: t("Succeeded"),
       pack: armValue(pack, (stats) => formatPercent(stats.successRate ?? 0)),
+      variant: variantOf((stats) => formatPercent(stats.successRate ?? 0)),
       control: armValue(control, (stats) => formatPercent(stats.successRate ?? 0)),
     },
     {
-      label: "Input tokens per run",
+      label: t("Input tokens per run"),
       pack: armValue(pack, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
+      variant: variantOf((stats) => formatTokens(stats.medianContextTokens ?? 0)),
       control: armValue(control, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
       change: formatChange(experiment.tokenChange),
     },
     {
-      label: "Output tokens per run",
+      label: t("Output tokens per run"),
       pack: armValue(pack, (stats) => formatTokens(stats.medianOutputTokens ?? 0)),
+      variant: variantOf((stats) => formatTokens(stats.medianOutputTokens ?? 0)),
       control: armValue(control, (stats) => formatTokens(stats.medianOutputTokens ?? 0)),
     },
     {
-      label: "Cost per run",
+      label: t("Cost per run"),
       pack: armValue(pack, (stats) => formatUsd(stats.medianCostUsd)),
+      variant: variantOf((stats) => formatUsd(stats.medianCostUsd)),
       control: armValue(control, (stats) => formatUsd(stats.medianCostUsd)),
       change: formatChange(experiment.costChange),
     },
     {
-      label: "Turns per run",
+      label: t("Turns per run"),
       pack: armValue(pack, (stats) => String(stats.medianTurns ?? "—")),
+      variant: variantOf((stats) => String(stats.medianTurns ?? "—")),
       control: armValue(control, (stats) => String(stats.medianTurns ?? "—")),
     },
     {
-      label: "Files read per run",
+      label: t("Files read per run"),
       pack: armValue(pack, (stats) => String(stats.medianReadFiles ?? "—")),
+      variant: variantOf((stats) => String(stats.medianReadFiles ?? "—")),
       control: armValue(control, (stats) => String(stats.medianReadFiles ?? "—")),
     },
   ];
@@ -284,13 +402,13 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FlaskConical className="size-4 text-primary" />
-          A/B experiment
+          {t("A/B experiment")}
           <EvidenceBadge evidence="measured" />
         </CardTitle>
         <CardDescription>
-          A share of the runs that start a new Claude session runs without the Onyx context: no
-          pack, no project map, no MCP tools. Comparing the two groups measures the saving on the
-          token counts Claude reports. Resumed sessions are left out.
+          {t(
+            "A share of the runs that start a new Claude session runs without the Onyx context: no pack, no project map, no MCP tools. Comparing the two groups measures the saving on the token counts Claude reports. Resumed sessions are left out.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -300,36 +418,62 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
         />
         {experiment.state === "OFF" && pack.runs + control.runs === 0 ? (
           <p className="text-xs text-muted-foreground">
-            Runs without the context cost what they would cost without Onyx. With a{" "}
-            {formatPercent(experiment.settings.controlShare)} share, about one new session in{" "}
-            {Math.round(1 / experiment.settings.controlShare)} gets no context while the experiment
-            runs.
+            {t(
+              "Runs without the context cost what they would cost without Onyx. With a {share} share, about one new session in {count} gets no context while the experiment runs.",
+              {
+                share: formatPercent(experiment.settings.controlShare),
+                count: Math.round(1 / experiment.settings.controlShare),
+              },
+            )}
           </p>
         ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ArmProgress label="With the context" runs={pack.runs} min={experiment.minRunsPerArm} />
           <ArmProgress
-            label="Without (control)"
+            label={t("With the context")}
+            runs={pack.runs}
+            min={experiment.minRunsPerArm}
+          />
+          <ArmProgress
+            label={t("Without (control)")}
             runs={control.runs}
             min={experiment.minRunsPerArm}
           />
+          {variant ? (
+            <ArmProgress
+              label={t("Files to edit as signatures")}
+              runs={variant.runs}
+              min={experiment.minRunsPerArm}
+            />
+          ) : null}
         </div>
-        <div className="overflow-x-auto">
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label={t("Context experiment results")}
+        >
           <table className="w-full text-sm">
-            <caption className="sr-only">Median per run, with and without the Onyx context</caption>
+            <caption className="sr-only">
+              {t("Median per run, with and without the Onyx context")}
+            </caption>
             <thead className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th scope="col" className="pb-2 font-medium">
-                  Median
+                  {t("Median")}
                 </th>
                 <th scope="col" className="pb-2 pl-3 text-right font-medium">
-                  With
+                  {t("With")}
                 </th>
                 <th scope="col" className="pb-2 pl-3 text-right font-medium">
-                  Without
+                  {t("Without")}
                 </th>
+                {variant ? (
+                  <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                    {t("Signatures")}
+                  </th>
+                ) : null}
                 <th scope="col" className="pb-2 pl-3 text-right font-medium">
-                  Change
+                  {t("Change")}
                 </th>
               </tr>
             </thead>
@@ -344,6 +488,7 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
                   </th>
                   <td className="py-1.5 pl-3 text-right">{row.pack}</td>
                   <td className="py-1.5 pl-3 text-right">{row.control}</td>
+                  {variant ? <td className="py-1.5 pl-3 text-right">{row.variant}</td> : null}
                   <td className="py-1.5 pl-3 text-right font-medium">{row.change ?? ""}</td>
                 </tr>
               ))}
@@ -351,16 +496,162 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
           </table>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Mann–Whitney test on input tokens per run: {formatPValue(experiment.pValue)} (a difference
-          counts below 0.05) · {experiment.minRunsPerArm} runs per arm needed · last{" "}
-          {experiment.windowDays} days
+          {t(
+            "Mann–Whitney test on input tokens per run: {pValue} (a difference counts below 0.05)",
+            {
+              pValue: formatPValue(experiment.pValue, t),
+            },
+          )}
+          {variant
+            ? ` · ${t("signatures against the current context: {change}, {pValue}", {
+                change: formatChange(experiment.variantTokenChange) || t("n/a"),
+                pValue: formatPValue(experiment.variantPValue, t),
+              })}`
+            : ""}
+          {` · ${t("{count} runs per arm needed", { count: experiment.minRunsPerArm })} · ${t(
+            "last {days} days",
+            { days: experiment.windowDays },
+          )}`}
           {experiment.since ? (
             <>
-              {" "}
-              · first run <RelativeTime iso={experiment.since} />
+              {` · ${t("first run")} `}
+              <RelativeTime iso={experiment.since} />
             </>
           ) : null}
-          {armProgress(experiment) < 1 && experiment.settings.enabled ? " · collecting" : ""}
+          {armProgress(experiment) < 1 && experiment.settings.enabled
+            ? ` · ${t("collecting")}`
+            : ""}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+const MEMORY_STATE_TEXT: Record<MemoryExperiment["state"], string> = {
+  OFF: msg("Off: turn it on in Settings → Project memory."),
+  COLLECTING: msg("Collecting runs."),
+  SAVING: msg("New sessions with the memory use fewer input tokens."),
+  NO_DIFFERENCE: msg(
+    "No measurable difference yet: the memory costs its tokens without a clear gain.",
+  ),
+  COSTS_MORE: msg("New sessions with the memory use more input tokens: consider turning it off."),
+};
+
+function memoryValue(stats: MemoryArmStats, pick: (stats: MemoryArmStats) => string): string {
+  return stats.runs === 0 ? "—" : pick(stats);
+}
+
+function MemoryExperimentCard({ experiment }: { experiment: MemoryExperiment }) {
+  const t = useT();
+  const { withMemory, without } = experiment;
+  const rows = [
+    {
+      label: t("Finished runs"),
+      with: String(withMemory.runs),
+      without: String(without.runs),
+      change: "",
+    },
+    {
+      label: t("Succeeded"),
+      with: memoryValue(withMemory, (stats) => formatPercent(stats.successRate ?? 0)),
+      without: memoryValue(without, (stats) => formatPercent(stats.successRate ?? 0)),
+      change: "",
+    },
+    {
+      label: t("Input tokens per run"),
+      with: memoryValue(withMemory, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
+      without: memoryValue(without, (stats) => formatTokens(stats.medianContextTokens ?? 0)),
+      change: formatChange(experiment.tokenChange),
+    },
+    {
+      label: t("Files read per run"),
+      with: memoryValue(withMemory, (stats) => String(stats.medianReadFiles ?? "—")),
+      without: memoryValue(without, (stats) => String(stats.medianReadFiles ?? "—")),
+      change: formatChange(experiment.readFilesChange),
+    },
+    {
+      label: t("Turns per run"),
+      with: memoryValue(withMemory, (stats) => String(stats.medianTurns ?? "—")),
+      without: memoryValue(without, (stats) => String(stats.medianTurns ?? "—")),
+      change: formatChange(experiment.turnsChange),
+    },
+  ];
+  return (
+    <Card id="memory-experiment" data-testid="memory-experiment" data-state={experiment.state}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FlaskConical className="size-4 text-primary" />
+          {t("Project memory experiment")}
+          <HelpTip term="memory" />
+          <EvidenceBadge evidence="measured" />
+        </CardTitle>
+        <CardDescription>
+          {t(MEMORY_STATE_TEXT[experiment.state])}{" "}
+          {t(
+            "Half of the new sessions start without the project memory; resumed sessions are left out.",
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ArmProgress
+            label={t("With memory")}
+            runs={withMemory.runs}
+            min={experiment.minRunsPerArm}
+          />
+          <ArmProgress label={t("Without")} runs={without.runs} min={experiment.minRunsPerArm} />
+        </div>
+        <div
+          className="overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label={t("Memory experiment results")}
+        >
+          <table className="w-full text-sm">
+            <caption className="sr-only">
+              {t("Median per run, with and without the project memory")}
+            </caption>
+            <thead className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th scope="col" className="pb-2 font-medium">
+                  {t("Median")}
+                </th>
+                <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                  {t("With")}
+                </th>
+                <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                  {t("Without")}
+                </th>
+                <th scope="col" className="pb-2 pl-3 text-right font-medium">
+                  {t("Change")}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((row) => (
+                <tr key={row.label} className="tabular">
+                  <th
+                    scope="row"
+                    className="py-1.5 pr-2 text-left font-normal text-muted-foreground"
+                  >
+                    {row.label}
+                  </th>
+                  <td className="py-1.5 pl-3 text-right">{row.with}</td>
+                  <td className="py-1.5 pl-3 text-right">{row.without}</td>
+                  <td className="py-1.5 pl-3 text-right font-medium">{row.change}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {t("Mann–Whitney test on input tokens per run: {pValue}", {
+            pValue: formatPValue(experiment.pValue, t),
+          })}
+          {` · ${t("{count} runs per group needed", { count: experiment.minRunsPerArm })} · ${t(
+            "last {days} days",
+            { days: experiment.windowDays },
+          )}`}
         </p>
       </CardContent>
     </Card>
@@ -368,14 +659,17 @@ function ExperimentCard({ experiment }: { experiment: ExperimentResult }) {
 }
 
 function ChecksCard({ checks }: { checks: SavingsCheck[] }) {
+  const t = useT();
   return (
     <Card data-testid="savings-checks">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Gauge className="size-4 text-primary" />
-          Is it working?
+          {t("Is it working?")}
         </CardTitle>
-        <CardDescription>What the recent runs say about the token reduction.</CardDescription>
+        <CardDescription>
+          {t("What the recent runs say about the token reduction.")}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="space-y-3">
@@ -434,6 +728,7 @@ function Bar({
 }
 
 function PackCard({ pack }: { pack: PackAccounting }) {
+  const t = useT();
   const bars = accountingBars(pack);
   const eligible = pack.runs - pack.controlRuns;
   return (
@@ -441,49 +736,56 @@ function PackCard({ pack }: { pack: PackAccounting }) {
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           <Calculator className="size-4 text-primary" />
-          Context pack accounting · last {pack.windowDays} days
+          {t("Context pack accounting · last {days} days", { days: pack.windowDays })}
+          <HelpTip term="context" />
           <EvidenceBadge evidence="estimate" />
         </CardTitle>
         <CardDescription>
-          What the pack replaced, what it cost and what the agent read again anyway. The full-read
-          figure assumes that without Onyx the agent reads every target and direct dependency once,
-          in full.
+          {t(
+            "What the pack replaced, what it cost and what the agent read again anyway. The full-read figure assumes that without Onyx the agent reads every target and direct dependency once, in full.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat
-            label="Runs with a pack"
+            label={t("Runs with a pack")}
             value={`${pack.runsWithPack} / ${eligible}`}
-            hint={pack.controlRuns > 0 ? `${pack.controlRuns} control runs left out` : undefined}
+            hint={
+              pack.controlRuns > 0
+                ? t("{count} control runs left out", { count: pack.controlRuns })
+                : undefined
+            }
           />
           <Stat
-            label="Before re-reads"
-            value={savingText(pack.grossSaving)}
-            hint="tokens: pack + map + MCP vs full reads"
+            label={t("Before re-reads")}
+            value={savingText(pack.grossSaving, t)}
+            hint={t("tokens: pack + map + MCP vs full reads")}
           />
           <Stat
-            label="Net estimate"
-            value={savingText(pack.netSaving)}
-            hint="tokens, after files read again"
+            label={t("Net estimate")}
+            value={savingText(pack.netSaving, t)}
+            hint={t("tokens, after files read again")}
             {...(pack.netSaving === null
               ? {}
               : { tone: pack.netSaving > 0 ? ("success" as const) : ("danger" as const) })}
           />
           <Stat
-            label="Read again"
-            value={`${pack.rereadFiles} files`}
-            hint={`${formatTokens(pack.rereadTokens)} tokens · ${pack.runsWithRereads} runs`}
+            label={t("Re-reads")}
+            value={
+              pack.rereadFiles === 1 ? t("1 file") : t("{count} files", { count: pack.rereadFiles })
+            }
+            hint={`${t("{tokens} tokens", { tokens: formatTokens(pack.rereadTokens) })} · ${runCount(pack.runsWithRereads, t)}`}
           />
         </div>
         <div className="space-y-3">
           <Bar
-            label="Reading the same files in full"
+            label={t("Reading the same files in full")}
             value={formatTokens(pack.baselineTokens)}
             segments={[{ ratio: bars.baseline, className: "bg-muted-foreground/45" }]}
           />
           <Bar
-            label="With Onyx: delivered + read again"
+            label={t("With Onyx: delivered + read again")}
             value={formatTokens(pack.deliveredTokens + pack.rereadTokens)}
             segments={[
               { ratio: bars.delivered, className: "bg-primary" },
@@ -493,37 +795,39 @@ function PackCard({ pack }: { pack: PackAccounting }) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <span className="size-2 rounded-full bg-primary" />
-              Delivered: pack, project map, MCP expansions ({formatTokens(pack.deliveredTokens)})
+              {t("Delivered: pack, project map, MCP expansions ({tokens})", {
+                tokens: formatTokens(pack.deliveredTokens),
+              })}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="size-2 rounded-full bg-warning" />
-              Read again with Read ({formatTokens(pack.rereadTokens)})
+              {t("Read again with Read ({tokens})", { tokens: formatTokens(pack.rereadTokens) })}
             </span>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <dl className="grid grid-cols-2 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">Files read</dt>
+            <dt className="text-muted-foreground">{t("Files read")}</dt>
             <dd className="tabular text-right">{pack.readFiles}</dd>
-            <dt className="text-muted-foreground">Read outside the pack</dt>
+            <dt className="text-muted-foreground">{t("Read outside the pack")}</dt>
             <dd className="tabular text-right">{pack.missedFiles}</dd>
-            <dt className="text-muted-foreground">MCP expansions</dt>
+            <dt className="text-muted-foreground">{t("MCP expansions")}</dt>
             <dd className="tabular text-right">{pack.expansions}</dd>
           </dl>
           <div className="space-y-1.5">
             <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               <Repeat2 className="size-3" />
-              Most read again
+              {t("Most read again")}
             </p>
             {pack.topRereads.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No re-reads recorded.</p>
+              <p className="text-xs text-muted-foreground">{t("No re-reads recorded.")}</p>
             ) : (
               <ul className="space-y-1">
                 {pack.topRereads.map((file) => (
                   <li key={file.relPath} className="flex items-center gap-2 text-xs">
                     <span className="min-w-0 flex-1 truncate font-mono">{file.relPath}</span>
                     <span className="tabular shrink-0 text-muted-foreground">
-                      {file.runs} {file.runs === 1 ? "run" : "runs"}
+                      {runCount(file.runs, t)}
                     </span>
                   </li>
                 ))}
@@ -537,32 +841,37 @@ function PackCard({ pack }: { pack: PackAccounting }) {
 }
 
 function OtherCard({ other }: { other: OtherSavings }) {
+  const t = useT();
   const reference = other.routingReferenceModelId
     ? modelLabel(other.routingReferenceModelId)
-    : "the reference model";
+    : t("the reference model");
   return (
     <Card data-testid="savings-other">
       <CardHeader>
-        <CardTitle>Other savings</CardTitle>
+        <CardTitle>{t("Other savings")}</CardTitle>
         <CardDescription>
-          Not part of the context pack: shown so the totals are not mixed up.
+          {t("Not part of the context pack: shown so the totals are not mixed up.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium">Prompt cache</p>
+            <p className="text-sm font-medium">{t("Prompt cache")}</p>
+            <HelpTip term="cache" />
             <EvidenceBadge evidence="measured" />
           </div>
           <p className="tabular text-2xl font-semibold">{formatUsd(other.cacheSavedUsd)}</p>
           <p className="text-xs text-muted-foreground">
-            {formatTokens(other.cacheReadTokens)} tokens served from Claude&apos;s cache in the last{" "}
-            {other.windowDays} days, priced at the input rate minus the cache-read rate.
+            {t(
+              "{tokens} tokens served from Claude's cache in the last {days} days, priced at the input rate minus the cache-read rate.",
+              { tokens: formatTokens(other.cacheReadTokens), days: other.windowDays },
+            )}
           </p>
         </div>
         <div className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium">Model routing</p>
+            <p className="text-sm font-medium">{t("Model routing")}</p>
+            <HelpTip term="tier" />
             <EvidenceBadge evidence="estimate" />
           </div>
           <p className="tabular text-2xl font-semibold">
@@ -570,17 +879,144 @@ function OtherCard({ other }: { other: OtherSavings }) {
           </p>
           <p className="text-xs text-muted-foreground">
             {other.routingSavingRatio === null
-              ? "Appears after the first completed task."
-              : `${formatPercent(other.routingSavingRatio)} less than running every completed task on ${reference} with the same tokens.`}{" "}
+              ? t("Appears after the first completed task.")
+              : t(
+                  "{percent} less than running every completed task on {model} with the same tokens.",
+                  { percent: formatPercent(other.routingSavingRatio), model: reference },
+                )}{" "}
             <Link
               href="/router"
               className="inline-flex items-center gap-1 text-primary hover:underline"
             >
               <Route className="size-3" />
-              Router
+              {t("Router")}
             </Link>
           </p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ledgerValue(row: SavingsLedgerRow, t: Translate): string {
+  if (row.tokens !== null) {
+    const tokens = t("{tokens} tokens", {
+      tokens: `${row.tokens < 0 ? "−" : ""}${formatTokens(Math.abs(row.tokens))}`,
+    });
+    return row.usd !== null ? `${tokens} · ${formatUsd(row.usd)}` : tokens;
+  }
+  if (row.usd !== null) return formatUsd(row.usd);
+  return "—";
+}
+
+function SourceTip({ source }: { source: SavingsSource }) {
+  const term = SOURCE_TERMS[source];
+  return term ? <HelpTip term={term} /> : null;
+}
+
+function LedgerCard({ ledger }: { ledger: SavingsLedgerRow[] }) {
+  const t = useT();
+  return (
+    <Card data-testid="savings-ledger">
+      <CardHeader>
+        <CardTitle>{t("Savings ledger")}</CardTitle>
+        <CardDescription>
+          {t(
+            "Every way Onyx saves tokens, with how it is known: measured from Claude's own token counts, or estimated. Tokens are input-equivalent over the last 30 days; they are not added up because the methods differ.",
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="divide-y divide-border">
+          {ledger.map((row) => (
+            <li
+              key={row.source}
+              data-testid={`ledger-${row.source}`}
+              className="grid grid-cols-1 gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-4"
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">{t(SOURCE_LABELS[row.source])}</p>
+                <SourceTip source={row.source} />
+                <EvidenceBadge evidence={row.evidence === "MEASURED" ? "measured" : "estimate"} />
+                {row.runs > 0 ? (
+                  <span className="text-[11px] text-muted-foreground">{runCount(row.runs, t)}</span>
+                ) : null}
+              </div>
+              <p
+                className={cn(
+                  "tabular text-sm font-semibold sm:text-right",
+                  row.tokens !== null && row.tokens < 0 ? "text-warning" : undefined,
+                )}
+              >
+                {ledgerValue(row, t)}
+              </p>
+              <p className="text-xs text-muted-foreground sm:col-span-2">{row.detail}</p>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CacheCard({ cache }: { cache: CacheReport }) {
+  const t = useT();
+  const lossShare = cache.resumedRuns > 0 ? cache.runsWithLoss / cache.resumedRuns : null;
+  return (
+    <Card data-testid="savings-cache">
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>{t("Prompt cache on resumed runs")}</CardTitle>
+          <HelpTip term="cache" />
+          <EvidenceBadge evidence="measured" />
+        </div>
+        <CardDescription>
+          {t(
+            "A run that resumes a session should read the conversation back from Claude's cache. When it has to write it again, Onyx says why. Last {days} days.",
+            { days: cache.windowDays },
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Stat label={t("Resumed runs")} value={String(cache.resumedRuns)} />
+          <Stat
+            label={t("Cache lost")}
+            value={lossShare === null ? "—" : formatPercent(lossShare)}
+            hint={t("{lost} of {total} runs", {
+              lost: cache.runsWithLoss,
+              total: cache.resumedRuns,
+            })}
+            tone={lossShare !== null && lossShare > 0.25 ? "warning" : "neutral"}
+          />
+          <Stat label={t("Written again")} value={formatTokens(cache.lostTokens)} />
+          <Stat label={t("Read back")} value={formatTokens(cache.readTokens)} tone="success" />
+        </div>
+        {cache.byReason.length === 0 ? (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <DatabaseZap className="size-3.5 text-success" />
+            {cache.resumedRuns === 0
+              ? t("No resumed runs yet.")
+              : t("Every resumed run read its conversation back from the cache.")}
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {cache.byReason.map((row) => (
+              <li
+                key={row.reason}
+                className="rounded-lg border border-border bg-surface-0/60 px-3 py-2 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{t(CACHE_LOSS_LABELS[row.reason])}</span>
+                  <span className="tabular text-muted-foreground">
+                    {`${runCount(row.runs, t)} · ${t("{tokens} tokens", { tokens: formatTokens(row.lostTokens) })}`}
+                  </span>
+                </div>
+                <p className="mt-1 text-muted-foreground">{t(CACHE_LOSS_HINTS[row.reason])}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );
@@ -596,12 +1032,16 @@ export function SavingsDashboard({ initial }: { initial: SavingsReport }) {
   });
   return (
     <div className="space-y-6">
+      <SummaryCard ledger={data.ledger} />
       <VerdictCard verdict={data.verdict} />
+      <LedgerCard ledger={data.ledger} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <ExperimentCard experiment={data.experiment} />
         <ChecksCard checks={data.checks} />
       </div>
+      <MemoryExperimentCard experiment={data.memory} />
       <PackCard pack={data.pack} />
+      <CacheCard cache={data.cache} />
       <OtherCard other={data.other} />
     </div>
   );

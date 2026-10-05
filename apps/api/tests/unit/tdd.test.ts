@@ -377,6 +377,9 @@ describe("runners", () => {
       "node ./node_modules/vitest/vitest.mjs run",
       "turbo run test",
       "bun test",
+      "true\nnpx vitest",
+      "echo start\n  pnpm test",
+      "if true; then npx jest; fi",
     ]) {
       expect(isTestCommand(command), command).toBe(true);
     }
@@ -386,6 +389,7 @@ describe("runners", () => {
       "npm run build",
       "cat src/math.test.ts",
       "git status",
+      "cat > notes.md <<'EOF'\nnpx vitest\nEOF",
     ]) {
       expect(isTestCommand(command), command).toBe(false);
     }

@@ -8,9 +8,11 @@ import { registerErrorHandling } from "./http/error-handler";
 import { registerAuthRoutes } from "./http/routes/auth-routes";
 import { registerBackupRoutes } from "./http/routes/backup-routes";
 import { registerContextRoutes } from "./http/routes/context-routes";
+import { registerDiagnosticsRoutes } from "./http/routes/diagnostics-routes";
 import { registerGitRoutes } from "./http/routes/git-routes";
 import { registerGitHubRoutes } from "./http/routes/github-routes";
 import { registerHookRoutes } from "./http/routes/hook-routes";
+import { registerInsightRoutes } from "./http/routes/insight-routes";
 import { registerOrchestrationRoutes } from "./http/routes/orchestration-routes";
 import { registerProjectRoutes } from "./http/routes/project-routes";
 import { registerRoadmapRoutes } from "./http/routes/roadmap-routes";
@@ -22,6 +24,7 @@ import { registerTaskRoutes } from "./http/routes/task-routes";
 import { registerTddRoutes } from "./http/routes/tdd-routes";
 import { registerTerminalRoutes } from "./http/routes/terminal-routes";
 import { registerWsRoutes } from "./http/routes/ws-routes";
+import { registerLocale } from "./http/locale";
 import { createOriginPolicy } from "./http/origin-policy";
 import { registerSecurity } from "./http/security";
 
@@ -40,6 +43,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   await app.register(rateLimit, { global: false });
   await app.register(websocket, { options: { maxPayload: MAX_WS_MESSAGE_BYTES } });
 
+  registerLocale(app);
   registerErrorHandling(app);
   registerSecurity(app, {
     auth: container.auth,
@@ -56,12 +60,14 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   registerRouterRoutes(app, container);
   registerTerminalRoutes(app, container);
   registerGitHubRoutes(app, container);
+  registerInsightRoutes(app, container);
   registerSettingsRoutes(app, container);
   registerRoadmapRoutes(app, container);
   registerGitRoutes(app, container);
   registerTddRoutes(app, container);
   registerOrchestrationRoutes(app, container);
   registerBackupRoutes(app, container);
+  registerDiagnosticsRoutes(app, container);
   registerHookRoutes(app, container);
   registerWsRoutes(app, container);
 

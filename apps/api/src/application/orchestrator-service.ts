@@ -6,6 +6,7 @@ import type { AgentPool, ProcessExit } from "@onyx/agent-runtime";
 import {
   normalizeClaudeEvent,
   type CreateOrchestrationRequestSchema,
+  type ModelTier,
   type NodeStateName,
   type OrchestrationDto,
   type OrchestrationNode,
@@ -15,7 +16,7 @@ import {
   type RunItemOf,
   type TaskStatus,
 } from "@onyx/contracts";
-import type { Approval, Orchestration, PrismaClient } from "@onyx/db";
+import { Prisma, type Approval, type Orchestration, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import type { z } from "zod";
 import type { AppConfig } from "../config";
@@ -37,8 +38,13 @@ import {
   type PlanNode,
   type ValidatedPlan,
 } from "../domain/orchestration/plan";
+import { untilAborted } from "../domain/abortable";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
+import { QA_MAX_REWORKS, qaFeedbackPrompt } from "../domain/qa";
+import { RATIONALE } from "../domain/routing/rationale";
+import { RUN_TEXT } from "../domain/run-texts";
 import { badRequest, conflict, notFound } from "../errors";
+import { interpolate, msg, txKnown } from "../i18n";
 import { GitRepo, linkDependencies } from "../infrastructure/git-worktree";
 import {
   buildMcpConfig,
@@ -48,6 +54,15 @@ import {
 } from "../infrastructure/mcp-config";
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
+import {
+  EXPLORER_AGENTS,
+  EXPLORER_HINT,
+  EXPLORER_TOOLS,
+  costOfModel,
+  usageByModel,
+  type ModelUsageRow,
+} from "../domain/exploration";
+import type { OptionsService } from "./options-service";
 import { orchestrationStateMessage, type WsHub } from "../infrastructure/ws-hub";
 import type { ApprovalPayload, ApprovalService } from "./approval-service";
 import type { BudgetService } from "./budget-service";
@@ -57,13 +72,24 @@ import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
 import { shortAction } from "./roadmap-service";
 import { priceUsage, type RouterService } from "./router-service";
+import {
+  localizeQaReview,
+  localizeResolution,
+  RESOLUTION_CHECK,
+  REVIEW_TEXT_KEYS,
+  toQaReviewDto,
+  toResolutionDto,
+  type ReviewService,
+} from "./review-service";
 import type { RunScheduler } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
-import type { TddService } from "./tdd-service";
+import { TDD_TEXT_KEYS, type TddService } from "./tdd-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type CreateInput = z.output<typeof CreateOrchestrationRequestSchema>;
 
 export interface OrchestratorDeps {
+  options?: Pick<OptionsService, "get">;
   prisma: PrismaClient;
   logger: Logger;
   hub: WsHub;
@@ -80,17 +106,44 @@ export interface OrchestratorDeps {
   credentials: Pick<CredentialService, "childEnv">;
   config: Pick<
     AppConfig,
-    "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl" | "dataDir"
+    | "runtimeDir"
+    | "childEnvPassthrough"
+    | "context"
+    | "internalApiUrl"
+    | "dataDir"
+    | "worktreesDir"
+    | "agentProtectedPaths"
   >;
   sourceEnv?: NodeJS.ProcessEnv;
   plannerTimeouts?: { wallClockMs: number; idleMs: number; initMs: number };
   verifyIterations?: number;
+  reviews: ReviewService;
 }
 
 interface Planner {
   runId: string;
   activity: PlanActivity;
   done: Promise<void>;
+  controller: AbortController;
+}
+
+export interface PlanRecovery {
+  failed: number;
+  resumable: string[];
+  releasedNodes: number;
+}
+
+const IN_FLIGHT_NODE_STATES = ["running", "verifying", "reviewing", "merging"];
+const ACTIVE_NODE_STATUSES: TaskStatus[] = ["QUEUED", "RUNNING", "TDD_LOOP"];
+const RECOVERY_ACTOR = "system:recovery";
+
+interface NodeWork {
+  driver: Driver;
+  orchestration: Orchestration;
+  taskId: string;
+  workspaceId: string;
+  tier: ModelTier | null;
+  baseline: Promise<string[]>;
 }
 
 interface Driver {
@@ -101,6 +154,7 @@ interface Driver {
   wake: () => void;
   mergeChain: Promise<unknown>;
   done: Promise<void>;
+  baselines: Map<string, Promise<string[]>>;
 }
 
 const execFileAsync = promisify(execFile);
@@ -115,6 +169,8 @@ const NODE_TASK_STATUS: Readonly<Record<NodeState, TaskStatus | null>> = {
   pending: "DRAFT",
   running: null,
   verifying: null,
+  reviewing: null,
+  review: null,
   merging: null,
   merged: "COMPLETED",
   conflict: null,
@@ -122,6 +178,115 @@ const NODE_TASK_STATUS: Readonly<Record<NodeState, TaskStatus | null>> = {
   blocked: "CANCELLED",
   cancelled: "CANCELLED",
 };
+
+const FIXED_TEXTS: ReadonlySet<string> = new Set([
+  msg("Interrupted by an Onyx restart while planning"),
+  msg("Interrupted by an Onyx restart: resume it to continue"),
+  msg("Cancelled by the operator"),
+  msg("Plan discarded"),
+  msg("Plan cancelled"),
+  msg("Planning was interrupted"),
+  msg("Waiting for a merge decision in Approvals"),
+  msg("Claude did not return a plan in the expected format"),
+  msg("The plan has no usable tasks"),
+  msg("A task it depends on failed"),
+  msg("Merge declined: the task was dropped"),
+  msg("Reading the project index"),
+  msg("Collecting the README, the tests and the history"),
+  msg("Claude is studying the project"),
+]);
+
+const PLAN_TEXT = {
+  stoppedEarly: msg("Claude Code stopped before answering ({reason})"),
+  failedOne: msg("{count} task failed: {titles}"),
+  failedMany: msg("{count} tasks failed: {titles}"),
+  noWorkspace: msg("The task has no workspace"),
+  notStarted: msg("The agent run could not start"),
+  runEnded: msg("The agent run ended {status}: {error}"),
+  testsFailed: msg("The tests did not pass: {reason}"),
+  qaOne: msg("QA found problems after {count} review: {problems}"),
+  qaMany: msg("QA found problems after {count} reviews: {problems}"),
+  qaUnfinished: msg("QA could not finish: {summary}"),
+  criterion: msg("criterion {index} not met"),
+  noBranch: msg("The task has no branch to merge"),
+  conflictProposing: msg("Merge conflict in {files}: Claude is proposing a resolution"),
+  conflictWaiting: msg("Merge conflict in {files}: a resolution is waiting in Approvals"),
+  conflictNote: msg("Merge conflict in {files}. {note}"),
+  conflict: msg("Merge conflict in {files}"),
+  unusable: msg("Claude's proposal was not usable: {reason}"),
+  noLongerApplies: msg("The proposal no longer applies"),
+  mergedBroken: msg("The merged branch does not pass the tests: {reason}"),
+  mergedOne: msg("Merged {count} task into {branch}"),
+  mergedMany: msg("Merged {count} tasks into {branch}"),
+  workBranch: msg("the work branch"),
+} as const;
+
+const APPROVAL_TEXT = {
+  planTitle: msg("Plan for {project}: {goal}"),
+  theProject: msg("the project"),
+  planOne: msg("{count} task: {summary}"),
+  planMany: msg("{count} tasks: {summary}"),
+  reviewTitle: msg("Review: {title}"),
+  qaOne: msg("QA found problems after {count} review: {problems}. {summary}"),
+  qaMany: msg("QA found problems after {count} reviews: {problems}. {summary}"),
+  qaUnfinished: msg("QA could not finish: {summary}. {details}"),
+  mergeTitle: msg("Merge conflict: {title}"),
+  mergeNote: msg(
+    "{note}. {branch} conflicts with {base} in {count} file(s). Resolve it on {branch} (for example in {path}) and retry, or drop the task.",
+  ),
+  merge: msg(
+    "{branch} conflicts with {base} in {count} file(s). Resolve it on {branch} (for example in {path}) and retry, or drop the task.",
+  ),
+  itsWorktree: msg("its worktree"),
+  resolvedTitle: msg("Resolved conflict: {title}"),
+  resolvedCost: msg(
+    "Claude resolved the conflict in {count} file(s). {checks} Cost ${cost}. Read the diff on the plan page before applying it.",
+  ),
+  resolved: msg(
+    "Claude resolved the conflict in {count} file(s). {checks} Read the diff on the plan page before applying it.",
+  ),
+} as const;
+
+const PLAN_TEXT_KEYS: readonly string[] = [
+  ...FIXED_TEXTS,
+  ...Object.values(PLAN_TEXT),
+  ...REVIEW_TEXT_KEYS,
+  ...TDD_TEXT_KEYS,
+];
+
+const APPROVAL_TEXT_KEYS: readonly string[] = [...Object.values(APPROVAL_TEXT), ...PLAN_TEXT_KEYS];
+
+const PROBLEMS = {
+  problems: (value: string) =>
+    value
+      .split("; ")
+      .map((part) => txKnown(part, [PLAN_TEXT.criterion]))
+      .join("; "),
+};
+
+function localized<T extends string | null>(text: T): T {
+  return (text === null ? text : txKnown(text, PLAN_TEXT_KEYS, PROBLEMS)) as T;
+}
+
+export function localizeApprovalText(text: string): string {
+  return txKnown(text, APPROVAL_TEXT_KEYS, PROBLEMS);
+}
+
+function localizePlan(dto: OrchestrationDto): OrchestrationDto {
+  return {
+    ...dto,
+    message: localized(dto.message),
+    activity: dto.activity
+      ? { ...dto.activity, lastAction: localized(dto.activity.lastAction) }
+      : null,
+    nodes: dto.nodes.map((node) => ({
+      ...node,
+      message: localized(node.message),
+      review: node.review ? localizeQaReview(node.review) : null,
+      resolution: node.resolution ? localizeResolution(node.resolution) : null,
+    })),
+  };
+}
 
 function shorten(text: string, length: number): string {
   const single = text.replace(/\s+/g, " ").trim();
@@ -184,21 +349,44 @@ export class OrchestratorService {
   private readonly planners = new Map<string, Planner>();
   private readonly drivers = new Map<string, Driver>();
   private readonly states = new Map<string, OrchestrationDto>();
+  private readonly resolving = new Set<Promise<void>>();
   private stopped = false;
 
   constructor(private readonly deps: OrchestratorDeps) {
     deps.hub.registerSnapshot("orchestration:", (channel) => {
       const state = this.states.get(channel.slice("orchestration:".length));
-      return state ? [orchestrationStateMessage(state)] : [];
+      return state ? [orchestrationStateMessage(localizePlan(state))] : [];
     });
-    deps.approvals.register("PLAN", {
-      approve: (approval, payload, actor) => this.approvePlan(approval, payload, actor),
-      reject: (approval, payload, actor) => this.rejectPlan(approval, payload, actor),
-    });
-    deps.approvals.register("MERGE", {
-      approve: (approval, payload) => this.retryMerge(approval, payload),
-      reject: (approval, payload) => this.dropNode(approval, payload),
-    });
+    deps.approvals.register(
+      "PLAN",
+      {
+        approve: (approval, payload, actor) => this.approvePlan(approval, payload, actor),
+        reject: (approval, payload, actor) => this.rejectPlan(approval, payload, actor),
+      },
+      localizeApprovalText,
+    );
+    deps.approvals.register(
+      "MERGE",
+      {
+        approve: (approval, payload) =>
+          payload.key.startsWith("resolve:")
+            ? this.applyResolution(approval, payload)
+            : this.retryMerge(approval, payload),
+        reject: (approval, payload) =>
+          payload.key.startsWith("resolve:")
+            ? this.discardResolution(approval, payload)
+            : this.dropNode(approval, payload),
+      },
+      localizeApprovalText,
+    );
+    deps.approvals.register(
+      "QA",
+      {
+        approve: (approval, payload) => this.retryMerge(approval, payload),
+        reject: (approval, payload) => this.dropNode(approval, payload),
+      },
+      localizeApprovalText,
+    );
   }
 
   async list(projectId: string): Promise<OrchestrationDto[]> {
@@ -207,10 +395,14 @@ export class OrchestratorService {
       orderBy: { createdAt: "desc" },
       take: 30,
     });
-    return Promise.all(rows.map((row) => this.toDto(row)));
+    return Promise.all(rows.map(async (row) => localizePlan(await this.toDto(row))));
   }
 
   async get(id: string): Promise<OrchestrationDto> {
+    return localizePlan(await this.load(id));
+  }
+
+  private async load(id: string): Promise<OrchestrationDto> {
     const row = await this.deps.prisma.orchestration.findUnique({ where: { id } });
     if (!row) throw notFound("Plan");
     return this.toDto(row);
@@ -256,6 +448,8 @@ export class OrchestratorService {
           goal: input.goal,
           parallelism: input.parallelism,
           verify: input.verify,
+          qa: input.qa,
+          resolveConflicts: input.resolveConflicts,
           plannerModelId: modelId,
         },
       });
@@ -263,6 +457,7 @@ export class OrchestratorService {
         runId: `plan-${orchestration.id}`,
         activity: { turns: 0, toolCalls: 0, lastAction: "Reading the project index" },
         done: Promise.resolve(),
+        controller: new AbortController(),
       };
       this.planners.set(orchestration.id, planner);
       planner.done = this.plan(orchestration, planner)
@@ -316,6 +511,7 @@ export class OrchestratorService {
       throw conflict(`The plan is already ${orchestration.status.toLowerCase()}`);
     const planner = this.planners.get(id);
     if (planner) {
+      planner.controller.abort();
       await this.deps.pool.abort(planner.runId);
       await planner.done;
     }
@@ -346,21 +542,25 @@ export class OrchestratorService {
     if (this.drivers.has(id)) throw conflict("The plan is already running");
     const nodes = await this.loadNodes(orchestration.rootTaskId);
     await this.deps.approvals.expire(
-      (payload, approval) => approval.kind === "MERGE" && payload.orchestrationId === id,
+      (payload, approval) =>
+        (approval.kind === "MERGE" || approval.kind === "QA") && payload.orchestrationId === id,
     );
     for (const node of nodes) {
       if (node.state === "merged") continue;
       await this.resetNode(orchestration, node.taskId, node.key);
     }
-    const repo = await this.repoOf(orchestration.projectId);
-    if (orchestration.integrationPath) {
-      await repo.removeWorktree(orchestration.integrationPath);
-      await repo.addWorktree(
-        orchestration.integrationPath,
-        orchestration.workBranch,
-        orchestration.workBranch,
-      );
-      await linkDependencies(repo.root, orchestration.integrationPath);
+    await this.restart(orchestration, actor, {});
+    return this.publish(id);
+  }
+
+  private async restart(orchestration: Orchestration, actor: string, meta: object): Promise<void> {
+    const { prisma } = this.deps;
+    const { id, workBranch, integrationPath } = orchestration;
+    if (integrationPath && workBranch) {
+      const repo = await this.repoOf(orchestration.projectId);
+      await repo.removeWorktree(integrationPath);
+      await repo.addWorktree(integrationPath, workBranch, workBranch);
+      await linkDependencies(repo.root, integrationPath);
     }
     await prisma.orchestration.update({
       where: { id },
@@ -370,9 +570,8 @@ export class OrchestratorService {
       where: { id: orchestration.rootTaskId },
       data: { status: "RUNNING", resultSummary: null },
     });
-    await this.audit(actor, "plan.resumed", id, {});
+    await this.audit(actor, "plan.resumed", id, meta);
     this.startDriver(id);
-    return this.publish(id);
   }
 
   async pushWorkBranch(id: string, actor: string): Promise<PublishPlanResult> {
@@ -388,13 +587,20 @@ export class OrchestratorService {
     return { branch: orchestration.workBranch, ...result };
   }
 
-  async recover(): Promise<void> {
+  async recover(options: { resume: boolean } = { resume: false }): Promise<PlanRecovery> {
     const { prisma } = this.deps;
     const stale = await prisma.orchestration.findMany({
       where: { status: { in: ["PLANNING", "RUNNING", "VERIFYING"] } },
     });
+    const recovery: PlanRecovery = { failed: 0, resumable: [], releasedNodes: 0 };
     for (const orchestration of stale) {
       const planning = orchestration.status === "PLANNING";
+      if (!planning) recovery.releasedNodes += await this.releaseNodes(orchestration.rootTaskId);
+      if (!planning && options.resume && orchestration.workBranch) {
+        recovery.resumable.push(orchestration.id);
+        continue;
+      }
+      recovery.failed += 1;
       await prisma.orchestration.update({
         where: { id: orchestration.id },
         data: {
@@ -410,20 +616,65 @@ export class OrchestratorService {
         data: { status: "FAILED" },
       });
     }
+    return recovery;
+  }
+
+  async resumeRecovered(ids: readonly string[]): Promise<number> {
+    const { prisma, logger } = this.deps;
+    let resumed = 0;
+    for (const id of ids) {
+      if (this.stopped || this.drivers.has(id)) continue;
+      try {
+        const orchestration = await prisma.orchestration.findUniqueOrThrow({ where: { id } });
+        await this.restart(orchestration, RECOVERY_ACTOR, { automatic: true });
+        await this.publish(id);
+        resumed += 1;
+        logger.info({ orchestrationId: id }, "Resumed a plan interrupted by a restart");
+      } catch (error) {
+        logger.warn({ err: error, orchestrationId: id }, "Could not resume an interrupted plan");
+        await this.finish(
+          id,
+          "FAILED",
+          "Interrupted by an Onyx restart: resume it to continue",
+          "FAILED",
+        ).catch(() => undefined);
+      }
+    }
+    return resumed;
+  }
+
+  private async releaseNodes(rootTaskId: string): Promise<number> {
+    const released = await this.deps.prisma.task.updateMany({
+      where: {
+        parentTaskId: rootTaskId,
+        mergeState: { not: "merged" },
+        OR: [
+          { mergeState: { in: IN_FLIGHT_NODE_STATES } },
+          { status: { in: ACTIVE_NODE_STATUSES } },
+        ],
+      },
+      data: { mergeState: "pending", status: "DRAFT", pendingRun: Prisma.DbNull },
+    });
+    return released.count;
   }
 
   async shutdown(): Promise<void> {
     this.stopped = true;
-    for (const planner of this.planners.values()) await this.deps.pool.abort(planner.runId);
+    for (const planner of this.planners.values()) {
+      planner.controller.abort();
+      await this.deps.pool.abort(planner.runId);
+    }
     for (const driver of this.drivers.values()) {
       driver.cancelled = true;
       for (const taskId of driver.running.keys())
         await this.stopNodeWork(taskId).catch(() => undefined);
       driver.wake();
     }
+    await this.deps.reviews.abortAll();
     await Promise.allSettled([
       ...[...this.planners.values()].map((planner) => planner.done),
       ...[...this.drivers.values()].map((driver) => driver.done),
+      ...this.resolving,
     ]);
   }
 
@@ -441,9 +692,12 @@ export class OrchestratorService {
       domain: workspace.domain,
       pathGlobs: toStringArray(workspace.pathGlobs),
     }));
-    const context = await this.deps.indexes
-      .waitForIndex(project.id, config.context.indexWaitMs)
-      .catch(() => null);
+    const signal = planner.controller.signal;
+    const context = await untilAborted(
+      this.deps.indexes.waitForIndex(project.id, config.context.indexWaitMs).catch(() => null),
+      signal,
+    );
+    if (signal.aborted) return fail("Planning was interrupted");
     const scope = await this.deps.surgeon.runScope(project.id, null);
     planner.activity.lastAction = "Collecting the README, the tests and the history";
     const [readme, gitLog, defaults] = await Promise.all([
@@ -471,11 +725,14 @@ export class OrchestratorService {
       config.context.enabled &&
       config.context.mcpServerPath !== null &&
       isReadableFile(config.context.mcpServerPath);
+    const cheap = (await this.deps.options?.get())?.cheapExploration === true;
     const files = await writeRuntimeFiles({
       runtimeDir: config.runtimeDir,
       runId: planner.runId,
+      agents: cheap ? EXPLORER_AGENTS : null,
       settings: buildRunSettings({
         deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
+        protectedPaths: config.agentProtectedPaths,
         hooks: guardHooks(config.internalApiUrl),
       }),
       primer: null,
@@ -494,15 +751,22 @@ export class OrchestratorService {
     planner.activity.lastAction = "Claude is studying the project";
     void this.publish(orchestration.id);
     try {
+      const env = {
+        ...this.passthroughEnv(),
+        ...(await this.deps.credentials.childEnv()),
+        [RUN_TOKEN_ENV]: token,
+      };
+      if (signal.aborted) return await fail("Planning was interrupted");
       exit = await pool.run(
         {
           runId: planner.runId,
           cwd: project.rootPath,
-          prompt,
+          prompt: cheap ? `${prompt}\n\n${EXPLORER_HINT}` : prompt,
           model: modelId,
           fallbackModels: [],
           permissionMode: "plan",
           maxTurns: PLANNER_MAX_TURNS,
+          agentsFile: files.agentsFile,
           session: { mode: "ephemeral" },
           allowedTools: [
             "Read",
@@ -510,17 +774,14 @@ export class OrchestratorService {
             "Glob",
             "LS",
             ...(mcpEnabled ? [ONYX_MCP_ALLOW_RULE] : []),
+            ...(cheap ? EXPLORER_TOOLS : []),
           ],
           disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"],
           settingsFile: files.settingsFile,
           mcpConfigFile: files.mcpConfigFile,
           appendSystemPromptFile: null,
           includePartialMessages: false,
-          env: {
-            ...this.passthroughEnv(),
-            ...(await this.deps.credentials.childEnv()),
-            [RUN_TOKEN_ENV]: token,
-          },
+          env,
           timeouts: this.deps.plannerTimeouts ?? DEFAULT_PLANNER_TIMEOUTS,
           jsonSchema: JSON.stringify(PLAN_JSON_SCHEMA),
         },
@@ -556,18 +817,26 @@ export class OrchestratorService {
       return fail(
         exit.reason === "aborted" || exit.reason === "shutdown"
           ? "Planning was interrupted"
-          : `Claude Code stopped before answering (${exit.reason})`,
+          : interpolate(PLAN_TEXT.stoppedEarly, { reason: exit.reason }),
       );
     }
-    const costUsd = await this.recordUsage(modelId, final);
+    const rows = usageByModel(final, modelId);
+    const costUsd = await this.recordUsage(modelId, final, rows);
     void this.deps.budgets.refresh().catch(() => undefined);
     await prisma.orchestration.update({
       where: { id: orchestration.id },
-      data: { plannerCostUsd: costUsd, plannerTurns: final.numTurns },
+      data: {
+        plannerCostUsd: costUsd,
+        plannerTurns: final.numTurns,
+        plannerExplorer: cheap,
+        plannerModelCostUsd: costOfModel(rows, modelId) ?? costUsd,
+      },
     });
     if (final.isError) {
       return fail(
-        `Claude Code reported an error: ${(final.resultText ?? final.subtype).slice(0, 300)}`,
+        interpolate(RUN_TEXT.reported, {
+          error: (final.resultText ?? final.subtype).slice(0, 300),
+        }),
       );
     }
     let validated: ValidatedPlan;
@@ -647,13 +916,19 @@ export class OrchestratorService {
     });
     await this.deps.approvals.create({
       kind: "PLAN",
-      title: `Plan for ${project?.name ?? "the project"}: ${shorten(orchestration.goal, 80)}`,
+      title: interpolate(APPROVAL_TEXT.planTitle, {
+        project: project?.name ?? APPROVAL_TEXT.theProject,
+        goal: shorten(orchestration.goal, 80),
+      }),
       projectId: orchestration.projectId,
       taskId: orchestration.rootTaskId,
       payload: {
         key: `plan:${orchestration.id}`,
         orchestrationId: orchestration.id,
-        detail: `${nodes.length} task${nodes.length === 1 ? "" : "s"}: ${plan.summary}`,
+        detail: interpolate(nodes.length === 1 ? APPROVAL_TEXT.planOne : APPROVAL_TEXT.planMany, {
+          count: nodes.length,
+          summary: plan.summary,
+        }),
         link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
         approveLabel: "Approve and run",
         rejectLabel: "Discard the plan",
@@ -742,6 +1017,7 @@ export class OrchestratorService {
       wake: () => undefined,
       mergeChain: Promise.resolve(),
       done: Promise.resolve(),
+      baselines: new Map(),
     };
     driver.wake = () => {
       const current = wake;
@@ -819,7 +1095,10 @@ export class OrchestratorService {
           return this.finish(
             driver.id,
             "FAILED",
-            `${failed.length} task${failed.length === 1 ? "" : "s"} failed: ${failed.map((node) => node.title).join(", ")}`,
+            interpolate(failed.length === 1 ? PLAN_TEXT.failedOne : PLAN_TEXT.failedMany, {
+              count: failed.length,
+              titles: failed.map((node) => node.title).join(", "),
+            }),
             "FAILED",
           );
         }
@@ -843,7 +1122,7 @@ export class OrchestratorService {
     orchestration: Orchestration,
     taskId: string,
   ): Promise<void> {
-    const { prisma, scheduler, tdd } = this.deps;
+    const { prisma } = this.deps;
     try {
       const task = await prisma.task.findUniqueOrThrow({
         where: { id: taskId },
@@ -851,7 +1130,7 @@ export class OrchestratorService {
           dependsOn: { include: { dependsOn: { select: { title: true, resultSummary: true } } } },
         },
       });
-      if (!task.workspaceId) throw new Error("The task has no workspace");
+      if (!task.workspaceId) throw new Error(PLAN_TEXT.noWorkspace);
       const key = task.planKey ?? task.id;
       const repo = await this.repoOf(orchestration.projectId);
       const workBranch = orchestration.workBranch ?? "";
@@ -861,6 +1140,14 @@ export class OrchestratorService {
       if (await repo.branchExists(branch)) await repo.run(["branch", "-D", branch]);
       await repo.addWorktree(path, branch, workBranch);
       const excludes = await linkDependencies(repo.root, path);
+      const baseline = orchestration.verify
+        ? this.baselineFor(
+            driver,
+            orchestration,
+            taskId,
+            (await repo.run(["rev-parse", "HEAD"], { cwd: path })).trim(),
+          )
+        : Promise.resolve([]);
       await prisma.task.update({
         where: { id: taskId },
         data: { worktreePath: path, branchName: branch, status: "QUEUED" },
@@ -896,70 +1183,218 @@ export class OrchestratorService {
           workspace: sibling.workspace?.name ?? null,
         })),
       });
-      const result = await scheduler.runAndWait({
-        request: {
-          taskId,
-          modelId: null,
-          agentConfigId: null,
-          prompt,
-          newSession: true,
-          tierHint: tier ? { tier, reason: "suggested by the plan" } : null,
-        },
+      const work = {
+        driver,
+        orchestration,
+        taskId,
         workspaceId: task.workspaceId,
-        projectId: orchestration.projectId,
-        lockKey: `task:${taskId}`,
-        priority: NODE_PRIORITY,
-        enqueuedAt: Date.now(),
-      });
+        tier,
+        baseline,
+      };
+      await this.runNodeAgent(work, prompt, true);
       if (driver.cancelled) return;
-      const run = result
-        ? await prisma.agentRun.findUnique({
-            where: { id: result.runId },
-            select: { status: true, resultSubtype: true, errorMessage: true },
-          })
-        : null;
-      if (!run) {
-        const latest = await prisma.task.findUnique({
-          where: { id: taskId },
-          select: { resultSummary: true },
-        });
-        throw new Error(latest?.resultSummary ?? "The agent run could not start");
-      }
-      if (run.status !== "COMPLETED" && run.resultSubtype !== "error_max_turns")
-        throw new Error(
-          `The agent run ended ${run.status.toLowerCase()}: ${run.errorMessage ?? "no details"}`,
-        );
-
-      if (orchestration.verify) {
-        const defaults = await tdd.defaults(taskId);
-        if (defaults.runner) {
-          await this.setNode(taskId, "verifying", null);
-          const loop = await tdd.start(
-            taskId,
-            {
-              maxIterations: this.deps.verifyIterations ?? DEFAULT_VERIFY_ITERATIONS,
-              budgetUsd: null,
-              testTimeoutSec: 300,
-              typecheck: defaults.typecheckCommand !== null,
-              lint: false,
-            },
-            "orchestrator",
-          );
-          const final = await tdd.settled(loop.id);
-          if (driver.cancelled) return;
-          if (final.status !== "GREEN")
-            throw new Error(
-              `The tests did not pass: ${final.message ?? final.status.toLowerCase()}`,
-            );
-        }
-      }
+      if (!(await this.verifyNode(work))) return;
 
       const env = await this.deps.git.commitEnv();
       await repo.commitAll(path, `Onyx: ${task.title}`, env, excludes);
+      if (orchestration.qa) {
+        const passed = await this.reviewNode(work, repo, path, workBranch, excludes, task.title);
+        if (!passed) return;
+      }
       await this.mergeNode(driver, orchestration, taskId);
     } catch (error) {
       if (driver.cancelled) return;
       await this.setNode(taskId, "failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async runNodeAgent(work: NodeWork, prompt: string, newSession: boolean): Promise<void> {
+    const { prisma, scheduler } = this.deps;
+    const result = await scheduler.runAndWait({
+      request: {
+        taskId: work.taskId,
+        modelId: null,
+        agentConfigId: null,
+        prompt,
+        newSession,
+        tierHint: work.tier ? { tier: work.tier, reason: RATIONALE.planHint } : null,
+      },
+      workspaceId: work.workspaceId,
+      projectId: work.orchestration.projectId,
+      lockKey: `task:${work.taskId}`,
+      priority: NODE_PRIORITY,
+      kind: "PLAN",
+      enqueuedAt: Date.now(),
+    });
+    if (work.driver.cancelled) return;
+    const run = result
+      ? await prisma.agentRun.findUnique({
+          where: { id: result.runId },
+          select: { status: true, resultSubtype: true, errorMessage: true },
+        })
+      : null;
+    if (!run) {
+      const latest = await prisma.task.findUnique({
+        where: { id: work.taskId },
+        select: { resultSummary: true },
+      });
+      throw new Error(latest?.resultSummary ?? PLAN_TEXT.notStarted);
+    }
+    if (run.status !== "COMPLETED" && run.resultSubtype !== "error_max_turns")
+      throw new Error(
+        interpolate(PLAN_TEXT.runEnded, {
+          status: run.status.toLowerCase(),
+          error: run.errorMessage ?? RUN_TEXT.noDetails,
+        }),
+      );
+  }
+
+  private async verifyNode(work: NodeWork): Promise<boolean> {
+    if (!work.orchestration.verify) return true;
+    const { tdd } = this.deps;
+    const defaults = await tdd.defaults(work.taskId);
+    if (!defaults.runner) return true;
+    await this.setNode(work.taskId, "verifying", null);
+    const loop = await tdd.start(
+      work.taskId,
+      {
+        maxIterations: this.deps.verifyIterations ?? DEFAULT_VERIFY_ITERATIONS,
+        budgetUsd: null,
+        testTimeoutSec: 300,
+        typecheck: defaults.typecheckCommand !== null,
+        lint: false,
+      },
+      "orchestrator",
+      { ignoreFailures: await work.baseline },
+    );
+    const final = await tdd.settled(loop.id);
+    if (work.driver.cancelled) return false;
+    if (final.status !== "GREEN")
+      throw new Error(
+        interpolate(PLAN_TEXT.testsFailed, {
+          reason: final.message ?? final.status.toLowerCase(),
+        }),
+      );
+    return true;
+  }
+
+  private async reviewNode(
+    work: NodeWork,
+    repo: GitRepo,
+    path: string,
+    workBranch: string,
+    excludes: readonly string[],
+    title: string,
+  ): Promise<boolean> {
+    const { orchestration, taskId, driver } = work;
+    for (let attempt = 1; ; attempt += 1) {
+      await this.setNode(taskId, "reviewing", null);
+      await this.publish(orchestration.id);
+      const { row, outcome } = await this.deps.reviews.review({
+        orchestrationId: orchestration.id,
+        projectId: orchestration.projectId,
+        taskId,
+        attempt,
+        repo,
+        worktree: path,
+        base: workBranch,
+      });
+      if (driver.cancelled) return false;
+      if (outcome?.verdict === "PASS") return true;
+      if (outcome && attempt <= QA_MAX_REWORKS) {
+        await this.setNode(taskId, "running", null);
+        await this.publish(orchestration.id);
+        await this.runNodeAgent(work, qaFeedbackPrompt(outcome), false);
+        if (driver.cancelled) return false;
+        if (!(await this.verifyNode(work))) return false;
+        await repo.commitAll(
+          path,
+          `Onyx: ${title} (review fixes)`,
+          await this.deps.git.commitEnv(),
+          excludes,
+        );
+        continue;
+      }
+      const unmet = outcome?.criteria.filter((criterion) => !criterion.met) ?? [];
+      const problems = [
+        ...unmet.map((criterion) => interpolate(PLAN_TEXT.criterion, { index: criterion.index })),
+        ...(outcome?.issues.map((issue) => issue.problem) ?? []),
+      ];
+      const found = problems.slice(0, 3).join("; ") || row.summary;
+      const message = outcome
+        ? interpolate(attempt === 1 ? PLAN_TEXT.qaOne : PLAN_TEXT.qaMany, {
+            count: attempt,
+            problems: found,
+          })
+        : interpolate(PLAN_TEXT.qaUnfinished, { summary: row.summary });
+      const detail = outcome
+        ? interpolate(attempt === 1 ? APPROVAL_TEXT.qaOne : APPROVAL_TEXT.qaMany, {
+            count: attempt,
+            problems: found,
+            summary: row.summary,
+          })
+        : interpolate(APPROVAL_TEXT.qaUnfinished, { summary: row.summary, details: row.summary });
+      await this.setNode(taskId, "review", message);
+      await this.deps.approvals.create({
+        kind: "QA",
+        title: interpolate(APPROVAL_TEXT.reviewTitle, { title }),
+        projectId: orchestration.projectId,
+        taskId,
+        payload: {
+          key: `qa:${taskId}`,
+          orchestrationId: orchestration.id,
+          detail: detail.slice(0, 1_000),
+          files: [
+            ...new Set(
+              (outcome?.issues ?? []).flatMap((issue) => (issue.file ? [issue.file] : [])),
+            ),
+          ],
+          link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
+          approveLabel: "Merge anyway",
+          rejectLabel: "Drop this task",
+        },
+      });
+      return false;
+    }
+  }
+
+  private baselineFor(
+    driver: Driver,
+    orchestration: Orchestration,
+    taskId: string,
+    commit: string,
+  ): Promise<string[]> {
+    const cached = driver.baselines.get(commit);
+    if (cached) return cached;
+    const work = this.computeBaseline(orchestration, taskId, commit).catch((error: unknown) => {
+      this.deps.logger.warn(
+        { err: error, orchestrationId: orchestration.id, commit },
+        "Could not run the tests on the starting commit",
+      );
+      return [];
+    });
+    driver.baselines.set(commit, work);
+    return work;
+  }
+
+  private async computeBaseline(
+    orchestration: Orchestration,
+    taskId: string,
+    commit: string,
+  ): Promise<string[]> {
+    const repo = await this.repoOf(orchestration.projectId);
+    const path = join(
+      this.worktreesRoot(orchestration.projectId),
+      orchestration.id,
+      `_baseline-${commit.slice(0, 12)}`,
+    );
+    await repo.removeWorktree(path);
+    await repo.addDetachedWorktree(path, commit);
+    try {
+      await linkDependencies(repo.root, path);
+      return await this.deps.tdd.baseline(taskId, path);
+    } finally {
+      await repo.removeWorktree(path);
     }
   }
 
@@ -970,8 +1405,7 @@ export class OrchestratorService {
   ): Promise<void> {
     const { prisma } = this.deps;
     const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-    if (!task.branchName || !orchestration.integrationPath)
-      throw new Error("The task has no branch to merge");
+    if (!task.branchName || !orchestration.integrationPath) throw new Error(PLAN_TEXT.noBranch);
     await this.setNode(taskId, "merging", null);
     const repo = await this.repoOf(orchestration.projectId);
     const env = await this.deps.git.commitEnv();
@@ -995,22 +1429,276 @@ export class OrchestratorService {
       await repo.run(["branch", "-D", task.branchName ?? ""]).catch(() => undefined);
       return;
     }
-    await this.setNode(taskId, "conflict", `Merge conflict in ${outcome.conflicts.join(", ")}`);
+    if (orchestration.resolveConflicts) {
+      await this.setNode(
+        taskId,
+        "conflict",
+        interpolate(PLAN_TEXT.conflictProposing, { files: outcome.conflicts.join(", ") }),
+      );
+      const work = this.proposeResolution(driver, orchestration, taskId, outcome.conflicts).catch(
+        (error: unknown) =>
+          this.deps.logger.warn({ err: error, taskId }, "Conflict resolution crashed"),
+      );
+      this.resolving.add(work);
+      void work.finally(() => this.resolving.delete(work));
+      return;
+    }
+    await this.askManualMerge(orchestration, task, outcome.conflicts, null);
+  }
+
+  private async askManualMerge(
+    orchestration: Orchestration,
+    task: { id: string; title: string; branchName: string | null; worktreePath: string | null },
+    conflicts: readonly string[],
+    note: string | null,
+  ): Promise<void> {
+    await this.setNode(
+      task.id,
+      "conflict",
+      interpolate(note ? PLAN_TEXT.conflictNote : PLAN_TEXT.conflict, {
+        files: conflicts.join(", "),
+        note: note ?? "",
+      }),
+    );
     await this.deps.approvals.create({
       kind: "MERGE",
-      title: `Merge conflict: ${task.title}`,
+      title: interpolate(APPROVAL_TEXT.mergeTitle, { title: task.title }),
       projectId: orchestration.projectId,
-      taskId,
+      taskId: task.id,
       payload: {
-        key: `merge:${taskId}`,
+        key: `merge:${task.id}`,
         orchestrationId: orchestration.id,
-        detail: `${task.branchName} conflicts with ${orchestration.workBranch} in ${outcome.conflicts.length} file(s). Resolve it on ${task.branchName} (for example in ${task.worktreePath ?? "its worktree"}) and retry, or drop the task.`,
-        files: outcome.conflicts,
+        detail: interpolate(note ? APPROVAL_TEXT.mergeNote : APPROVAL_TEXT.merge, {
+          note: note ?? "",
+          branch: String(task.branchName),
+          base: String(orchestration.workBranch),
+          count: conflicts.length,
+          path: task.worktreePath ?? APPROVAL_TEXT.itsWorktree,
+        }),
+        files: [...conflicts],
         link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
         approveLabel: "Retry the merge",
         rejectLabel: "Drop this task",
       },
     });
+    await this.publish(orchestration.id);
+  }
+
+  private async proposeResolution(
+    driver: Driver | null,
+    orchestration: Orchestration,
+    taskId: string,
+    conflicts: readonly string[],
+  ): Promise<void> {
+    const { prisma } = this.deps;
+    const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    if (!task.branchName || !orchestration.integrationPath) return;
+    const repo = await this.repoOf(orchestration.projectId);
+    const base = (
+      await repo.run(["rev-parse", "HEAD"], { cwd: orchestration.integrationPath })
+    ).trim();
+    const path = join(
+      this.worktreesRoot(orchestration.projectId),
+      orchestration.id,
+      `_resolve-${task.planKey ?? task.id}`,
+    );
+    await repo.removeWorktree(path);
+    await repo.addDetachedWorktree(path, base);
+    let resolution;
+    try {
+      const excludes = await linkDependencies(repo.root, path);
+      resolution = await this.deps.reviews.resolve({
+        orchestrationId: orchestration.id,
+        projectId: orchestration.projectId,
+        taskId,
+        repo,
+        worktree: path,
+        base,
+        branch: task.branchName,
+        workBranch: orchestration.workBranch ?? "",
+        excludes,
+        commitEnv: await this.deps.git.commitEnv(),
+        checks: () => this.resolutionChecks(driver, orchestration, taskId, path, base),
+      });
+    } finally {
+      await repo.removeWorktree(path);
+    }
+    if (driver?.cancelled) return;
+    if (resolution.state !== "PROPOSED") {
+      await this.askManualMerge(
+        orchestration,
+        task,
+        conflicts,
+        interpolate(PLAN_TEXT.unusable, { reason: resolution.message ?? RUN_TEXT.noDetails }),
+      );
+      return;
+    }
+    const files = toStringArray(resolution.files);
+    await this.setNode(
+      taskId,
+      "conflict",
+      interpolate(PLAN_TEXT.conflictWaiting, { files: conflicts.join(", ") }),
+    );
+    await this.deps.approvals.create({
+      kind: "MERGE",
+      title: interpolate(APPROVAL_TEXT.resolvedTitle, { title: task.title }),
+      projectId: orchestration.projectId,
+      taskId,
+      payload: {
+        key: `resolve:${taskId}`,
+        orchestrationId: orchestration.id,
+        detail: interpolate(
+          resolution.costUsd !== null ? APPROVAL_TEXT.resolvedCost : APPROVAL_TEXT.resolved,
+          {
+            count: files.length,
+            checks: resolution.checks ?? "",
+            cost: resolution.costUsd?.toFixed(3) ?? "",
+          },
+        ),
+        files,
+        link: `/projects/${orchestration.projectId}/plans/${orchestration.id}`,
+        approveLabel: "Apply the resolution",
+        rejectLabel: "Resolve it myself",
+      },
+    });
+    await this.publish(orchestration.id);
+  }
+
+  private async resolutionChecks(
+    driver: Driver | null,
+    orchestration: Orchestration,
+    taskId: string,
+    path: string,
+    base: string,
+  ): Promise<{ text: string; passed: boolean | null }> {
+    if (!orchestration.verify)
+      return { text: "Tests not run: the plan does not verify.", passed: null };
+    const defaults = await this.deps.tdd.defaults(taskId);
+    if (!defaults.runner) return { text: "No test runner: tests not run.", passed: null };
+    const [before, after] = await Promise.all([
+      driver
+        ? this.baselineFor(driver, orchestration, taskId, base)
+        : this.computeBaseline(orchestration, taskId, base).catch(() => []),
+      this.deps.tdd.baseline(taskId, path),
+    ]);
+    const known = new Set(before);
+    const added = after.filter((key) => !known.has(key));
+    return added.length === 0
+      ? {
+          text: interpolate(
+            before.length > 0 ? RESOLUTION_CHECK.cleanBefore : RESOLUTION_CHECK.clean,
+            { count: before.length },
+          ),
+          passed: true,
+        }
+      : {
+          text: interpolate(RESOLUTION_CHECK.failing, {
+            failures:
+              added.length > 5
+                ? interpolate(RESOLUTION_CHECK.more, {
+                    labels: added.slice(0, 5).join(", "),
+                    count: added.length - 5,
+                  })
+                : added.join(", "),
+          }),
+          passed: false,
+        };
+  }
+
+  private async applyResolution(approval: Approval, payload: ApprovalPayload): Promise<void> {
+    const { prisma } = this.deps;
+    const id = payload.orchestrationId;
+    const taskId = approval.taskId;
+    if (!id || !taskId) return;
+    const orchestration = await prisma.orchestration.findUnique({ where: { id } });
+    if (!orchestration?.integrationPath) throw notFound("Plan");
+    const resolution = await prisma.mergeResolution.findFirst({
+      where: { orchestrationId: id, taskId, state: "PROPOSED" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!resolution?.commit) throw conflict("The proposed resolution is no longer available");
+    const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    const repo = await this.repoOf(orchestration.projectId);
+    const cwd = orchestration.integrationPath;
+    const driver = this.drivers.get(id) ?? null;
+    const apply = async (): Promise<boolean> => {
+      const fastForward = await repo
+        .run(["merge", "--ff-only", resolution.commit ?? ""], { cwd })
+        .then(
+          () => true,
+          () => false,
+        );
+      if (fastForward) return true;
+      const outcome = await repo.merge(
+        cwd,
+        resolution.commit ?? "",
+        `Merge "${task.title}" (Onyx plan)`,
+        await this.deps.git.commitEnv(),
+      );
+      return outcome.ok;
+    };
+    const applied = driver
+      ? await (driver.mergeChain = driver.mergeChain.then(apply, apply))
+      : await apply();
+    await repo.run(["update-ref", "-d", `refs/onyx/resolutions/${taskId}`]).catch(() => undefined);
+    if (!applied) {
+      await prisma.mergeResolution.update({
+        where: { id: resolution.id },
+        data: {
+          state: "FAILED",
+          decidedAt: new Date(),
+          message: "The plan moved on and the proposal no longer applies",
+        },
+      });
+      await this.askManualMerge(
+        orchestration,
+        task,
+        toStringArray(resolution.files),
+        PLAN_TEXT.noLongerApplies,
+      );
+      return;
+    }
+    const commit = (await repo.run(["rev-parse", "HEAD"], { cwd })).trim();
+    await prisma.mergeResolution.update({
+      where: { id: resolution.id },
+      data: { state: "APPLIED", decidedAt: new Date() },
+    });
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { mergeCommit: commit, mergedAt: new Date() },
+    });
+    await this.setNode(taskId, "merged", null);
+    if (task.worktreePath) await repo.removeWorktree(task.worktreePath);
+    if (task.branchName) await repo.run(["branch", "-D", task.branchName]).catch(() => undefined);
+    driver?.wake();
+    await this.publish(id);
+  }
+
+  private async discardResolution(approval: Approval, payload: ApprovalPayload): Promise<void> {
+    const { prisma } = this.deps;
+    const id = payload.orchestrationId;
+    const taskId = approval.taskId;
+    if (!id || !taskId) return;
+    const orchestration = await prisma.orchestration.findUnique({ where: { id } });
+    if (!orchestration) throw notFound("Plan");
+    const resolution = await prisma.mergeResolution.findFirst({
+      where: { orchestrationId: id, taskId, state: "PROPOSED" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (resolution)
+      await prisma.mergeResolution.update({
+        where: { id: resolution.id },
+        data: { state: "DISCARDED", decidedAt: new Date() },
+      });
+    const repo = await this.repoOf(orchestration.projectId);
+    await repo.run(["update-ref", "-d", `refs/onyx/resolutions/${taskId}`]).catch(() => undefined);
+    const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    await this.askManualMerge(
+      orchestration,
+      task,
+      resolution ? toStringArray(resolution.files) : [],
+      null,
+    );
   }
 
   private async retryMerge(approval: Approval, payload: ApprovalPayload): Promise<void> {
@@ -1050,6 +1738,14 @@ export class OrchestratorService {
       await this.publish(id);
       const defaults = await tdd.defaults(orchestration.rootTaskId);
       if (defaults.runner) {
+        const ignoreFailures = orchestration.baseCommit
+          ? await this.baselineFor(
+              driver,
+              orchestration,
+              orchestration.rootTaskId,
+              orchestration.baseCommit,
+            )
+          : [];
         const loop = await tdd.start(
           orchestration.rootTaskId,
           {
@@ -1061,6 +1757,7 @@ export class OrchestratorService {
             relatedFiles: [],
           },
           "orchestrator",
+          { ignoreFailures },
         );
         const final = await tdd.settled(loop.id);
         if (driver.cancelled) return;
@@ -1068,7 +1765,9 @@ export class OrchestratorService {
           return this.finish(
             id,
             "FAILED",
-            `The merged branch does not pass the tests: ${final.message ?? final.status.toLowerCase()}`,
+            interpolate(PLAN_TEXT.mergedBroken, {
+              reason: final.message ?? final.status.toLowerCase(),
+            }),
             "FAILED",
           );
         const repo = await this.repoOf(orchestration.projectId);
@@ -1084,7 +1783,10 @@ export class OrchestratorService {
     await this.finish(
       id,
       "COMPLETED",
-      `Merged ${nodes.length} task${nodes.length === 1 ? "" : "s"} into ${orchestration.workBranch ?? "the work branch"}`,
+      interpolate(nodes.length === 1 ? PLAN_TEXT.mergedOne : PLAN_TEXT.mergedMany, {
+        count: nodes.length,
+        branch: orchestration.workBranch ?? PLAN_TEXT.workBranch,
+      }),
       "COMPLETED",
     );
   }
@@ -1140,6 +1842,8 @@ export class OrchestratorService {
     taskId: string,
     key: string,
   ): Promise<void> {
+    await this.stopNodeWork(taskId);
+    await this.deps.scheduler.settledTask(taskId);
     const repo = await this.repoOf(orchestration.projectId);
     const path = join(this.worktreesRoot(orchestration.projectId), orchestration.id, key);
     await repo.removeWorktree(path);
@@ -1150,6 +1854,7 @@ export class OrchestratorService {
   }
 
   private async stopNodeWork(taskId: string): Promise<void> {
+    await this.deps.reviews.abortTask(taskId);
     await this.deps.tdd.abortForTask(taskId, "orchestrator").catch(() => false);
     if (!this.deps.scheduler.removeQueued(taskId)) await this.deps.scheduler.abortTask(taskId);
   }
@@ -1203,12 +1908,13 @@ export class OrchestratorService {
   }
 
   private async publish(id: string): Promise<OrchestrationDto> {
-    const dto = await this.get(id);
+    const dto = await this.load(id);
     const live = this.planners.has(id) || this.drivers.has(id);
     if (live) this.states.set(id, dto);
     else this.states.delete(id);
-    this.deps.hub.publishOrchestration(dto);
-    return dto;
+    const shown = localizePlan(dto);
+    this.deps.hub.publishOrchestration(shown);
+    return shown;
   }
 
   private async toDto(row: Orchestration): Promise<OrchestrationDto> {
@@ -1224,6 +1930,20 @@ export class OrchestratorService {
       _sum: { costUsd: true },
       where: { taskId: row.rootTaskId },
     });
+    const [reviews, resolutions] = await Promise.all([
+      this.deps.prisma.qaReview.findMany({
+        where: { orchestrationId: row.id },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.deps.prisma.mergeResolution.findMany({
+        where: { orchestrationId: row.id },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+    const qaCostUsd = [...reviews, ...resolutions].reduce(
+      (sum, entry) => sum + (entry.costUsd ?? 0),
+      0,
+    );
     const dtoNodes: OrchestrationNode[] = nodes.map((node) => {
       const task = node.task;
       return {
@@ -1252,6 +1972,13 @@ export class OrchestratorService {
         lastModelId: task.runs[0]?.modelId ?? null,
         tddLoopId: task.tddLoops[0]?.id ?? null,
         message: task.resultSummary,
+        review: ((latest) => (latest ? toQaReviewDto(latest) : null))(
+          reviews.find((review) => review.taskId === task.id),
+        ),
+        reviews: reviews.filter((review) => review.taskId === task.id).length,
+        resolution: ((latest) => (latest ? toResolutionDto(latest) : null))(
+          resolutions.find((resolution) => resolution.taskId === task.id),
+        ),
       };
     });
     const nodesCost = dtoNodes.reduce((sum, node) => sum + node.costUsd, 0);
@@ -1268,9 +1995,12 @@ export class OrchestratorService {
       workBranch: row.workBranch,
       parallelism: row.parallelism,
       verify: row.verify,
+      qa: row.qa === true,
+      resolveConflicts: row.resolveConflicts === true,
+      qaCostUsd,
       plannerModelId: row.plannerModelId,
       plannerCostUsd: row.plannerCostUsd,
-      costUsd: nodesCost + (rootRuns._sum.costUsd ?? 0) + (row.plannerCostUsd ?? 0),
+      costUsd: nodesCost + (rootRuns._sum.costUsd ?? 0) + (row.plannerCostUsd ?? 0) + qaCostUsd,
       message: row.message,
       activity: this.planners.get(row.id)?.activity ?? null,
       approvalId: approval?.id ?? null,
@@ -1283,12 +2013,22 @@ export class OrchestratorService {
     };
   }
 
-  private async recordUsage(modelId: string, result: RunItemOf<"result">): Promise<number | null> {
+  private async recordUsage(
+    modelId: string,
+    result: RunItemOf<"result">,
+    rows: readonly ModelUsageRow[],
+  ): Promise<number | null> {
     const profile = await this.deps.prisma.modelProfile.findUnique({ where: { id: modelId } });
     const costUsd = result.costUsd ?? (profile ? priceUsage(result.usage, profile) : null);
     await this.deps.prisma.tokenLog
-      .create({
-        data: { modelId, scope: "AUX", purpose: "planner", ...result.usage, costUsd },
+      .createMany({
+        data: rows.map((row) => ({
+          modelId: row.modelId,
+          scope: "AUX" as const,
+          purpose: "planner",
+          ...row.usage,
+          costUsd: rows.length === 1 ? costUsd : row.costUsd,
+        })),
       })
       .catch((error: unknown) => this.deps.logger.warn({ err: error }, "Planner token log failed"));
     return costUsd;
@@ -1303,8 +2043,9 @@ export class OrchestratorService {
   }
 
   private async gitLog(root: string): Promise<string[]> {
-    const output = await execFileAsync("git", ["log", "--oneline", "-15"], {
+    const output = await execFileAsync("git", safeGitArgs(["log", "--oneline", "-15"]), {
       cwd: root,
+      env: gitEnvironment(),
       timeout: 15_000,
     }).catch(() => null);
     return output ? output.stdout.split("\n").filter((line) => line.trim().length > 0) : [];
@@ -1320,7 +2061,7 @@ export class OrchestratorService {
   }
 
   private worktreesRoot(projectId: string): string {
-    return join(this.deps.config.dataDir, "worktrees", projectId);
+    return join(this.deps.config.worktreesDir, projectId);
   }
 
   private passthroughEnv(): Record<string, string> {

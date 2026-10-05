@@ -1,9 +1,15 @@
 "use client";
 
-import type { RunDto, RunEventsResponse, ServerMessage } from "@onyx/contracts";
+import type {
+  BlockedCommandsResponse,
+  RunDto,
+  RunEventsResponse,
+  RunStatus,
+  ServerMessage,
+} from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Loader2, Repeat2, ShieldX, Square } from "lucide-react";
+import { DatabaseZap, FlaskConical, Loader2, Repeat2, ShieldX, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -13,9 +19,11 @@ import { FeedEntryView } from "@/components/runs/feed-entry";
 import { ModelBadge, RunStatusBadge } from "@/components/tasks/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 import { formatDuration, formatSaving, formatTokens, formatUsd } from "@/lib/format";
 import {
   INITIAL_FEED,
@@ -27,7 +35,8 @@ import {
   isTerminal,
   type FeedState,
 } from "@/lib/run-feed";
-import { runSaving } from "@/lib/savings";
+import { cacheNote, runSaving } from "@/lib/savings";
+import type { GlossaryId } from "@/lib/glossary";
 import { tierOfModel } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
 import { useChannel } from "@/lib/ws/context";
@@ -45,6 +54,12 @@ function reducer(state: FeedState, action: FeedAction): FeedState {
   }
 }
 
+function initialFeed(events: RunEventsResponse | null): FeedState {
+  let state = INITIAL_FEED;
+  for (const event of events?.items ?? []) state = applyRunEvent(state, event.seq, event.items);
+  return state;
+}
+
 function useElapsed(startedAt: string, endedAt: string | null, running: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -56,38 +71,65 @@ function useElapsed(startedAt: string, endedAt: string | null, running: boolean)
   return Math.max(0, end - new Date(startedAt).getTime());
 }
 
+export interface RunLiveState {
+  status: RunStatus;
+  tool: string | null;
+}
+
 function Metric({
   label,
   value,
   className,
   title,
+  term,
 }: {
   label: string;
   value: string;
   className?: string | undefined;
   title?: string;
+  term?: GlossaryId;
 }) {
   return (
     <div className={cn("min-w-0", className)} title={title}>
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
+      <p className="flex min-h-6 items-center gap-0.5 text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">
+        <span className="min-w-0 break-words">{label}</span>
+        {term ? <HelpTip term={term} className="shrink-0" /> : null}
       </p>
       <p className="tabular truncate text-sm font-semibold">{value}</p>
     </div>
   );
 }
 
-export function RunConsole({ run, className }: { run: RunDto; className?: string }) {
+export function RunConsole({
+  run,
+  blocked = null,
+  events = null,
+  className,
+  onLive,
+}: {
+  run: RunDto;
+  blocked?: BlockedCommandsResponse | null;
+  events?: RunEventsResponse | null;
+  className?: string;
+  onLive?: (state: RunLiveState) => void;
+}) {
+  const t = useT();
   const queryClient = useQueryClient();
-  const [feed, dispatch] = useReducer(reducer, INITIAL_FEED);
+  const [feed, dispatch] = useReducer(reducer, events, initialFeed);
   const [bootstrapSeq, setBootstrapSeq] = useState<number | null>(null);
+  const initialEvents = useRef(events);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
-      let after = 0;
+      const preloaded = initialEvents.current;
+      let after = preloaded?.items.at(-1)?.seq ?? 0;
+      if (preloaded && preloaded.nextAfter === null) {
+        setBootstrapSeq(after);
+        return;
+      }
       for (;;) {
         const page = await api.get<RunEventsResponse>(
           `/api/runs/${run.id}/events?after=${after}&limit=500`,
@@ -118,6 +160,10 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
 
   const status = feed.status ?? run.status;
   const terminal = isTerminal(status);
+  const tool = activeTool({ entries: feed.entries, status });
+  useEffect(() => {
+    onLive?.({ status, tool });
+  }, [onLive, status, tool]);
   const wasTerminal = useRef(isTerminal(run.status));
   useEffect(() => {
     if (terminal && !wasTerminal.current) {
@@ -155,18 +201,14 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
       entry.kind === "guard" && entry.item.source === "permission" && entry.item.tool === "Bash",
   );
   const savingRatio = saving.kind === "estimate" ? (saving.net ?? saving.gross) : null;
+  const cache = terminal ? cacheNote(latest.cache, t) : null;
   const model = feed.model ?? run.modelId;
 
   return (
     <Card className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
       <div className="space-y-4 border-b border-border px-5 py-4">
         <div className="flex items-center gap-4">
-          <AgentOrb
-            tier={tierOfModel(model)}
-            status={status}
-            tool={activeTool({ entries: feed.entries, status })}
-            size={44}
-          />
+          <AgentOrb tier={tierOfModel(model)} status={status} tool={tool} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <ModelBadge modelId={model} />
@@ -174,7 +216,11 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
               {Math.max(feed.guardDenials, run.guardDenials) > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
                   <ShieldX className="size-3" />
-                  {Math.max(feed.guardDenials, run.guardDenials)} blocked
+                  {Math.max(feed.guardDenials, run.guardDenials) === 1
+                    ? t("1 blocked")
+                    : t("{count} blocked", {
+                        count: Math.max(feed.guardDenials, run.guardDenials),
+                      })}
                 </span>
               ) : null}
             </div>
@@ -190,21 +236,36 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
               onClick={() => abort.mutate()}
             >
               {abort.isPending ? <Loader2 className="animate-spin" /> : <Square />}
-              Abort
+              {t("Abort")}
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-3 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-7">
-          <Metric label="Input" value={formatTokens(usage.inputTokens)} />
-          <Metric label="Output" value={formatTokens(usage.outputTokens)} />
-          <Metric label="Cache read" value={formatTokens(usage.cacheReadTokens)} />
-          <Metric label="Window" value={formatTokens(feedContextTokens(feed))} />
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-4">
+          <Metric label={t("Tokens sent")} term="token" value={formatTokens(usage.inputTokens)} />
+          <Metric label={t("Tokens written")} value={formatTokens(usage.outputTokens)} />
           <Metric
-            label={saving.kind === "estimate" && saving.net !== null ? "Net context" : "Context"}
-            title="Context tokens with Onyx compared with reading the target files and their dependencies in full: negative is fewer tokens. Net subtracts the files read again. Estimate."
+            label={t("Reread from cache")}
+            term="cache"
+            value={formatTokens(usage.cacheReadTokens)}
+          />
+          <Metric
+            label={t("Conversation size")}
+            term="session"
+            value={formatTokens(feedContextTokens(feed))}
+          />
+          <Metric
+            term="context"
+            label={
+              saving.kind === "estimate" && saving.net !== null
+                ? t("Context saved, net")
+                : t("Context saved")
+            }
+            title={t(
+              "Context tokens with Onyx compared with reading the target files and their dependencies in full: negative is fewer tokens. Net subtracts the files read again. Estimate.",
+            )}
             value={
               saving.kind === "control"
-                ? "control"
+                ? t("control")
                 : savingRatio === null
                   ? "—"
                   : formatSaving(savingRatio)
@@ -213,8 +274,12 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
               savingRatio === null ? undefined : savingRatio >= 0 ? "text-success" : "text-warning"
             }
           />
-          <Metric label="Cost" value={formatUsd(costUsd)} />
-          <Metric label="Elapsed" value={formatDuration(elapsed)} />
+          <Metric label={t("Cost")} value={formatUsd(costUsd)} />
+          <Metric label={t("Duration")} value={formatDuration(elapsed)} />
+          <p className="col-span-full flex items-center gap-0.5 text-xs text-muted-foreground">
+            {t("Tokens count towards your Claude limits.")}
+            <HelpTip term="limits" />
+          </p>
         </div>
         {saving.kind === "control" ? (
           <p
@@ -222,7 +287,7 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             data-testid="run-saving-note"
           >
             <FlaskConical className="size-3.5 shrink-0 text-primary" />
-            Control run of the savings experiment: no context pack, project map or MCP tools.
+            {t("Control run of the savings experiment: no context pack, project map or MCP tools.")}
           </p>
         ) : saving.kind === "estimate" && saving.net !== null && saving.rereadFiles > 0 ? (
           <p
@@ -230,14 +295,45 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
             data-testid="run-saving-note"
           >
             <Repeat2 className="size-3.5 shrink-0 text-warning" />
-            Read again {saving.rereadFiles} {saving.rereadFiles === 1 ? "file" : "files"} the pack
-            already covered (~{formatTokens(saving.rereadTokens)} tokens). Context vs full reads:{" "}
-            {formatSaving(saving.net)} after re-reads, {formatSaving(saving.gross)} before
-            (estimate).
+            {saving.rereadFiles === 1
+              ? t(
+                  "Read again 1 file the pack already covered (~{tokens} tokens). Context vs full reads: {net} after re-reads, {gross} before (estimate).",
+                  {
+                    tokens: formatTokens(saving.rereadTokens),
+                    net: formatSaving(saving.net),
+                    gross: formatSaving(saving.gross),
+                  },
+                )
+              : t(
+                  "Read again {count} files the pack already covered (~{tokens} tokens). Context vs full reads: {net} after re-reads, {gross} before (estimate).",
+                  {
+                    count: saving.rereadFiles,
+                    tokens: formatTokens(saving.rereadTokens),
+                    net: formatSaving(saving.net),
+                    gross: formatSaving(saving.gross),
+                  },
+                )}
           </p>
         ) : null}
-        {terminal && commandsBlocked ? (
-          <BlockedCommands runId={run.id} taskId={run.taskId} />
+        {terminal && cache ? (
+          <p
+            className={cn(
+              "flex items-start gap-2 text-xs",
+              cache.tone === "success" ? "text-muted-foreground" : "text-warning",
+            )}
+            data-testid="run-cache-note"
+          >
+            <DatabaseZap
+              className={cn(
+                "mt-0.5 size-3.5 shrink-0",
+                cache.tone === "success" ? "text-success" : "text-warning",
+              )}
+            />
+            {cache.text}
+          </p>
+        ) : null}
+        {terminal && (commandsBlocked || (blocked?.commands.length ?? 0) > 0) ? (
+          <BlockedCommands runId={run.id} taskId={run.taskId} initial={blocked} />
         ) : null}
       </div>
       <div
@@ -282,7 +378,7 @@ export function RunConsole({ run, className }: { run: RunDto; className?: string
         {!terminal && bootstrapSeq !== null && !feed.partialText ? (
           <div className="flex items-center gap-2 pl-10 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
-            Agent working…
+            {t("Agent working…")}
           </div>
         ) : null}
       </div>

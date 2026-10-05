@@ -1,5 +1,9 @@
+"use client";
+
 import type { ModelTier, RunStatus, TaskStatus } from "@onyx/contracts";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { msg } from "@/lib/i18n/core";
+import { useT } from "@/lib/i18n/client";
 import { TIER_STYLES, modelLabel, tierOfModel } from "@/lib/tiers";
 
 type Tone = NonNullable<BadgeProps["tone"]>;
@@ -27,16 +31,37 @@ const RUN_TONES: Record<RunStatus, Tone> = {
   INTERRUPTED: "warning",
 };
 
-function humanize(value: string): string {
-  return value.charAt(0) + value.slice(1).toLowerCase().replaceAll("_", " ");
-}
+const TASK_LABELS: Record<TaskStatus, string> = {
+  DRAFT: msg("Draft"),
+  PLANNING: msg("Planning"),
+  AWAITING_APPROVAL: msg("Awaiting approval"),
+  QUEUED: msg("Queued"),
+  RUNNING: msg("Running"),
+  TDD_LOOP: msg("Tdd loop"),
+  COMPLETED: msg("Completed"),
+  FAILED: msg("Failed"),
+  CANCELLED: msg("Cancelled"),
+  INTERRUPTED: msg("Interrupted"),
+};
+
+const RUN_LABELS: Record<RunStatus, string> = {
+  SPAWNING: msg("Spawning"),
+  RUNNING: msg("Running"),
+  COMPLETED: msg("Completed"),
+  FAILED: msg("Failed"),
+  ABORTED: msg("Aborted"),
+  TIMEOUT: msg("Timeout"),
+  INTERRUPTED: msg("Interrupted"),
+};
 
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
-  return <Badge tone={TASK_TONES[status]}>{humanize(status)}</Badge>;
+  const t = useT();
+  return <Badge tone={TASK_TONES[status]}>{t(TASK_LABELS[status])}</Badge>;
 }
 
 export function RunStatusBadge({ status }: { status: RunStatus }) {
-  return <Badge tone={RUN_TONES[status]}>{humanize(status)}</Badge>;
+  const t = useT();
+  return <Badge tone={RUN_TONES[status]}>{t(RUN_LABELS[status])}</Badge>;
 }
 
 const TIER_TONES: Record<ModelTier, Tone> = {
@@ -47,14 +72,16 @@ const TIER_TONES: Record<ModelTier, Tone> = {
 };
 
 export function ModelBadge({ modelId }: { modelId: string }) {
+  const t = useT();
   const tier = tierOfModel(modelId);
   return (
-    <Badge tone={TIER_TONES[tier]} title={TIER_STYLES[tier].label}>
+    <Badge tone={TIER_TONES[tier]} title={t(TIER_STYLES[tier].label)}>
       {modelLabel(modelId)}
     </Badge>
   );
 }
 
 export function TierBadge({ tier }: { tier: ModelTier }) {
-  return <Badge tone={TIER_TONES[tier]}>{TIER_STYLES[tier].label}</Badge>;
+  const t = useT();
+  return <Badge tone={TIER_TONES[tier]}>{t(TIER_STYLES[tier].label)}</Badge>;
 }

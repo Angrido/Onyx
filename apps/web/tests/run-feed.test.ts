@@ -58,11 +58,29 @@ describe("run feed", () => {
 
   it("deduplicates turn usage per message and prefers the result totals", () => {
     let state = applyRunEvent(INITIAL_FEED, 1, [
-      { kind: "turn_usage", messageId: "m1", model: null, usage: usage(1, 5) },
+      {
+        kind: "turn_usage",
+        messageId: "m1",
+        model: null,
+        usage: usage(1, 5),
+        parentToolUseId: null,
+      },
     ]);
     state = applyRunEvent(state, 2, [
-      { kind: "turn_usage", messageId: "m1", model: null, usage: usage(1, 9) },
-      { kind: "turn_usage", messageId: "m2", model: null, usage: usage(2, 1) },
+      {
+        kind: "turn_usage",
+        messageId: "m1",
+        model: null,
+        usage: usage(1, 9),
+        parentToolUseId: null,
+      },
+      {
+        kind: "turn_usage",
+        messageId: "m2",
+        model: null,
+        usage: usage(2, 1),
+        parentToolUseId: null,
+      },
     ]);
     expect(feedUsage(state)).toEqual(usage(3, 10));
 
@@ -118,12 +136,16 @@ describe("context items", () => {
           level: 3 as const,
           tokens: 400,
           symbols: null,
+          reused: false,
         },
       ],
       mapTokens: 120,
       packTokens: 500,
       baselineTokens: 2_000,
       deliveredTokens: 620,
+      reusedTokens: 0,
+      signatureTokens: 0,
+      mapFrozen: false,
       indexedAt: null,
       mcpEnabled: true,
       note: null,

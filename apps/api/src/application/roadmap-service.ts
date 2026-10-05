@@ -19,6 +19,7 @@ import type { PrismaClient, RoadmapGeneration, RoadmapItem } from "@onyx/db";
 import type { Logger } from "pino";
 import type { z } from "zod";
 import type { AppConfig } from "../config";
+import { untilAborted } from "../domain/abortable";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
 import {
   buildRoadmapPrompt,
@@ -31,6 +32,7 @@ import {
 } from "../domain/roadmap";
 import { AppError, conflict, notFound } from "../errors";
 import { ErrorCode } from "@onyx/contracts";
+import { msg, tx } from "../i18n";
 import {
   buildMcpConfig,
   emptyMcpConfig,
@@ -39,6 +41,8 @@ import {
 } from "../infrastructure/mcp-config";
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
+import { EXPLORER_AGENTS, EXPLORER_HINT, EXPLORER_TOOLS } from "../domain/exploration";
+import type { OptionsService } from "./options-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
 import { toStringArray } from "./mappers";
@@ -46,10 +50,12 @@ import { priceUsage, type RouterService } from "./router-service";
 import type { SlotReservation } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
 import type { TaskService } from "./task-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type GenerateInput = z.output<typeof GenerateRoadmapRequestSchema>;
 
 export interface RoadmapServiceDeps {
+  options?: Pick<OptionsService, "get">;
   prisma: PrismaClient;
   logger: Logger;
   pool: AgentPool;
@@ -59,7 +65,10 @@ export interface RoadmapServiceDeps {
   tasks: TaskService;
   runTokens: RunTokenRegistry;
   credentials: Pick<CredentialService, "childEnv">;
-  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl">;
+  config: Pick<
+    AppConfig,
+    "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl" | "agentProtectedPaths"
+  >;
   reserve: (workspaceId: string | null) => SlotReservation;
   sourceEnv?: NodeJS.ProcessEnv;
   timeouts?: { wallClockMs: number; idleMs: number; initMs: number };
@@ -69,6 +78,7 @@ interface ActiveGeneration {
   runId: string;
   activity: RoadmapActivity;
   done: Promise<void>;
+  controller: AbortController;
 }
 
 const execFileAsync = promisify(execFile);
@@ -91,6 +101,19 @@ const MANIFEST_NAMES = [
 ];
 const TEXT_EXTENSIONS =
   /\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|kt|cs|swift|vue|svelte|css|scss|md|ya?ml|toml|sql|sh)$/i;
+
+const FIXED_TEXTS: ReadonlySet<string> = new Set([
+  msg("Interrupted"),
+  msg("The roadmap was interrupted"),
+  msg("Claude did not return a roadmap in the expected JSON format"),
+  msg("Reading the project index"),
+  msg("Collecting README, manifests, TODOs and history"),
+  msg("Claude is studying the project"),
+]);
+
+function localized<T extends string | null>(text: T): T {
+  return (text !== null && FIXED_TEXTS.has(text) ? tx(text) : text) as T;
+}
 
 function toItemDto(item: RoadmapItem): RoadmapItemDto {
   return {
@@ -169,7 +192,11 @@ export class RoadmapService {
         data: { status: "FAILED", error: "Interrupted", endedAt: new Date() },
       });
     }
-    const modelId = input.modelId ?? (await this.deps.router.referenceProfile())?.id;
+    const cheap = (await this.deps.options?.get())?.cheapExploration === true;
+    const modelId =
+      input.modelId ??
+      (cheap ? (await this.deps.router.profileForTier("BUILDER"))?.id : undefined) ??
+      (await this.deps.router.referenceProfile())?.id;
     if (!modelId) throw new AppError(400, ErrorCode.BadRequest, "No enabled model for the roadmap");
     const reservation = this.deps.reserve(null);
     if (!reservation.ok) {
@@ -191,6 +218,7 @@ export class RoadmapService {
       runId: `roadmap-${generation.id}`,
       activity: { turns: 0, toolCalls: 0, lastAction: "Reading the project index" },
       done: Promise.resolve(),
+      controller: new AbortController(),
     };
     this.active.set(generation.id, entry);
     entry.done = this.run(generation, entry)
@@ -239,6 +267,7 @@ export class RoadmapService {
       kind: item.kind,
       priority: PRIORITY_WEIGHT[item.priority],
       targetPaths,
+      canWait: false,
     };
     const task = await this.deps.tasks.create({
       ...base,
@@ -271,6 +300,7 @@ export class RoadmapService {
   async shutdown(): Promise<void> {
     await Promise.allSettled(
       [...this.active.values()].map(async (entry) => {
+        entry.controller.abort();
         await this.deps.pool.abort(entry.runId);
         await entry.done;
       }),
@@ -289,8 +319,14 @@ export class RoadmapService {
         data: { status: "FAILED", error: message.slice(0, 1_000), endedAt: new Date() },
       });
     };
+    const signal = entry.controller.signal;
+    const interrupted = "The roadmap was interrupted";
     try {
-      const context = await this.deps.indexes.waitForIndex(project.id, config.context.indexWaitMs);
+      const context = await untilAborted(
+        this.deps.indexes.waitForIndex(project.id, config.context.indexWaitMs),
+        signal,
+      );
+      if (signal.aborted) return await fail(interrupted);
       const scope = await this.deps.surgeon.runScope(project.id, null);
       entry.activity.lastAction = "Collecting README, manifests, TODOs and history";
       const [readme, manifests, todos, gitLog, existing] = await Promise.all([
@@ -329,11 +365,14 @@ export class RoadmapService {
         config.context.enabled &&
         config.context.mcpServerPath !== null &&
         isReadableFile(config.context.mcpServerPath);
+      const cheap = (await this.deps.options?.get())?.cheapExploration === true;
       const files = await writeRuntimeFiles({
         runtimeDir: config.runtimeDir,
         runId: entry.runId,
+        agents: cheap ? EXPLORER_AGENTS : null,
         settings: buildRunSettings({
           deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny],
+          protectedPaths: config.agentProtectedPaths,
           hooks: guardHooks(config.internalApiUrl),
         }),
         primer: null,
@@ -351,15 +390,22 @@ export class RoadmapService {
       entry.activity.lastAction = "Claude is studying the project";
       let exit: ProcessExit;
       try {
+        const env = {
+          ...this.passthroughEnv(),
+          ...(await this.deps.credentials.childEnv()),
+          [RUN_TOKEN_ENV]: token,
+        };
+        if (signal.aborted) return await fail(interrupted);
         exit = await pool.run(
           {
             runId: entry.runId,
             cwd: project.rootPath,
-            prompt,
+            prompt: cheap ? `${prompt}\n\n${EXPLORER_HINT}` : prompt,
             model: generation.modelId,
             fallbackModels: [],
             permissionMode: "plan",
             maxTurns: MAX_TURNS,
+            agentsFile: files.agentsFile,
             session: { mode: "ephemeral" },
             allowedTools: [
               "Read",
@@ -367,17 +413,14 @@ export class RoadmapService {
               "Glob",
               "LS",
               ...(mcpEnabled ? [ONYX_MCP_ALLOW_RULE] : []),
+              ...(cheap ? EXPLORER_TOOLS : []),
             ],
             disallowedTools: ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"],
             settingsFile: files.settingsFile,
             mcpConfigFile: files.mcpConfigFile,
             appendSystemPromptFile: null,
             includePartialMessages: false,
-            env: {
-              ...this.passthroughEnv(),
-              ...(await this.deps.credentials.childEnv()),
-              [RUN_TOKEN_ENV]: token,
-            },
+            env,
             timeouts: this.deps.timeouts ?? DEFAULT_TIMEOUTS,
           },
           {
@@ -410,7 +453,7 @@ export class RoadmapService {
       if (exit.reason !== "completed" || !finalResult) {
         await fail(
           exit.reason === "aborted" || exit.reason === "shutdown"
-            ? "The roadmap was interrupted"
+            ? interrupted
             : `Claude Code stopped before answering (${exit.reason})`,
         );
         return;
@@ -532,8 +575,9 @@ export class RoadmapService {
 
   private async gitLog(root: string): Promise<string[]> {
     try {
-      const { stdout } = await execFileAsync("git", ["log", "--oneline", "-n", "15"], {
+      const { stdout } = await execFileAsync("git", safeGitArgs(["log", "--oneline", "-n", "15"]), {
         cwd: root,
+        env: gitEnvironment(),
         timeout: 10_000,
       });
       return stdout.split("\n").filter((line) => line.trim().length > 0);
@@ -571,6 +615,7 @@ export class RoadmapService {
   }
 
   private toGenerationDto(generation: RoadmapGeneration): RoadmapGenerationDto {
+    const activity = this.active.get(generation.id)?.activity ?? null;
     return {
       id: generation.id,
       projectId: generation.projectId,
@@ -579,13 +624,13 @@ export class RoadmapService {
       language: RoadmapLanguageSchema.catch("en").parse(generation.language),
       focus: generation.focus,
       summary: generation.summary,
-      error: generation.error,
+      error: localized(generation.error),
       itemCount: generation.itemCount,
       numTurns: generation.numTurns,
       costUsd: generation.costUsd,
       startedAt: generation.startedAt.toISOString(),
       endedAt: generation.endedAt?.toISOString() ?? null,
-      activity: this.active.get(generation.id)?.activity ?? null,
+      activity: activity ? { ...activity, lastAction: localized(activity.lastAction) } : null,
     };
   }
 }

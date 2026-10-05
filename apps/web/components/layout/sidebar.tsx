@@ -1,137 +1,33 @@
 "use client";
 
-import type { ApprovalListResponse, ServerMessage, UserDto } from "@onyx/contracts";
-import { channels } from "@onyx/contracts/client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  FolderGit2,
-  Inbox,
-  LayoutDashboard,
-  LogOut,
-  PiggyBank,
-  Route,
-  Search,
-  Settings,
-} from "lucide-react";
+import type { UserDto } from "@onyx/contracts";
+import { LogOut, Search } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { Wordmark } from "@/components/layout/brand";
-import { api } from "@/lib/api/client";
-import { queryKeys } from "@/lib/api/keys";
+import { MobileNav } from "@/components/layout/mobile-nav";
+import {
+  ConnectionIndicator,
+  PendingBadge,
+  QuotaIndicator,
+  useLogout,
+  usePendingApprovals,
+} from "@/components/layout/nav-parts";
+import { useT } from "@/lib/i18n/client";
+import { APPROVALS_HREF, isActive, navSections } from "@/lib/nav";
 import { openCommandPalette } from "@/lib/palette";
 import { cn } from "@/lib/utils";
-import { useChannel, useConnectionState } from "@/lib/ws/context";
-
-const NAV = [
-  { href: "/", label: "Console", icon: LayoutDashboard },
-  { href: "/projects", label: "Projects", icon: FolderGit2 },
-  { href: "/approvals", label: "Approvals", icon: Inbox },
-  { href: "/router", label: "Router", icon: Route },
-  { href: "/telemetry", label: "Telemetry", icon: Activity },
-  { href: "/savings", label: "Savings", icon: PiggyBank },
-  { href: "/settings", label: "Settings", icon: Settings },
-] as const;
-
-function isActive(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
-}
-
-const CONNECTION_STYLES = {
-  open: { dot: "bg-success", label: "Live" },
-  connecting: { dot: "bg-warning animate-pulse", label: "Connecting" },
-  closed: { dot: "bg-destructive", label: "Offline" },
-} as const;
-
-function usePendingApprovals(): number {
-  const queryClient = useQueryClient();
-  const { data = 0 } = useQuery({
-    queryKey: queryKeys.approvalsPending,
-    queryFn: () =>
-      api
-        .get<ApprovalListResponse>("/api/approvals?status=PENDING&limit=1")
-        .then((page) => page.pending),
-  });
-  const onMessage = useCallback(
-    (message: ServerMessage) => {
-      if (message.type === "approvals.changed")
-        queryClient.setQueryData(queryKeys.approvalsPending, message.data.pending);
-    },
-    [queryClient],
-  );
-  useChannel(channels.system, onMessage);
-  return data;
-}
-
-function PendingDot({ count, compact }: { count: number; compact: boolean }) {
-  if (count === 0) return null;
-  return (
-    <motion.span
-      key={count}
-      initial={{ scale: 0.6, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      data-testid="approvals-badge"
-      className={cn(
-        "grid place-items-center rounded-full bg-warning font-semibold text-background",
-        compact
-          ? "absolute -right-0.5 -top-0.5 size-4 text-[9px]"
-          : "relative ml-auto h-5 min-w-5 px-1.5 text-[10px]",
-      )}
-    >
-      {count > 99 ? "99+" : count}
-    </motion.span>
-  );
-}
 
 export function Sidebar({ user }: { user: UserDto }) {
+  const t = useT();
   const pathname = usePathname();
-  const router = useRouter();
-  const connection = CONNECTION_STYLES[useConnectionState()];
   const pending = usePendingApprovals();
-
-  async function logout() {
-    await api.post("/api/auth/logout");
-    router.replace("/login");
-    router.refresh();
-  }
+  const logout = useLogout();
 
   return (
     <>
-      <header className="glass sticky top-0 z-30 flex items-center gap-2 border-b border-border px-4 py-2.5 md:hidden">
-        <Wordmark condensed />
-        <nav className="ml-auto flex items-center">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-label={item.label}
-              className={cn(
-                "relative rounded-md p-1.5 transition-colors min-[400px]:p-2",
-                isActive(pathname, item.href)
-                  ? "bg-surface-2 text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <item.icon className="size-4" />
-              {item.href === "/approvals" ? <PendingDot count={pending} compact /> : null}
-            </Link>
-          ))}
-        </nav>
-        <span
-          className={cn("size-2 shrink-0 rounded-full", connection.dot)}
-          title={connection.label}
-        />
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
-          aria-label="Sign out"
-        >
-          <LogOut className="size-4" />
-        </button>
-      </header>
+      <MobileNav user={user} pending={pending} />
       <aside className="glass sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border px-3 py-5 md:flex">
         <div className="px-2">
           <Wordmark />
@@ -143,52 +39,72 @@ export function Sidebar({ user }: { user: UserDto }) {
           data-testid="open-palette"
         >
           <Search className="size-4" />
-          Search
+          {t("Search")}
           <kbd className="ml-auto rounded border border-border-strong bg-surface-2 px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground">
-            Ctrl K
+            {"Ctrl K"}
           </kbd>
         </button>
-        <nav className="mt-4 flex flex-col gap-1">
-          {NAV.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
+        <nav
+          aria-label={t("Main navigation")}
+          className="-mx-1 mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-4"
+        >
+          {navSections().map(({ section, items }) => (
+            <div key={section.id}>
+              <p
+                id={`nav-section-${section.id}`}
+                className="px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
               >
-                {active ? (
-                  <motion.span
-                    layoutId="nav-active"
-                    className="absolute inset-0 rounded-md border border-border-strong bg-surface-2"
-                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                  />
-                ) : null}
-                <item.icon className="relative size-4" />
-                <span className="relative">{item.label}</span>
-                {item.href === "/approvals" ? <PendingDot count={pending} compact={false} /> : null}
-              </Link>
-            );
-          })}
+                {t(section.label)}
+              </p>
+              <ul aria-labelledby={`nav-section-${section.id}`} className="flex flex-col gap-0.5">
+                {items.map((item) => {
+                  const active = isActive(pathname, item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        title={t(item.description)}
+                        aria-current={active ? "page" : undefined}
+                        className={cn(
+                          "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                          active
+                            ? "text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {active ? (
+                          <motion.span
+                            layoutId="nav-active"
+                            className="absolute inset-0 rounded-md border border-border-strong bg-surface-2"
+                            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                          />
+                        ) : null}
+                        <item.icon className="relative size-4" aria-hidden="true" />
+                        <span className="relative">{t(item.label)}</span>
+                        {item.href === APPROVALS_HREF ? (
+                          <PendingBadge count={pending} compact={false} />
+                        ) : null}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
-        <div className="mt-auto space-y-3 px-2">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className={cn("size-2 rounded-full", connection.dot)} />
-            {connection.label}
-          </div>
+        <div className="space-y-3 px-2">
+          <QuotaIndicator compact={false} />
+          <ConnectionIndicator />
           <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-3 py-2">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{user.username}</p>
-              <p className="text-[11px] text-muted-foreground">Operator</p>
+              <p className="text-[11px] text-muted-foreground">{t("Operator")}</p>
             </div>
             <button
               type="button"
               onClick={() => void logout()}
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
-              aria-label="Sign out"
+              aria-label={t("Sign out")}
             >
               <LogOut className="size-4" />
             </button>

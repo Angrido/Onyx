@@ -1,0 +1,50 @@
+import { IT } from "./it";
+
+import { DEFAULT_LOCALE, type Locale } from "./locale";
+
+export {
+  DEFAULT_LOCALE,
+  LOCALE_COOKIE,
+  LOCALE_COOKIE_MAX_AGE,
+  LOCALES,
+  type Locale,
+} from "./locale";
+export const LOCALE_NAMES: Record<Locale, string> = { it: "Italiano", en: "English" };
+
+export type Params = Record<string, string | number>;
+export type Translate = (text: string, params?: Params) => string;
+
+export function msg(text: string): string {
+  return text;
+}
+
+export function parseLocale(value: string | null | undefined): Locale {
+  return value === "en" || value === "it" ? value : DEFAULT_LOCALE;
+}
+
+export function interpolate(text: string, params?: Params): string {
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) =>
+    params[name] === undefined ? whole : String(params[name]),
+  );
+}
+
+export function translator(locale: Locale): Translate {
+  return (text, params) => interpolate(locale === "it" ? (IT[text] ?? text) : text, params);
+}
+
+export const english: Translate = translator("en");
+
+let activeLocale: Locale = DEFAULT_LOCALE;
+
+export function setActiveLocale(locale: Locale): void {
+  activeLocale = locale;
+}
+
+export function currentLocale(): Locale {
+  return activeLocale;
+}
+
+export function activeTranslator(): Translate {
+  return translator(activeLocale);
+}

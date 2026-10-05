@@ -21,6 +21,8 @@ import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/form-controls";
 import { DOMAIN_LABELS } from "@/lib/domains";
 import { formatTokens } from "@/lib/format";
+import { msg } from "@/lib/i18n/core";
+import { useT } from "@/lib/i18n/client";
 import {
   buildTree,
   directoryState,
@@ -35,6 +37,7 @@ import {
   type DirectoryStats,
   type DomainFilter,
   type Evaluation,
+  type PolicyRule,
   type SelectionState,
   type StateFilter,
   type TreeFilter,
@@ -46,6 +49,13 @@ import { cn } from "@/lib/utils";
 const ROW_HEIGHT = 30;
 const AUTO_EXPAND_LIMIT = 2_000;
 const INDENT = 16;
+
+const RULE_SOURCE_LABELS: Record<PolicyRule["source"], string> = {
+  PRESET: msg("preset rule"),
+  HEURISTIC: msg("heuristic rule"),
+  MANUAL: msg("manual rule"),
+  SECURITY: msg("security rule"),
+};
 
 function TriCheckbox({
   state,
@@ -94,13 +104,14 @@ function selectionOf(
 }
 
 function ChangeMark({ excluded }: { excluded: boolean }) {
+  const t = useT();
   return (
     <span
       className={cn(
         "shrink-0 rounded px-1 font-mono text-[10px] font-semibold",
         excluded ? "bg-warning/15 text-warning" : "bg-success/15 text-success",
       )}
-      title={excluded ? "Excluded by this draft" : "Back in context with this draft"}
+      title={excluded ? t("Excluded by this draft") : t("Back in context with this draft")}
     >
       {excluded ? "−" : "+"}
     </span>
@@ -132,6 +143,7 @@ function TreeRowView({
   onExpand: () => void;
   onToggle: () => void;
 }) {
+  const t = useT();
   const file = node.file;
   const excluded = selection === "excluded" || selection === "locked";
   const rule = file ? (draft.excluded.get(file.path) ?? null) : null;
@@ -165,7 +177,11 @@ function TreeRowView({
         )}
         <TriCheckbox
           state={selection}
-          label={`${selection === "included" ? "Exclude" : "Include"} ${node.path}`}
+          label={
+            selection === "included"
+              ? t("Exclude {path}", { path: node.path })
+              : t("Include {path}", { path: node.path })
+          }
           onToggle={onToggle}
         />
         {node.directory ? (
@@ -193,14 +209,14 @@ function TreeRowView({
         {rule ? (
           <span
             className="hidden shrink-0 truncate rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline"
-            title={`${rule.source.toLowerCase()} rule${rule.reason ? ` · ${rule.reason}` : ""}`}
+            title={`${t(RULE_SOURCE_LABELS[rule.source])}${rule.reason ? ` · ${rule.reason}` : ""}`}
           >
             {ruleLabel(rule)}
           </span>
         ) : null}
         {file?.binary ? (
           <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-            binary
+            {t("binary")}
           </span>
         ) : null}
         {changed ? (
@@ -242,6 +258,7 @@ export function FileTree({
   stats: ReadonlyMap<string, DirectoryStats>;
   onToggle: (node: TreeNode, selection: SelectionState) => void;
 }) {
+  const t = useT();
   const [filter, setFilter] = useState<TreeFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<TreeSort>("tokens");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -295,43 +312,43 @@ export function FileTree({
           <Input
             value={filter.search}
             onChange={(event) => setFilter({ ...filter, search: event.target.value })}
-            placeholder="Filter by path"
-            aria-label="Filter by path"
+            placeholder={t("Filter by path")}
+            aria-label={t("Filter by path")}
             className="h-8 pl-8 text-xs"
           />
         </div>
         <Select
           value={filter.state}
           onChange={(event) => setFilter({ ...filter, state: event.target.value as StateFilter })}
-          aria-label="Filter by state"
+          aria-label={t("Filter by state")}
           className="h-8 w-auto text-xs"
         >
-          <option value="all">All files</option>
-          <option value="included">In context</option>
-          <option value="excluded">Excluded</option>
-          <option value="changed">Changed</option>
+          <option value="all">{t("All files")}</option>
+          <option value="included">{t("In context")}</option>
+          <option value="excluded">{t("Excluded")}</option>
+          <option value="changed">{t("Changed")}</option>
         </Select>
         <Select
           value={filter.domain}
           onChange={(event) => setFilter({ ...filter, domain: event.target.value as DomainFilter })}
-          aria-label="Filter by domain"
+          aria-label={t("Filter by domain")}
           className="h-8 w-auto text-xs"
         >
-          <option value="all">All domains</option>
+          <option value="all">{t("All domains")}</option>
           {Object.entries(DOMAIN_LABELS).map(([domain, label]) => (
             <option key={domain} value={domain}>
-              {label}
+              {t(label)}
             </option>
           ))}
-          <option value="SHARED">Shared</option>
+          <option value="SHARED">{t("Shared")}</option>
         </Select>
         <Select
           value={filter.extension}
           onChange={(event) => setFilter({ ...filter, extension: event.target.value })}
-          aria-label="Filter by extension"
+          aria-label={t("Filter by extension")}
           className="h-8 w-auto text-xs"
         >
-          <option value="all">All types</option>
+          <option value="all">{t("All types")}</option>
           {extensions.map((extension) => (
             <option key={extension} value={extension}>
               .{extension}
@@ -342,32 +359,34 @@ export function FileTree({
           variant="ghost"
           size="sm"
           onClick={() => setSort(sort === "tokens" ? "name" : "tokens")}
-          title={sort === "tokens" ? "Sorted by tokens" : "Sorted by name"}
+          title={sort === "tokens" ? t("Sorted by tokens") : t("Sorted by name")}
         >
           {sort === "tokens" ? <ArrowDownWideNarrow /> : <ArrowDownAZ />}
-          {sort === "tokens" ? "Tokens" : "Name"}
+          {sort === "tokens" ? t("Tokens") : t("Name")}
         </Button>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => (expanded.size > 0 ? setExpanded(new Set()) : expandTopLevel())}
         >
-          {expanded.size > 0 ? "Collapse" : "Expand"}
+          {expanded.size > 0 ? t("Collapse") : t("Expand")}
         </Button>
       </div>
       <div className="flex items-center justify-between gap-2 px-4 py-2 text-[11px] text-muted-foreground">
         <span>
-          {filtering ? `${visible.length} of ${files.length} files` : `${files.length} files`}
+          {filtering
+            ? t("{count} of {total} files", { count: visible.length, total: files.length })
+            : t("{count} files", { count: files.length })}
         </span>
         <span className="flex items-center gap-2">
-          <span>fewer tokens</span>
+          <span>{t("fewer tokens")}</span>
           <span
             className="h-1.5 w-16 rounded-full"
             style={{
               background: `linear-gradient(90deg, ${heatColor(0)}, ${heatColor(0.5)}, ${heatColor(1)})`,
             }}
           />
-          <span>more</span>
+          <span>{t("more")}</span>
         </span>
       </div>
       <div
@@ -377,7 +396,7 @@ export function FileTree({
       >
         {rows.length === 0 ? (
           <p className="px-4 py-10 text-center text-xs text-muted-foreground">
-            No files match the filters.
+            {t("No files match the filters.")}
           </p>
         ) : (
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>

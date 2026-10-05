@@ -1,26 +1,46 @@
 import type {
   CreateTaskRequestSchema,
   ListTasksQuerySchema,
+  PullRequestDto,
   RunTaskRequestSchema,
   RunTaskResponse,
   TaskDetailDto,
   TaskDto,
   TaskKind,
   TaskStatus,
+  UpdateTaskRequestSchema,
 } from "@onyx/contracts";
-import type { PrismaClient } from "@onyx/db";
+import { Prisma, type PrismaClient } from "@onyx/db";
 import type { z } from "zod";
-import { isActive, isRunnable } from "../domain/task-state";
+import { RUNNABLE_STATUSES, isActive, isRunnable } from "../domain/task-state";
+import { isSmallTask } from "../domain/batch";
+import { pendingRunOf } from "../domain/pending-run";
 import { badRequest, conflict, notFound } from "../errors";
 import type { WsHub } from "../infrastructure/ws-hub";
-import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toTaskDto } from "./mappers";
+import { RUN_INCLUDE, taskIncludeLastRun, toRunDto, toStringArray, toTaskDto } from "./mappers";
 import { runLockKey, type RunScheduler } from "./run-scheduler";
 
 type CreateTaskInput = z.output<typeof CreateTaskRequestSchema>;
 type ListTasksInput = z.output<typeof ListTasksQuerySchema>;
 type RunTaskInput = z.output<typeof RunTaskRequestSchema>;
+type UpdateTaskInput = z.output<typeof UpdateTaskRequestSchema>;
+
+export interface TaskIssueOrigin {
+  repo: string;
+  number: number;
+  url: string;
+  labels: readonly string[];
+}
+
+export type PullRequestLookup = (task: {
+  id: string;
+  projectId: string;
+  branchName: string | null;
+}) => Promise<PullRequestDto | null>;
 
 export class TaskService {
+  pullRequestOf: PullRequestLookup | null = null;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly scheduler: RunScheduler,
@@ -55,10 +75,11 @@ export class TaskService {
       include: { runs: { orderBy: { startedAt: "desc" }, include: RUN_INCLUDE } },
     });
     if (!task) throw notFound("Task");
-    return { ...toTaskDto(task), runs: task.runs.map(toRunDto) };
+    const pullRequest = this.pullRequestOf ? await this.pullRequestOf(task) : null;
+    return { ...toTaskDto(task), runs: task.runs.map(toRunDto), pullRequest };
   }
 
-  async create(input: CreateTaskInput): Promise<TaskDto> {
+  async create(input: CreateTaskInput, issue?: TaskIssueOrigin): Promise<TaskDto> {
     const workspaceId =
       input.workspaceId ??
       (await this.inferWorkspace(
@@ -85,9 +106,35 @@ export class TaskService {
         priority: input.priority,
         modelOverride: input.modelOverride ?? null,
         targetPaths: [...new Set(input.targetPaths)],
+        canWait: input.canWait,
+        ...(issue
+          ? {
+              issueRepo: issue.repo,
+              issueNumber: issue.number,
+              issueUrl: issue.url,
+              issueLabels: [...issue.labels],
+            }
+          : {}),
       },
       include: taskIncludeLastRun(),
     });
+    return toTaskDto(task);
+  }
+
+  async update(id: string, input: UpdateTaskInput): Promise<TaskDto> {
+    const existing = await this.prisma.task.findUnique({ where: { id } });
+    if (!existing) throw notFound("Task");
+    const task = await this.prisma.task.update({
+      where: { id },
+      data: {
+        ...(input.canWait !== undefined ? { canWait: input.canWait } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      },
+      include: taskIncludeLastRun(),
+    });
+    if (input.canWait !== undefined) this.scheduler.setCanWait(id, input.canWait);
+    if (input.priority !== undefined && this.scheduler.isQueued(id))
+      this.scheduler.setPriority(id, input.priority);
     return toTaskDto(task);
   }
 
@@ -104,27 +151,64 @@ export class TaskService {
       if (!config) throw badRequest("Agent configuration not found");
     }
 
-    const updated = await this.prisma.task.update({
+    if (this.scheduler.isQueued(id) || this.scheduler.activeRunOf(id) !== null)
+      throw conflict("Task is already queued or running");
+    const request = {
+      taskId: id,
+      modelId: input.modelId ?? null,
+      agentConfigId: input.agentConfigId ?? null,
+      prompt: input.prompt ?? null,
+      newSession: input.newSession,
+    };
+    const claimed = await this.prisma.task.updateMany({
+      where: { id, status: { in: [...RUNNABLE_STATUSES] } },
+      data: {
+        status: "QUEUED",
+        pendingRun: pendingRunOf(request),
+        ...(input.modelId ? { modelOverride: input.modelId } : {}),
+      },
+    });
+    if (claimed.count !== 1) throw conflict("Task is already queued or running");
+    const updated = await this.prisma.task.findUniqueOrThrow({
       where: { id },
-      data: { status: "QUEUED", ...(input.modelId ? { modelOverride: input.modelId } : {}) },
       include: taskIncludeLastRun(),
     });
     this.publish(updated.id, updated.projectId, "QUEUED");
     const queuePosition = this.scheduler.enqueue({
-      request: {
-        taskId: id,
-        modelId: input.modelId ?? null,
-        agentConfigId: input.agentConfigId ?? null,
-        prompt: input.prompt ?? null,
-        newSession: input.newSession,
-      },
+      request,
       workspaceId: task.workspaceId,
       projectId: task.projectId,
       lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
       priority: task.priority,
+      canWait: task.canWait,
+      small:
+        !input.prompt &&
+        !input.modelId &&
+        !input.agentConfigId &&
+        !input.newSession &&
+        isSmallTask({ ...task, targetPaths: toStringArray(task.targetPaths) }),
       enqueuedAt: Date.now(),
     });
     return { task: toTaskDto(updated), queuePosition };
+  }
+
+  async requeue(id: string): Promise<void> {
+    const task = await this.prisma.task.update({
+      where: { id },
+      data: { status: "QUEUED", batchRunId: null, pendingRun: Prisma.DbNull },
+    });
+    if (!task.workspaceId) return;
+    this.publish(task.id, task.projectId, "QUEUED");
+    this.scheduler.enqueue({
+      request: { taskId: id, modelId: null, agentConfigId: null, prompt: null, newSession: false },
+      workspaceId: task.workspaceId,
+      projectId: task.projectId,
+      lockKey: runLockKey({ ...task, workspaceId: task.workspaceId }),
+      priority: task.priority,
+      canWait: task.canWait,
+      small: false,
+      enqueuedAt: Date.now(),
+    });
   }
 
   async cancel(id: string, actor = "user:unknown"): Promise<TaskDto> {

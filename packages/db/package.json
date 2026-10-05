@@ -11,6 +11,8 @@
     "generate": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "migrate:diff": "prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script",
+    "migrate:check": "prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script --exit-code",
+    "migrate:new": "tsx prisma/new-migration.ts",
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"

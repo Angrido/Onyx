@@ -10,8 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, Input } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
+import { useT } from "@/lib/i18n/client";
 
 export function GitIdentityCard({ initial }: { initial: GitIdentityDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const identity = useQuery({
     queryKey: queryKeys.gitIdentity,
@@ -28,21 +30,22 @@ export function GitIdentityCard({ initial }: { initial: GitIdentityDto }) {
       }),
     onSuccess: (next) => {
       queryClient.setQueryData(queryKeys.gitIdentity, next);
-      toast.success("Commit author saved");
+      toast.success(t("Commit author saved"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   return (
-    <Card>
+    <Card id="git-identity">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <GitCommitHorizontal className="size-4 text-primary" />
-          Commit author
+          {t("Commit author")}
         </CardTitle>
         <CardDescription>
-          Commits Onyx creates before pushing a branch use this name and email. Left empty, they use
-          your GitHub account and its noreply address.
+          {t(
+            "Commits Onyx creates before pushing a branch use this name and email. Left empty, they use your GitHub account and its noreply address.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -54,7 +57,7 @@ export function GitIdentityCard({ initial }: { initial: GitIdentityDto }) {
           }}
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Name" htmlFor="git-name">
+            <Field label={t("Name")} htmlFor="git-name">
               <Input
                 id="git-name"
                 placeholder={identity.data.effectiveName}
@@ -62,7 +65,7 @@ export function GitIdentityCard({ initial }: { initial: GitIdentityDto }) {
                 onChange={(event) => setName(event.target.value)}
               />
             </Field>
-            <Field label="Email" htmlFor="git-email">
+            <Field label={t("Email")} htmlFor="git-email">
               <Input
                 id="git-email"
                 type="email"
@@ -75,10 +78,13 @@ export function GitIdentityCard({ initial }: { initial: GitIdentityDto }) {
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" size="sm" variant="secondary" disabled={save.isPending}>
               {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-              Save
+              {t("Save")}
             </Button>
             <span className="text-xs text-muted-foreground">
-              Current: {identity.data.effectiveName} &lt;{identity.data.effectiveEmail}&gt;
+              {t("Current: {name} <{email}>", {
+                name: identity.data.effectiveName,
+                email: identity.data.effectiveEmail,
+              })}
             </span>
           </div>
         </form>

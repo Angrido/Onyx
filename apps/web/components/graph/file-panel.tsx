@@ -11,12 +11,14 @@ import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS, domainColor } from "@/lib/domains";
 import { formatTokens } from "@/lib/format";
+import { msg } from "@/lib/i18n/core";
+import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 const LEVELS = [
-  { level: 1, label: "Signatures" },
-  { level: 2, label: "Contracts" },
-  { level: 3, label: "Source" },
+  { level: 1, label: msg("Signatures") },
+  { level: 2, label: msg("Contracts") },
+  { level: 3, label: msg("Source") },
 ] as const;
 
 function PathList({
@@ -64,6 +66,7 @@ export function FilePanel({
   onFocus: (path: string) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [level, setLevel] = useState<1 | 2 | 3>(1);
   const { data, isPending, error } = useQuery({
     queryKey: queryKeys.fileContext(projectId, path, level),
@@ -85,15 +88,17 @@ export function FilePanel({
                   className="size-2 rounded-full"
                   style={{ backgroundColor: domainColor(data.domain) }}
                 />
-                {data.domain ? DOMAIN_LABELS[data.domain] : "Shared"}
+                {data.domain ? t(DOMAIN_LABELS[data.domain]) : t("Shared")}
               </span>
-              <span>{formatTokens(data.rawTokens)} tokens</span>
+              <span>{t("{count} tokens", { count: formatTokens(data.rawTokens) })}</span>
               {data.l1Tokens !== null ? <span>L1 {formatTokens(data.l1Tokens)}</span> : null}
-              {data.blastRadius !== null ? <span>blast radius {data.blastRadius}</span> : null}
+              {data.blastRadius !== null ? (
+                <span>{t("blast radius {count}", { count: data.blastRadius })}</span>
+              ) : null}
               {data.sensitive ? (
                 <span className="flex items-center gap-1 text-warning">
                   <Lock className="size-3" />
-                  withheld
+                  {t("withheld")}
                 </span>
               ) : null}
             </p>
@@ -103,11 +108,11 @@ export function FilePanel({
           variant="ghost"
           size="icon"
           onClick={() => onFocus(path)}
-          title="Focus the graph here"
+          title={t("Focus the graph here")}
         >
           <Crosshair />
         </Button>
-        <Button variant="ghost" size="icon" onClick={onClose} title="Close">
+        <Button variant="ghost" size="icon" onClick={onClose} title={t("Close")}>
           <X />
         </Button>
       </div>
@@ -125,7 +130,7 @@ export function FilePanel({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {option.label}
+            {t(option.label)}
           </button>
         ))}
       </div>
@@ -140,19 +145,20 @@ export function FilePanel({
             {data.content}
           </pre>
           <p className="text-[11px] text-muted-foreground">
-            This view costs {formatTokens(data.tokens)} tokens
             {data.rawTokens > 0
-              ? ` (${Math.round((data.tokens / data.rawTokens) * 100)}% of the file)`
-              : ""}
-            .
+              ? t("This view costs {count} tokens ({percent}% of the file).", {
+                  count: formatTokens(data.tokens),
+                  percent: Math.round((data.tokens / data.rawTokens) * 100),
+                })
+              : t("This view costs {count} tokens.", { count: formatTokens(data.tokens) })}
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <PathList title="Imports" paths={data.dependencies} onSelect={onSelect} />
-            <PathList title="Imported by" paths={data.dependents} onSelect={onSelect} />
+            <PathList title={t("Imports")} paths={data.dependencies} onSelect={onSelect} />
+            <PathList title={t("Imported by")} paths={data.dependents} onSelect={onSelect} />
           </div>
           {data.externalImports.length > 0 ? (
             <p className="text-[11px] text-muted-foreground">
-              External: <span className="font-mono">{data.externalImports.join(", ")}</span>
+              {t("External:")} <span className="font-mono">{data.externalImports.join(", ")}</span>
             </p>
           ) : null}
         </>

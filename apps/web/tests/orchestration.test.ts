@@ -1,4 +1,9 @@
-import type { ApprovalDto, OrchestrationDto, OrchestrationNode } from "@onyx/contracts";
+import type {
+  ApprovalDto,
+  CommandRuleSuggestion,
+  OrchestrationDto,
+  OrchestrationNode,
+} from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
 import { formatBytes } from "@/lib/format";
 import { isPaletteShortcut } from "@/lib/palette";
@@ -6,6 +11,7 @@ import { defaultRules, ruleFor, ruleProgram } from "@/lib/permissions";
 import {
   budgetUsage,
   canResume,
+  isNodeBusy,
   isPlanActive,
   isPlanOpen,
   planLevels,
@@ -41,6 +47,9 @@ function node(key: string, level: number, state: OrchestrationNode["state"]): Or
     lastModelId: null,
     tddLoopId: null,
     message: null,
+    review: null,
+    reviews: 0,
+    resolution: null,
   };
 }
 
@@ -58,6 +67,9 @@ function plan(id: string, createdAt: string, status: OrchestrationDto["status"])
     workBranch: status === "FAILED" ? "onyx/plan" : null,
     parallelism: 2,
     verify: true,
+    qa: false,
+    resolveConflicts: false,
+    qaCostUsd: 0,
     plannerModelId: null,
     plannerCostUsd: null,
     costUsd: 0,
@@ -183,10 +195,35 @@ describe("allowed commands", () => {
   it("preselects only safe rules that are not allowed yet", () => {
     expect(
       defaultRules([
-        { rule: "Bash(npx *)", program: "npx", risky: false, allowed: false },
-        { rule: "Bash(rm *)", program: "rm", risky: true, allowed: false },
-        { rule: "Bash(node *)", program: "node", risky: false, allowed: true },
+        suggestion("Bash(pnpm test *)", "SAFE", false),
+        suggestion("Bash(npx *)", "REVIEW", false),
+        suggestion("Bash(rm *)", "REVIEW", false),
+        suggestion("Bash(vitest *)", "SAFE", true),
       ]),
-    ).toEqual(["Bash(npx *)"]);
+    ).toEqual(["Bash(pnpm test *)"]);
+  });
+});
+
+function suggestion(
+  rule: string,
+  safety: "SAFE" | "REVIEW",
+  allowed: boolean,
+): CommandRuleSuggestion {
+  return {
+    rule,
+    program: rule.slice(5, -3),
+    safety,
+    reason: null,
+    command: rule.slice(5, -3),
+    risky: safety !== "SAFE",
+    allowed,
+  };
+}
+
+describe("plan nodes under review", () => {
+  it("counts a review as work and a QA decision as a wait", () => {
+    expect(isNodeBusy({ state: "reviewing" })).toBe(true);
+    expect(isNodeBusy({ state: "review" })).toBe(false);
+    expect(isNodeBusy({ state: "conflict" })).toBe(false);
   });
 });

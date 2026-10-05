@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { PtySession, TextTail } from "@onyx/agent-runtime";
+import { PtySession, TextTail, type ProcessTracker } from "@onyx/agent-runtime";
 import type {
   StartTddLoopRequestSchema,
   TaskStatus,
@@ -21,6 +22,15 @@ import type { z } from "zod";
 import type { AppConfig } from "../config";
 import { raiseTier, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import { isActive } from "../domain/task-state";
+import { RATIONALE } from "../domain/routing/rationale";
+import { RUN_TEXT, RUN_TEXT_KEYS } from "../domain/run-texts";
+import {
+  baselineKey,
+  baselineLabel,
+  IGNORED_NOTE,
+  ignoredNote,
+  splitBaseline,
+} from "../domain/tdd/baseline";
 import { buildDigest, DIGEST_BUDGET_TOKENS } from "../domain/tdd/digest";
 import { commandFailure, parseLintOutput, parseTypecheckOutput } from "../domain/tdd/gates";
 import {
@@ -32,6 +42,7 @@ import {
   observe,
   recordFix,
   regressionsOf,
+  STOP_REASON,
   type LoopProgress,
   type TddStage,
 } from "../domain/tdd/loop-policy";
@@ -46,6 +57,7 @@ import {
 } from "../domain/tdd/runners";
 import { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, conflict, notFound } from "../errors";
+import { interpolate, msg, txKnownOrNull } from "../i18n";
 import {
   listProjectFiles,
   ProtectedSnapshot,
@@ -57,6 +69,7 @@ import { toStringArray } from "./mappers";
 import type { ExecutionResult } from "./run-executor";
 import { runLockKey, type RunScheduler } from "./run-scheduler";
 import type { RouterService } from "./router-service";
+import { gitEnvironment, safeGitArgs } from "../infrastructure/git-env";
 
 type StartInput = z.output<typeof StartTddLoopRequestSchema>;
 
@@ -69,10 +82,12 @@ export interface TddServiceDeps {
     "hold" | "runAndWait" | "abortTask" | "removeQueued" | "isWorkspaceBusy"
   >;
   router: Pick<RouterService, "autoEscalate">;
-  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough">;
+  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "agentSandbox">;
   estimate: (text: string) => number;
+  onGreen?: (loop: { projectId: string; fullCommand: string; runId: string | null }) => void;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
+  tracker?: ProcessTracker | null;
 }
 
 interface CommandResult {
@@ -95,6 +110,15 @@ interface Evaluation {
   timedOut: boolean;
   durationMs: number;
   noTests: boolean;
+}
+
+type CommandTarget = Pick<
+  ActiveLoop,
+  "id" | "root" | "testTimeoutSec" | "aborted" | "session" | "output"
+>;
+
+export interface TddStartOptions {
+  ignoreFailures?: readonly string[];
 }
 
 interface ActiveLoop {
@@ -127,6 +151,8 @@ interface ActiveLoop {
   violations: number;
   finished: boolean;
   done: Promise<void>;
+  baseline: ReadonlySet<string>;
+  ignoredLabels: Map<string, string>;
 }
 
 const OUTPUT_TAIL_CHARS = 256_000;
@@ -172,6 +198,34 @@ const STAGE_LABEL: Readonly<Record<TddStage, string>> = {
   typecheck: "type check",
   lint: "lint",
 };
+
+const LOOP_TEXT = {
+  stopped: msg("Stopped by the operator"),
+  noTests: msg("The test runner found no tests to run"),
+  alreadyGreen: msg("Already green: tests and gates passed before any fix{note}"),
+  greenMany: msg("Green after {count} fix attempts{note}"),
+  greenOne: msg("Green after {count} fix attempt{note}"),
+  interrupted: msg("Interrupted by an Onyx restart"),
+  restored: msg("Interrupted by an Onyx restart; restored {count} test file(s)"),
+  cannotStart: msg("The test command could not start (exit {code}): {detail}"),
+  fixEnded: msg("The fix run ended with {status}: {error}"),
+  fixNotStarted: msg("The fix run could not start: {error}"),
+} as const;
+
+export const TDD_TEXT_KEYS: readonly string[] = [
+  ...Object.values(LOOP_TEXT),
+  ...Object.values(STOP_REASON),
+  IGNORED_NOTE.one,
+  IGNORED_NOTE.many,
+  ...RUN_TEXT_KEYS,
+  IGNORED_NOTE.more,
+];
+
+function localizeLoop(loop: TddLoopDto): TddLoopDto {
+  return loop.message === null
+    ? loop
+    : { ...loop, message: txKnownOrNull(loop.message, TDD_TEXT_KEYS) };
+}
 
 function iso(date: Date | null): string | null {
   return date ? date.toISOString() : null;
@@ -257,7 +311,7 @@ export class TddService {
     });
     deps.hub.registerSnapshot("tdd:", (channel) => {
       const state = this.states.get(channel.slice("tdd:".length));
-      return state ? [tddStateMessage(state)] : [];
+      return state ? [tddStateMessage(localizeLoop(state))] : [];
     });
   }
 
@@ -295,10 +349,14 @@ export class TddService {
       orderBy: { createdAt: "desc" },
       take: 20,
     });
-    return rows.map((row) => toLoopDto(row, this.active.get(row.id)?.phase ?? null));
+    return rows.map((row) => localizeLoop(toLoopDto(row, this.active.get(row.id)?.phase ?? null)));
   }
 
   async get(loopId: string): Promise<TddLoopDto> {
+    return localizeLoop(await this.load(loopId));
+  }
+
+  private async load(loopId: string): Promise<TddLoopDto> {
     const row = await this.deps.prisma.tddLoop.findUnique({
       where: { id: loopId },
       include: LOOP_INCLUDE,
@@ -307,7 +365,12 @@ export class TddService {
     return toLoopDto(row, this.active.get(row.id)?.phase ?? null);
   }
 
-  async start(taskId: string, input: StartInput, actor: string): Promise<TddLoopDto> {
+  async start(
+    taskId: string,
+    input: StartInput,
+    actor: string,
+    options: TddStartOptions = {},
+  ): Promise<TddLoopDto> {
     const { prisma, scheduler } = this.deps;
     if (this.stopped) throw conflict("Onyx is shutting down");
     const { task, workspace } = await this.loadTask(taskId);
@@ -360,13 +423,12 @@ export class TddService {
         select: { id: true },
       });
       const loopId = created.id;
-      const directory = this.loopDirectory(loopId);
-      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const directory = await this.prepareLoopDirectory(loopId);
       const guard = new TestGuard(root);
       const snapshot = await ProtectedSnapshot.capture(root, join(directory, "snapshot"), (path) =>
         guard.isProtected(path),
       );
-      const reportPath = join(directory, "report.json");
+      const reportPath = this.reportPath(loopId);
       await prisma.tddLoop.update({
         where: { id: loopId },
         data: {
@@ -442,6 +504,8 @@ export class TddService {
         violations: 0,
         finished: false,
         done: Promise.resolve(),
+        baseline: new Set(options.ignoreFailures ?? []),
+        ignoredLabels: new Map(),
       };
       this.active.set(loopId, loop);
       loop.done = this.drive(loop);
@@ -467,7 +531,7 @@ export class TddService {
 
   async settled(loopId: string): Promise<TddLoopDto> {
     await this.active.get(loopId)?.done;
-    return this.get(loopId);
+    return this.load(loopId);
   }
 
   async abort(loopId: string, actor: string): Promise<TddLoopDto> {
@@ -522,8 +586,8 @@ export class TddService {
           endedAt: new Date(),
           message:
             restored.length > 0
-              ? `Interrupted by an Onyx restart; restored ${restored.length} test file(s)`
-              : "Interrupted by an Onyx restart",
+              ? interpolate(LOOP_TEXT.restored, { count: restored.length })
+              : LOOP_TEXT.interrupted,
         },
       });
       logger.warn(
@@ -559,12 +623,12 @@ export class TddService {
         `${ACCENT}Onyx TDD loop${RESET} · ${loop.runner.toLowerCase()} · up to ${loop.maxIterations} fix attempts · ${loop.snapshot.size} protected test files\r\n`,
       );
       for (;;) {
-        if (loop.aborted) return await this.finish(loop, "ABORTED", "Stopped by the operator");
+        if (loop.aborted) return await this.finish(loop, "ABORTED", LOOP_TEXT.stopped);
         const evaluation = await this.evaluate(loop);
-        if (loop.aborted) return await this.finish(loop, "ABORTED", "Stopped by the operator");
+        if (loop.aborted) return await this.finish(loop, "ABORTED", LOOP_TEXT.stopped);
         if (evaluation.noTests) {
           await this.recordIteration(loop, index, evaluation, null, []);
-          return await this.finish(loop, "FAILED", "The test runner found no tests to run");
+          return await this.finish(loop, "FAILED", LOOP_TEXT.noTests);
         }
         if (
           evaluation.stage === "run" &&
@@ -574,7 +638,10 @@ export class TddService {
           return await this.finish(
             loop,
             "FAILED",
-            `The test command could not start (exit ${evaluation.exitCode}): ${evaluation.failures[0]?.message.split("\n").at(-1) ?? "command not found"}`,
+            interpolate(LOOP_TEXT.cannotStart, {
+              code: evaluation.exitCode,
+              detail: evaluation.failures[0]?.message.split("\n").at(-1) ?? "command not found",
+            }),
           );
         }
         if (evaluation.green) {
@@ -583,9 +650,14 @@ export class TddService {
           return await this.finish(
             loop,
             "GREEN",
-            attempts === 0
-              ? "Already green: tests and gates passed before any fix"
-              : `Green after ${attempts} fix attempt${attempts === 1 ? "" : "s"}`,
+            interpolate(
+              attempts === 0
+                ? LOOP_TEXT.alreadyGreen
+                : attempts === 1
+                  ? LOOP_TEXT.greenOne
+                  : LOOP_TEXT.greenMany,
+              { count: attempts, note: ignoredNote([...loop.ignoredLabels.values()]) },
+            ),
           );
         }
 
@@ -673,33 +745,21 @@ export class TddService {
             loop,
             `${ACCENT}▶ Fix attempt ${progress.fixes + 1}${RESET} · the agent is working…\r\n`,
           );
-          const result = await this.deps.scheduler.runAndWait({
-            request: {
-              taskId: loop.taskId,
-              modelId: null,
-              agentConfigId: null,
-              prompt,
-              newSession: false,
-              tdd: { loopId: loop.id, guard: loop.guard, escalation },
-            },
-            workspaceId: loop.workspaceId,
-            projectId: loop.projectId,
-            lockKey: loop.lockKey,
-            priority: 100,
-            enqueuedAt: Date.now(),
-            holdId: loop.holdId,
-          });
+          const result = await this.fixRun(loop, prompt, escalation);
           progress = recordFix(progress);
           const run = await this.afterFix(loop, currentIteration, result);
           if (run) lastRunId = run.id;
           if (loop.aborted || result?.status === "ABORTED")
-            return await this.finish(loop, "ABORTED", "Stopped by the operator");
+            return await this.finish(loop, "ABORTED", LOOP_TEXT.stopped);
           if (!run) return await this.finish(loop, "FAILED", await this.startFailure(loop.taskId));
           if (run.status !== "COMPLETED" && run.resultSubtype !== "error_max_turns")
             return await this.finish(
               loop,
               "FAILED",
-              `The fix run ended with ${run.status.toLowerCase()}: ${run.errorMessage ?? "no details"}`,
+              interpolate(LOOP_TEXT.fixEnded, {
+                status: run.status.toLowerCase(),
+                error: run.errorMessage ?? RUN_TEXT.noDetails,
+              }),
             );
 
           loop.phase = "guard";
@@ -734,11 +794,52 @@ export class TddService {
     }
   }
 
+  private async fixRun(
+    loop: ActiveLoop,
+    prompt: string,
+    escalation: RoutingEscalation | null,
+  ): Promise<ExecutionResult | null> {
+    const run = (newSession: boolean) =>
+      this.deps.scheduler.runAndWait({
+        request: {
+          taskId: loop.taskId,
+          modelId: null,
+          agentConfigId: null,
+          prompt,
+          newSession,
+          tdd: { loopId: loop.id, guard: loop.guard, escalation },
+        },
+        workspaceId: loop.workspaceId,
+        projectId: loop.projectId,
+        lockKey: loop.lockKey,
+        priority: 100,
+        kind: "TDD",
+        enqueuedAt: Date.now(),
+        holdId: loop.holdId,
+      });
+    const first = await run(false);
+    if (!first?.lostSession || loop.aborted || this.stopped) return first;
+    const lost = await this.deps.prisma.agentRun.findUnique({
+      where: { id: first.runId },
+      select: { costUsd: true },
+    });
+    loop.spentUsd += lost?.costUsd ?? 0;
+    this.deps.logger.warn(
+      { loopId: loop.id, runId: first.runId },
+      "Claude Code lost the session of a TDD fix run: retrying in a new session",
+    );
+    this.write(
+      loop,
+      `${YELLOW}Claude Code no longer has this session: retrying the fix attempt in a new one${RESET}\r\n`,
+    );
+    return run(true);
+  }
+
   private async evaluate(loop: ActiveLoop): Promise<Evaluation> {
     loop.phase = "tests";
     await this.publish(loop);
     const started = Date.now();
-    const reportPath = join(this.loopDirectory(loop.id), "report.json");
+    const reportPath = this.reportPath(loop.id);
     const scopes: Array<"related" | "full"> =
       loop.relatedFiles.length > 0 ? ["related", "full"] : ["full"];
     let lastReport: Evaluation | null = null;
@@ -784,11 +885,17 @@ export class TddService {
           passedIds: report?.passedIds ?? [],
         };
       }
-      if (report.failed > 0 || result.exitCode !== 0) {
+      const tolerated =
+        scope === "full" && report.failures.length > 0
+          ? this.tolerate(loop, report.failures)
+          : null;
+      if ((report.failed > 0 || result.exitCode !== 0) && tolerated?.kept.length !== 0) {
         const failures =
-          report.failures.length > 0
-            ? report.failures
-            : [commandFailure(STAGE_LABEL[scope], result.output, result.exitCode, loop.paths)];
+          tolerated !== null
+            ? tolerated.kept
+            : report.failures.length > 0
+              ? report.failures
+              : [commandFailure(STAGE_LABEL[scope], result.output, result.exitCode, loop.paths)];
         return {
           ...base,
           stage: scope,
@@ -828,9 +935,11 @@ export class TddService {
         gate === "typecheck"
           ? parseTypecheckOutput(result.output, loop.paths)
           : parseLintOutput(result.output, loop.paths);
+      const kept = parsed.length > 0 && !result.timedOut ? this.tolerate(loop, parsed).kept : null;
+      if (kept !== null && kept.length === 0) continue;
       const failures =
-        parsed.length > 0 && !result.timedOut
-          ? parsed
+        kept !== null
+          ? kept
           : [
               commandFailure(
                 STAGE_LABEL[gate],
@@ -870,7 +979,68 @@ export class TddService {
     };
   }
 
-  private runCommand(loop: ActiveLoop, label: string, line: string): Promise<CommandResult> {
+  private tolerate(
+    loop: ActiveLoop,
+    failures: readonly TestFailure[],
+  ): { kept: TestFailure[]; ignored: TestFailure[] } {
+    const split = splitBaseline(failures, loop.baseline, loop.relatedFiles);
+    for (const failure of split.ignored)
+      loop.ignoredLabels.set(baselineKey(failure), baselineLabel(failure));
+    if (split.ignored.length > 0)
+      this.write(
+        loop,
+        `${YELLOW}↷ Ignoring ${split.ignored.length} failure(s) that already failed before this work${RESET}\r\n`,
+      );
+    return split;
+  }
+
+  async baseline(taskId: string, root: string): Promise<string[]> {
+    const { workspace } = await this.loadTask(taskId);
+    const facts = await this.projectFacts(root);
+    const runner = workspace.testRunner ?? detectRunner(facts);
+    if (!runner) return [];
+    const base = this.baseCommand(runner, workspace.testCommand, facts.binaries);
+    const id = `baseline-${randomUUID()}`;
+    const directory = await this.prepareLoopDirectory(id);
+    const target: CommandTarget = {
+      id,
+      root,
+      testTimeoutSec: 600,
+      aborted: false,
+      session: null,
+      output: new TextTail(OUTPUT_TAIL_CHARS),
+    };
+    const paths = new PathResolver([root, ...this.realRoot(root)]);
+    const keys = new Set<string>();
+    try {
+      const reportPath = this.reportPath(id);
+      await this.runCommand(
+        target,
+        "baseline test suite",
+        testCommandLine({ runner, base, scope: "full", files: [], reportPath }),
+      );
+      const raw = await readFile(reportPath, "utf8")
+        .then((text) => JSON.parse(text) as unknown)
+        .catch(() => null);
+      const report = raw === null ? null : parseJsonReport(raw, paths);
+      for (const failure of report?.failures ?? []) keys.add(baselineKey(failure));
+      if (facts.files.has("tsconfig.json")) {
+        const result = await this.runCommand(
+          target,
+          "baseline type check",
+          defaultTypecheckCommand(facts.binaries),
+        );
+        if (result.exitCode !== 0 && !result.timedOut)
+          for (const failure of parseTypecheckOutput(result.output, paths))
+            keys.add(baselineKey(failure));
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+    return [...keys];
+  }
+
+  private runCommand(loop: CommandTarget, label: string, line: string): Promise<CommandResult> {
     const started = Date.now();
     this.write(loop, `\r\n${ACCENT}▶ ${label}${RESET}  ${line}\r\n`);
     let output = "";
@@ -909,6 +1079,9 @@ export class TddService {
         {
           ...(this.deps.killGraceMs === undefined ? {} : { killGraceMs: this.deps.killGraceMs }),
           sourceEnv: { ...process.env, ...this.deps.sourceEnv },
+          sandbox: this.deps.config.agentSandbox,
+          tracker: this.deps.tracker ?? null,
+          label: `test:${loop.id}`,
         },
       );
       const timer = setTimeout(() => {
@@ -998,7 +1171,9 @@ export class TddService {
       where: { id: taskId },
       select: { resultSummary: true },
     });
-    return `The fix run could not start: ${task?.resultSummary ?? "unknown error"}`;
+    return interpolate(LOOP_TEXT.fixNotStarted, {
+      error: task?.resultSummary ?? RUN_TEXT.unknownError,
+    });
   }
 
   private async revert(
@@ -1047,7 +1222,7 @@ export class TddService {
             base: loop.base,
             scope: "related",
             files: loop.relatedFiles,
-            reportPath: join(this.loopDirectory(loop.id), "report.json"),
+            reportPath: this.reportPath(loop.id),
           }),
         },
       })
@@ -1139,12 +1314,10 @@ export class TddService {
       `\r\n${colour}${status === "GREEN" ? "✔" : "■"} ${status}: ${finalMessage}${RESET}\r\n`,
     );
     await loop.snapshot.discard().catch(() => undefined);
-    await rm(join(this.loopDirectory(loop.id), "report.json"), { force: true }).catch(
-      () => undefined,
-    );
+    await rm(this.reportPath(loop.id), { force: true }).catch(() => undefined);
     this.active.delete(loop.id);
     loop.release();
-    await prisma.$transaction([
+    const [finished] = await prisma.$transaction([
       prisma.tddLoop.update({
         where: { id: loop.id },
         data: {
@@ -1172,6 +1345,18 @@ export class TddService {
       status: taskStatus,
       runId: null,
     });
+    if (status === "GREEN" && this.deps.onGreen) {
+      const lastRun = await prisma.agentRun.findFirst({
+        where: { taskId: loop.taskId },
+        orderBy: { startedAt: "desc" },
+        select: { id: true },
+      });
+      this.deps.onGreen({
+        projectId: loop.projectId,
+        fullCommand: finished.fullCommand,
+        runId: lastRun?.id ?? null,
+      });
+    }
     await this.publish(loop);
     this.states.delete(loop.id);
     logger.info({ loopId: loop.id, status, attempts: loop.iterationCount }, "TDD loop finished");
@@ -1189,7 +1374,10 @@ export class TddService {
     if (TIER_ORDER[next] <= TIER_ORDER[decision.tier]) return null;
     return {
       tier: next,
-      reason: `the TDD loop made no progress in ${NO_PROGRESS_BEFORE_ESCALATION} attempts on ${decision.tier}`,
+      reason: interpolate(RATIONALE.tddStalled, {
+        count: NO_PROGRESS_BEFORE_ESCALATION,
+        tier: decision.tier,
+      }),
     };
   }
 
@@ -1219,17 +1407,18 @@ export class TddService {
     return sources;
   }
 
-  private write(loop: ActiveLoop, data: string): void {
+  private write(loop: Pick<ActiveLoop, "id" | "output">, data: string): void {
     loop.output.append(data);
     this.deps.hub.publishPtyOutput(terminalIdOf(loop.id), data);
     void appendFile(join(this.loopDirectory(loop.id), "loop.log"), data).catch(() => undefined);
   }
 
   private async publish(loop: ActiveLoop): Promise<TddLoopDto> {
-    const dto = await this.get(loop.id);
+    const dto = await this.load(loop.id);
     if (this.active.has(loop.id)) this.states.set(loop.id, dto);
-    this.deps.hub.publishTddState(dto);
-    return dto;
+    const shown = localizeLoop(dto);
+    this.deps.hub.publishTddState(shown);
+    return shown;
   }
 
   private remember(loopId: string, output: TextTail): void {
@@ -1260,6 +1449,18 @@ export class TddService {
 
   private loopDirectory(loopId: string): string {
     return join(this.deps.config.runtimeDir, "tdd", loopId);
+  }
+
+  private reportPath(loopId: string): string {
+    return join(this.loopDirectory(loopId), "reports", "report.json");
+  }
+
+  private async prepareLoopDirectory(loopId: string): Promise<string> {
+    const directory = this.loopDirectory(loopId);
+    await mkdir(directory, { recursive: true, mode: 0o750 });
+    await mkdir(join(directory, "reports"), { mode: 0o770 });
+    await chmod(join(directory, "reports"), 0o770);
+    return directory;
   }
 
   private realRoot(root: string): string[] {
@@ -1308,8 +1509,9 @@ export class TddService {
   private async defaultRelatedFiles(root: string, targetPaths: unknown): Promise<string[]> {
     const guard = new TestGuard(root);
     const candidates = new Set(toStringArray(targetPaths));
-    const status = await execFileAsync("git", ["status", "--porcelain", "-uall"], {
+    const status = await execFileAsync("git", safeGitArgs(["status", "--porcelain", "-uall"]), {
       cwd: root,
+      env: gitEnvironment(),
       timeout: 30_000,
       maxBuffer: 8 * 1024 * 1024,
     }).catch(() => null);

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { RelativeTime } from "@/components/ui/relative-time";
+import { useT } from "@/lib/i18n/client";
 
 export function ProjectGrid({
   initial,
@@ -19,6 +20,7 @@ export function ProjectGrid({
   initial: ProjectDto[];
   emptyAction: ReactNode;
 }) {
+  const t = useT();
   const { data } = useQuery({
     queryKey: queryKeys.projects,
     queryFn: async () => (await api.get<ProjectListResponse>("/api/projects")).items,
@@ -29,8 +31,8 @@ export function ProjectGrid({
     return (
       <EmptyState
         icon={<FolderGit2 className="size-5" />}
-        title="No projects registered"
-        description="Register a repository to start orchestrating agents on it."
+        title={t("No projects registered")}
+        description={t("Register a repository to start orchestrating agents on it.")}
         action={emptyAction}
       />
     );
@@ -63,11 +65,11 @@ export function ProjectGrid({
                     <span className="tabular font-medium text-foreground">
                       {project.workspaceCount}
                     </span>{" "}
-                    workspaces
+                    {t("workspaces")}
                   </span>
                   <span>
                     <span className="tabular font-medium text-foreground">{project.taskCount}</span>{" "}
-                    tasks
+                    {t("tasks")}
                   </span>
                 </div>
               </Card>

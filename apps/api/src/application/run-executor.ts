@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import {
   buildClaudeArgs,
   notStartedExit,
@@ -8,8 +8,10 @@ import {
   type RunSpec,
 } from "@onyx/agent-runtime";
 import {
+  ONYX_EVENT_TYPE,
   PermissionModeSchema,
   type ContextArm,
+  type MemoryArm,
   type ContextExperimentSettings,
   type ContextItem,
   type GuardItem,
@@ -17,18 +19,26 @@ import {
   type OnyxRunItem,
   type RoutingItem,
   type RoutingStrategy,
+  type RunItemOf,
   type RunStatus,
   type SessionItem,
   type TaskStatus,
 } from "@onyx/contracts";
-import { DEFAULT_AGENT_CONFIG_NAME, type AgentConfig, type PrismaClient } from "@onyx/db";
+import { DEFAULT_AGENT_CONFIG_NAME, Prisma, type AgentConfig, type PrismaClient } from "@onyx/db";
 import type { Logger } from "pino";
 import type { AppConfig } from "../config";
 import { WriteFence, type ContextPolicy } from "@onyx/ignore-compiler";
+import { captureFence, reviewFence, type FenceSnapshot } from "../infrastructure/fence-audit";
+import type { WorkTreeActivity } from "../infrastructure/work-tree-activity";
 import type { TokenEstimator } from "@onyx/lean-ctx";
 import { composePrimer, composeUserMessage } from "../domain/context-primer";
+import { batchPrompt, isSmallTask, parseBatchOutcome } from "../domain/batch";
+import { drawMemoryArm } from "../domain/memory";
+import { pendingRunOf } from "../domain/pending-run";
 import { buildRunSettings, guardHooks, RUN_TOKEN_ENV } from "../domain/permission-rules";
+import { classifyCacheLoss, DEFAULT_PROMPT_CACHE_TTL_MS, prefixHash } from "../domain/prompt-cache";
 import { lostSession, resolveRunOutcome } from "../domain/run-outcome";
+import { RUN_TEXT } from "../domain/run-texts";
 import { shouldEscalate, TIER_ORDER, type RoutingEscalation } from "../domain/routing/decide";
 import {
   auditReads,
@@ -39,6 +49,7 @@ import {
 } from "../domain/savings";
 import type { TestGuard } from "../domain/tdd/test-guard";
 import { badRequest, notFound } from "../errors";
+import { interpolate } from "../i18n";
 import type { EventWriter } from "../infrastructure/event-writer";
 import {
   buildMcpConfig,
@@ -53,6 +64,8 @@ import type { WsHub } from "../infrastructure/ws-hub";
 import type { CompartmentService } from "./compartment-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
+import { storedMemory, type MemoryService } from "./memory-service";
+import type { OptionsService } from "./options-service";
 import { toStringArray } from "./mappers";
 import { priceUsage, type RouterService } from "./router-service";
 import type { SurgeonService } from "./surgeon-service";
@@ -73,6 +86,9 @@ export interface RunRequest {
   newSession: boolean;
   tdd?: TddRunScope;
   tierHint?: RoutingEscalation | null;
+  quotaDeferred?: boolean;
+  batch?: string[];
+  indexWaited?: boolean;
 }
 
 export interface RunLifecycleHooks {
@@ -83,6 +99,7 @@ export interface ExecutionResult {
   runId: string;
   status: RunStatus;
   followUp: RunRequest | null;
+  lostSession?: boolean;
 }
 
 export interface RunExecutorDeps {
@@ -91,7 +108,10 @@ export interface RunExecutorDeps {
   writer: EventWriter;
   hub: WsHub;
   logger: Logger;
-  config: Pick<AppConfig, "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl">;
+  config: Pick<
+    AppConfig,
+    "runtimeDir" | "childEnvPassthrough" | "context" | "internalApiUrl" | "agentProtectedPaths"
+  >;
   indexes: IndexService;
   surgeon: SurgeonService;
   router: RouterService;
@@ -101,8 +121,17 @@ export interface RunExecutorDeps {
   cliVersion: () => string | null;
   experiment: () => Promise<ContextExperimentSettings>;
   estimator: TokenEstimator;
+  memory?: Pick<MemoryService, "compose" | "settings">;
+  options?: Pick<OptionsService, "get">;
+  onBatchLeftover?: (taskId: string) => Promise<void>;
   random?: () => number;
   onRunFinished?: (change: ForeignChange) => void;
+  onRateLimit?: (item: RunItemOf<"rate_limit">) => void;
+  activity?: WorkTreeActivity;
+  grantedRules?: (
+    projectId: string,
+    target: { taskId: string; agentConfigId: string | null },
+  ) => Promise<string[]>;
   sourceEnv?: NodeJS.ProcessEnv;
 }
 
@@ -130,14 +159,64 @@ interface PreparedRun {
   session: SessionItem;
   context: ContextItem;
   spec: RunSpec;
+  messageTokens: number;
+  prefixHash: string;
+  delivered: ReadonlyMap<string, string>;
+  packFingerprints: readonly (readonly [string, string])[];
+  fence: WriteFence;
+  workspaceName: string;
+  batch: string[];
+}
+
+interface PreparationTrace {
+  runId: string | null;
+  sessionId: string | null;
+  mates: string[];
+}
+
+interface PrimerMap {
+  text: string;
+  tokens: number;
+  includedFiles: number;
+  omittedFiles: number;
 }
 
 interface PreparedContext {
   item: ContextItem;
-  primerMap: { text: string; includedFiles: number; omittedFiles: number } | null;
+  primerMap: PrimerMap | null;
   packText: string | null;
+  packFingerprints: readonly (readonly [string, string])[];
+  mapDrift: boolean;
   mcpConfig: McpConfigFile;
   mcpEnabled: boolean;
+}
+
+interface SessionContext {
+  frozenMap: PrimerMap | null;
+  delivered: ReadonlyMap<string, string>;
+}
+
+function storedMap(value: unknown): PrimerMap | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const text = record["text"];
+  const tokens = record["tokens"];
+  const includedFiles = record["includedFiles"];
+  const omittedFiles = record["omittedFiles"];
+  return typeof text === "string" &&
+    typeof tokens === "number" &&
+    typeof includedFiles === "number" &&
+    typeof omittedFiles === "number"
+    ? { text, tokens, includedFiles, omittedFiles }
+    : null;
+}
+
+function storedDelivered(value: unknown): Map<string, string> {
+  const delivered = new Map<string, string>();
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return delivered;
+  for (const [path, fingerprint] of Object.entries(value))
+    if (typeof fingerprint === "string") delivered.set(path, fingerprint);
+  return delivered;
 }
 
 function subagentsOf(value: unknown): Record<string, unknown> | null {
@@ -184,10 +263,11 @@ export class RunExecutor {
 
   async execute(request: RunRequest, hooks: RunLifecycleHooks): Promise<ExecutionResult | null> {
     let prepared: PreparedRun;
+    const trace: PreparationTrace = { runId: null, sessionId: null, mates: [] };
     try {
-      prepared = await this.prepare(request);
+      prepared = await this.prepare(request, trace);
     } catch (error) {
-      await this.failBeforeStart(request.taskId, error);
+      await this.failBeforeStart(request.taskId, error, trace);
       return null;
     }
     hooks.onRunCreated(prepared.runId, prepared.taskId);
@@ -199,23 +279,38 @@ export class RunExecutor {
     const pendingWrites: Promise<unknown>[] = [];
     let established = !prepared.sessionIsNew;
 
-    const recorder = new RunRecorder(prepared.runId, writer, hub, (init) => {
-      established = true;
-      pendingWrites.push(
-        prisma.session
-          .update({
-            where: { id: prepared.sessionId },
-            data: { claudeSessionId: init.sessionId, lastActivityAt: new Date() },
-          })
-          .then(() => undefined),
-      );
-    });
+    const recorder = new RunRecorder(
+      prepared.runId,
+      writer,
+      hub,
+      (init) => {
+        established = true;
+        pendingWrites.push(
+          prisma.session
+            .update({
+              where: { id: prepared.sessionId },
+              data: { claudeSessionId: init.sessionId, lastActivityAt: new Date() },
+            })
+            .then(() => undefined),
+        );
+      },
+      (item) => this.deps.onRateLimit?.(item),
+    );
     this.activeRecorders.set(prepared.runId, recorder);
     recorder.recordOnyx({ kind: "prompt", text: prepared.displayPrompt });
     recorder.recordOnyx(prepared.routing);
     recorder.recordOnyx(prepared.session);
     recorder.recordOnyx(prepared.context);
     recorder.recordOnyx(statusItem("SPAWNING"));
+
+    const fenced = (path: string) => !prepared.fence.verdict(path).allowed;
+    const activity = this.deps.activity?.begin(prepared.projectRoot, prepared.workspaceName);
+    const snapshot = await captureFence(prepared.projectRoot, fenced, this.gitEnv()).catch(
+      (error: unknown) => {
+        logger.warn({ err: error, runId: prepared.runId }, "Could not record the fenced files");
+        return null;
+      },
+    );
 
     let exit: ProcessExit;
     if (this.abortRequests.has(prepared.runId)) {
@@ -244,8 +339,59 @@ export class RunExecutor {
     }
     this.abortRequests.delete(prepared.runId);
 
+    const concurrent =
+      activity === undefined
+        ? new Set<string>()
+        : (this.deps.activity?.concurrent(activity) ?? new Set<string>());
+    if (activity !== undefined) this.deps.activity?.end(activity);
+    if (snapshot) await this.undoFencedWrites(prepared, recorder, snapshot, fenced, concurrent);
+
     await Promise.allSettled(pendingWrites);
     return this.finalize(prepared, recorder, exit, established);
+  }
+
+  private gitEnv(): NodeJS.ProcessEnv {
+    return this.deps.sourceEnv ?? process.env;
+  }
+
+  private async undoFencedWrites(
+    prepared: PreparedRun,
+    recorder: RunRecorder,
+    snapshot: FenceSnapshot,
+    fenced: (path: string) => boolean,
+    concurrent: ReadonlySet<string>,
+  ): Promise<void> {
+    const { prisma, logger } = this.deps;
+    try {
+      const review = await reviewFence(
+        snapshot,
+        fenced,
+        (path) => concurrent.has(prepared.fence.verdict(path).owner ?? ""),
+        this.gitEnv(),
+      );
+      const undone = [...review.restored, ...review.removed].sort();
+      if (undone.length === 0) return;
+      const owners = [...new Set(undone.map((path) => prepared.fence.verdict(path).owner))];
+      recorder.recordOnyx({
+        kind: "guard",
+        source: "audit",
+        tool: "Run",
+        toolUseId: null,
+        target: undone.join(", "),
+        rule: `write fence (${prepared.workspaceName})`,
+        reason: `The run changed ${undone.length} ${undone.length === 1 ? "file" : "files"} of the ${owners.join(", ")} workspace, which ${prepared.workspaceName} may not change: Onyx put ${undone.length === 1 ? "it" : "them"} back.`,
+      });
+      await prisma.auditLog.create({
+        data: {
+          actor: `run:${prepared.runId}`,
+          action: "fence.undone",
+          target: prepared.projectId,
+          meta: { restored: review.restored, removed: review.removed, skipped: review.skipped },
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error, runId: prepared.runId }, "Could not undo the fenced writes");
+    }
   }
 
   private async finalize(
@@ -281,16 +427,51 @@ export class RunExecutor {
         exitCode: exit.exitCode,
         signal: exit.signal,
         message: retryInNewSession
-          ? `${outcome.errorMessage ?? "Run failed"}. Claude Code no longer has this session: re-queued in a new one.`
+          ? interpolate(RUN_TEXT.newSession, { error: outcome.errorMessage ?? RUN_TEXT.runFailed })
           : followUp
-            ? `${outcome.errorMessage ?? "Run failed"}. Re-queued on a higher tier.`
+            ? interpolate(RUN_TEXT.higherTier, {
+                error: outcome.errorMessage ?? RUN_TEXT.runFailed,
+              })
             : outcome.errorMessage,
       }),
     );
     await writer.flush();
+    hub.releaseRun(prepared.runId);
     const changedFiles = this.normalizeChanged(prepared.projectRoot, recorder.changedFiles);
     const reference = await this.deps.router.referenceProfile().catch(() => null);
     const audit = await this.readAudit(prepared, recorder.reads);
+    const previous = prepared.sessionIsNew
+      ? null
+      : await prisma.agentRun
+          .findFirst({
+            where: {
+              sessionId: prepared.sessionId,
+              id: { not: prepared.runId },
+              endedAt: { not: null },
+            },
+            orderBy: { endedAt: "desc" },
+            select: { modelId: true, cachePrefixHash: true, endedAt: true },
+          })
+          .catch(() => null);
+    const cache = classifyCacheLoss({
+      sessionIsNew: prepared.sessionIsNew,
+      firstTurn: recorder.firstMainTurn,
+      messageTokens: prepared.messageTokens,
+      modelId: prepared.modelId,
+      prefixHash: prepared.prefixHash,
+      startedAt: new Date(prepared.startedAt),
+      previous: previous?.endedAt
+        ? {
+            modelId: previous.modelId,
+            prefixHash: previous.cachePrefixHash,
+            endedAt: previous.endedAt,
+          }
+        : null,
+      ttlMs: this.deps.config.context.promptCacheTtlMs ?? DEFAULT_PROMPT_CACHE_TTL_MS,
+    });
+    const deliveredPack = recorder.compacted
+      ? {}
+      : Object.fromEntries([...prepared.delivered, ...prepared.packFingerprints]);
 
     const endedAt = new Date();
     const usage = recorder.usage;
@@ -319,7 +500,16 @@ export class RunExecutor {
             ctxRereadTokens: audit.rereadTokens,
             ctxMissedFiles: audit.missedFiles,
             ctxRereadPaths: audit.rereadPaths,
+            ctxReusedTokens:
+              prepared.context.reusedTokens > 0 ? prepared.context.reusedTokens : null,
+            ctxSignatureTokens:
+              prepared.context.signatureTokens > 0 ? prepared.context.signatureTokens : null,
+            cacheLoss: cache.reason,
+            cacheReadTokens: cache.readTokens,
+            cacheWriteTokens: cache.writeTokens,
+            cacheLostTokens: cache.lostTokens,
             guardDenials: recorder.guardDenials,
+            quotaLimited: recorder.rateLimited,
             changedFiles,
             errorMessage: outcome.errorMessage,
             endedAt,
@@ -361,7 +551,7 @@ export class RunExecutor {
               ? { contextTokens: recorder.lastContextTokens }
               : {}),
             ...(sessionAlive
-              ? { status: "IDLE" as const }
+              ? { status: "IDLE" as const, deliveredPack }
               : { status: "CLOSED" as const, endReason: "ERROR" as const, endedAt }),
           },
         });
@@ -376,6 +566,7 @@ export class RunExecutor {
           where: { id: prepared.taskId },
           data: {
             status: taskStatus,
+            ...(followUp ? { pendingRun: pendingRunOf(followUp) } : {}),
             ...(taskStatus === "COMPLETED" ? { completedAt: endedAt } : {}),
             ...(result?.resultText
               ? { resultSummary: result.resultText.slice(0, MAX_RESULT_SUMMARY_CHARS) }
@@ -393,7 +584,8 @@ export class RunExecutor {
       status: taskStatus,
       runId: prepared.runId,
     });
-    if (exit.sawInit) indexes.scheduleRefresh(prepared.projectId);
+    if (exit.sawInit && !prepared.isolated && recorder.mayHaveWritten)
+      indexes.scheduleRefresh(prepared.projectId);
     if (changedFiles.length > 0 && !prepared.isolated) {
       try {
         this.deps.onRunFinished?.({
@@ -405,11 +597,73 @@ export class RunExecutor {
         logger.warn({ err: error, runId: prepared.runId }, "Run finished listener failed");
       }
     }
+    if (prepared.batch.length > 0) {
+      if (followUp) followUp.batch = prepared.batch;
+      else
+        await this.settleBatch(prepared, outcome.runStatus, result?.resultText ?? null).catch(
+          (error: unknown) =>
+            logger.error(
+              { err: error, runId: prepared.runId },
+              "Could not settle the grouped tasks",
+            ),
+        );
+    }
     logger.info(
       { runId: prepared.runId, status: outcome.runStatus, reason: exit.reason },
       "Run finished",
     );
-    return { runId: prepared.runId, status: outcome.runStatus, followUp };
+    return {
+      runId: prepared.runId,
+      status: outcome.runStatus,
+      followUp,
+      ...(lostResume ? { lostSession: true } : {}),
+    };
+  }
+
+  private async settleBatch(
+    prepared: PreparedRun,
+    runStatus: RunStatus,
+    text: string | null,
+  ): Promise<void> {
+    const { prisma, hub } = this.deps;
+    const count = prepared.batch.length + 1;
+    const outcomes = parseBatchOutcome(text, count);
+    const now = new Date();
+    const settle = async (taskId: string, status: "COMPLETED" | "FAILED", summary: string) => {
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          status,
+          resultSummary: summary,
+          ...(status === "COMPLETED" ? { completedAt: now } : {}),
+        },
+      });
+      hub.publishTaskStatus({
+        taskId,
+        projectId: prepared.projectId,
+        status,
+        runId: prepared.runId,
+      });
+    };
+    const first = outcomes[0];
+    if (runStatus === "COMPLETED" && first?.status === "FAILED")
+      await settle(prepared.taskId, "FAILED", `Task 1 of the grouped run failed: ${first.reason}`);
+    for (const [index, taskId] of prepared.batch.entries()) {
+      const outcome = outcomes[index + 1];
+      if (runStatus === "COMPLETED" && outcome?.status === "DONE")
+        await settle(
+          taskId,
+          "COMPLETED",
+          `Done in a grouped run of ${count} small tasks (task ${index + 2}).`,
+        );
+      else if (outcome?.status === "FAILED")
+        await settle(
+          taskId,
+          "FAILED",
+          `Task ${index + 2} of the grouped run failed: ${outcome.reason}`,
+        );
+      else await this.deps.onBatchLeftover?.(taskId);
+    }
   }
 
   private async escalationFollowUp(
@@ -461,7 +715,7 @@ export class RunExecutor {
     return auditReads(files, prepared.context.entries);
   }
 
-  private async prepare(request: RunRequest): Promise<PreparedRun> {
+  private async prepare(request: RunRequest, trace: PreparationTrace): Promise<PreparedRun> {
     const { prisma, config, cliVersion, router, compartments } = this.deps;
     const task = await prisma.task.findUnique({
       where: { id: request.taskId },
@@ -486,7 +740,39 @@ export class RunExecutor {
     const agentConfig = await this.resolveAgentConfig(
       request.agentConfigId ?? workspace.agentConfigId,
     );
-    const prompt = request.prompt ?? task.prompt;
+    const mates =
+      request.batch && request.batch.length > 0 && request.prompt === null
+        ? (
+            await prisma.task.findMany({
+              where: { id: { in: request.batch }, workspaceId: task.workspaceId, status: "QUEUED" },
+            })
+          ).sort(
+            (left, right) => request.batch!.indexOf(left.id) - request.batch!.indexOf(right.id),
+          )
+        : [];
+    const grouped = [task, ...mates];
+    const prompt =
+      mates.length > 0
+        ? batchPrompt(
+            grouped.map((entry) => ({
+              title: entry.title,
+              prompt: entry.prompt,
+              acceptance: toStringArray(entry.acceptance),
+              targetPaths: toStringArray(entry.targetPaths),
+            })),
+          )
+        : (request.prompt ?? task.prompt);
+    const groupedTargets = [
+      ...new Set(grouped.flatMap((entry) => toStringArray(entry.targetPaths))),
+    ];
+    const batchSize =
+      mates.length > 0
+        ? grouped.length
+        : request.prompt === null &&
+            !request.tdd &&
+            isSmallTask({ ...task, targetPaths: toStringArray(task.targetPaths) })
+          ? 1
+          : null;
     const evaluation = await router.evaluate({
       projectId: task.projectId,
       workspace: { id: workspace.id, name: workspace.name, domain: workspace.domain },
@@ -521,6 +807,7 @@ export class RunExecutor {
           forceNew: request.newSession,
         });
     const session = plan.session;
+    trace.sessionId = session.id;
     const permissionMode = PermissionModeSchema.parse(agentConfig.permissionMode);
     const arm = drawArm({
       settings: await this.deps.experiment().catch(() => DEFAULT_EXPERIMENT),
@@ -528,6 +815,15 @@ export class RunExecutor {
       contextEnabled: config.context.enabled,
       random: this.deps.random ?? Math.random,
     });
+    const memory = await this.sessionMemory(
+      task.projectId,
+      session,
+      plan.decision.action === "start",
+    );
+    const concise =
+      arm === "CONTROL"
+        ? false
+        : await this.sessionConcise(session, plan.decision.action === "start");
 
     const { run, startedAt } = await prisma.$transaction(async (tx) => {
       const routingDecisionId = await router.record(tx, task.id, evaluation);
@@ -542,19 +838,34 @@ export class RunExecutor {
           args: [],
           cliVersion: cliVersion(),
           contextArm: arm,
+          memoryArm: memory.arm,
+          batchSize,
+          quotaDeferred: request.quotaDeferred === true,
         },
       });
       await tx.task.update({
         where: { id: task.id },
         data: {
           status: request.tdd ? "TDD_LOOP" : "RUNNING",
+          pendingRun: Prisma.DbNull,
           ...(task.startedAt ? {} : { startedAt: new Date() }),
         },
       });
+      if (mates.length > 0)
+        await tx.task.updateMany({
+          where: { id: { in: mates.map((mate) => mate.id) } },
+          data: { status: "RUNNING", batchRunId: created.id, startedAt: new Date() },
+        });
       return { run: created, startedAt: created.startedAt.getTime() };
     });
+    trace.runId = run.id;
+    trace.mates = mates.map((mate) => mate.id);
 
     const scope = await this.deps.surgeon.runScope(task.projectId, workspace.id, task.worktreePath);
+    const protectedPaths = [
+      ...config.agentProtectedPaths,
+      ...(task.worktreePath ? [join(task.project.rootPath, ".git")] : []),
+    ];
     const indexed = await this.deps.indexes.context(task.projectId);
     const fence = new WriteFence(
       root,
@@ -562,6 +873,8 @@ export class RunExecutor {
       task.project.workspaces
         .filter((candidate) => candidate.id !== workspace.id)
         .map((candidate) => ({ name: candidate.name, globs: toStringArray(candidate.pathGlobs) })),
+      undefined,
+      protectedPaths,
     );
     const fenceRules = fence.compile(indexed ? [...indexed.index.files.keys()] : []);
     const runToken = this.deps.runTokens.issue(run.id, task.projectId, {
@@ -571,11 +884,53 @@ export class RunExecutor {
       fence,
       tests: request.tdd?.guard ?? null,
     });
-    const context = await this.prepareContext(run.id, task, prompt, scope.policy, runToken, arm);
+    const resuming = plan.decision.action === "resume";
+    const sessionContext: SessionContext = {
+      frozenMap: resuming ? storedMap(session.contextMap) : null,
+      delivered: resuming ? storedDelivered(session.deliveredPack) : new Map(),
+    };
+    const context = await this.prepareContext(
+      run.id,
+      {
+        projectId: task.projectId,
+        targetPaths: groupedTargets,
+        indexWaited: request.indexWaited === true,
+      },
+      prompt,
+      scope.policy,
+      runToken,
+      arm,
+      sessionContext,
+    );
+    if (context.primerMap && sessionContext.frozenMap === null)
+      await prisma.session.update({
+        where: { id: session.id },
+        data: {
+          contextMap: {
+            text: context.primerMap.text,
+            tokens: context.primerMap.tokens,
+            includedFiles: context.primerMap.includedFiles,
+            omittedFiles: context.primerMap.omittedFiles,
+          },
+        },
+      });
+    const agents = subagentsOf(agentConfig.subagents);
+    const primer = composePrimer({
+      workspacePrimer: workspace.primer,
+      agentPrompt: agentConfig.appendSystemPrompt,
+      projectName: task.project.name,
+      map: context.primerMap,
+      memory: memory.text,
+      concise,
+      mcpEnabled: context.mcpEnabled,
+    });
+    const prefix = prefixHash({ modelId, primer, agents, mcpEnabled: context.mcpEnabled });
     await prisma.agentRun.update({
       where: { id: run.id },
       data: {
         ignoreHash: scope.hash,
+        cachePrefixHash: prefix,
+        ctxMapDrift: context.mapDrift,
         ctxBaselineTokens: context.item.baselineTokens > 0 ? context.item.baselineTokens : null,
         ctxDeliveredTokens: context.item.deliveredTokens,
       },
@@ -590,31 +945,36 @@ export class RunExecutor {
           ...fenceRules.editDeny,
           ...(request.tdd ? request.tdd.guard.denyRules() : []),
         ],
+        protectedPaths,
         hooks: guardHooks(config.internalApiUrl),
       }),
-      primer: composePrimer({
-        workspacePrimer: workspace.primer,
-        agentPrompt: agentConfig.appendSystemPrompt,
-        projectName: task.project.name,
-        map: context.primerMap,
-        mcpEnabled: context.mcpEnabled,
-      }),
+      primer,
       mcpConfig: context.mcpConfig,
       contextPack: context.packText,
-      agents: subagentsOf(agentConfig.subagents),
+      agents,
     });
+    const readOnly = agentConfig.permissionMode === "plan";
+    const granted =
+      readOnly || !this.deps.grantedRules
+        ? []
+        : await this.deps.grantedRules(task.projectId, {
+            taskId: task.id,
+            agentConfigId: agentConfig.id,
+          });
     const allowedTools = [
       ...new Set([
         ...toStringArray(agentConfig.allowedTools),
-        ...toStringArray(task.project.allowedTools),
+        ...(readOnly ? [] : toStringArray(task.project.allowedTools)),
+        ...granted,
       ]),
     ];
     const handoffText = plan.item.handoff?.text ?? null;
+    const message = composeUserMessage(context.packText, prompt, handoffText);
 
     const spec: RunSpec = {
       runId: run.id,
       cwd: root,
-      prompt: composeUserMessage(context.packText, prompt, handoffText),
+      prompt: message,
       model: modelId,
       fallbackModels: toStringArray(agentConfig.fallbackModelIds).filter((id) => id !== modelId),
       permissionMode,
@@ -663,6 +1023,7 @@ export class RunExecutor {
       request,
       startedAt,
       displayPrompt: prompt,
+      batch: mates.map((mate) => mate.id),
       routing: {
         kind: "routing",
         strategy: evaluation.plan.strategy,
@@ -676,16 +1037,61 @@ export class RunExecutor {
       session: plan.item,
       context: context.item,
       spec,
+      messageTokens: this.deps.estimator.estimate(message, "text"),
+      prefixHash: prefix,
+      delivered: sessionContext.delivered,
+      packFingerprints: context.packFingerprints,
+      fence,
+      workspaceName: workspace.name,
     };
+  }
+
+  private async sessionConcise(
+    session: { id: string; concise: boolean | null },
+    fresh: boolean,
+  ): Promise<boolean> {
+    if (!fresh || !this.deps.options) return session.concise === true;
+    const concise = (await this.deps.options.get()).conciseAnswers;
+    await this.deps.prisma.session.update({ where: { id: session.id }, data: { concise } });
+    return concise;
+  }
+
+  private async sessionMemory(
+    projectId: string,
+    session: { id: string; memory: Prisma.JsonValue | null; memoryArm: MemoryArm | null },
+    fresh: boolean,
+  ): Promise<{ text: string | null; arm: MemoryArm | null }> {
+    const service = this.deps.memory;
+    if (!service) return { text: null, arm: null };
+    if (!fresh) return { text: storedMemory(session.memory)?.text ?? null, arm: null };
+    const settings = await service.settings();
+    const arm = drawMemoryArm({
+      enabled: settings.enabled,
+      experiment: settings.experiment,
+      freshSession: true,
+      random: this.deps.random ?? Math.random,
+    });
+    const composed = arm === "NO_MEMORY" ? null : await service.compose(projectId);
+    await this.deps.prisma.session.update({
+      where: { id: session.id },
+      data: {
+        memoryArm: arm,
+        ...(composed
+          ? { memory: { text: composed.text, tokens: composed.tokens, factIds: composed.factIds } }
+          : {}),
+      },
+    });
+    return { text: composed?.text ?? null, arm };
   }
 
   private async prepareContext(
     runId: string,
-    task: { projectId: string; targetPaths: unknown },
+    task: { projectId: string; targetPaths: unknown; indexWaited: boolean },
     prompt: string,
     policy: ContextPolicy,
     runToken: string,
     arm: ContextArm | null,
+    session: SessionContext,
   ): Promise<PreparedContext> {
     const { indexes, config, logger } = this.deps;
     const targetPaths = toStringArray(task.targetPaths);
@@ -699,6 +1105,9 @@ export class RunExecutor {
         packTokens: 0,
         baselineTokens: 0,
         deliveredTokens: 0,
+        reusedTokens: 0,
+        signatureTokens: 0,
+        mapFrozen: false,
         indexedAt: null,
         mcpEnabled: false,
         note,
@@ -706,6 +1115,8 @@ export class RunExecutor {
       },
       primerMap: null,
       packText: null,
+      packFingerprints: [],
+      mapDrift: false,
       mcpConfig: emptyMcpConfig(),
       mcpEnabled: false,
     });
@@ -714,19 +1125,23 @@ export class RunExecutor {
       return empty("Control run of the savings experiment: the Onyx context is withheld");
 
     const project = await indexes
-      .waitForIndex(task.projectId, config.context.indexWaitMs)
+      .waitForIndex(task.projectId, task.indexWaited ? 0 : config.context.indexWaitMs)
       .catch((error: unknown) => {
         logger.warn({ err: error, runId }, "Project index unavailable");
         return null;
       });
     if (!project) return empty("The project is not indexed yet: this run has no Onyx context");
 
-    const map = project.projectMap(config.context.mapBudgetTokens, policy);
+    const current = project.projectMap(config.context.mapBudgetTokens, policy);
+    const map = session.frozenMap ?? current;
+    const mapDrift = session.frozenMap !== null && session.frozenMap.text !== current.text;
     const { pack, targets, inferredTargets, excludedTargets } = project.buildPack({
       targetPaths,
       prompt,
       budgetTokens: config.context.packBudgetTokens,
       policy,
+      delivered: session.delivered,
+      editTargetsAsSignatures: arm === "TARGET_L2",
     });
     const mcpEnabled =
       config.context.mcpServerPath !== null && isReadableFile(config.context.mcpServerPath);
@@ -750,23 +1165,31 @@ export class RunExecutor {
           level: entry.level,
           tokens: entry.tokens,
           symbols: entry.symbols,
+          reused: entry.reused,
         })),
         mapTokens: map.tokens,
         packTokens,
         baselineTokens: pack?.baselineTokens ?? 0,
         deliveredTokens: map.tokens + packTokens,
+        reusedTokens: pack?.reusedTokens ?? 0,
+        signatureTokens: pack?.signatureSavedTokens ?? 0,
+        mapFrozen: session.frozenMap !== null,
         indexedAt: project.indexedAt?.toISOString() ?? null,
         mcpEnabled,
         note:
           excludedTargets.length > 0
-            ? `Excluded by the context profile: ${excludedTargets.join(", ")}`
+            ? interpolate(RUN_TEXT.excluded, { files: excludedTargets.join(", ") })
             : targets.length === 0
-              ? "No target files: set target paths on the task or name files in the prompt"
+              ? RUN_TEXT.noTargets
               : null,
         arm,
       },
       primerMap: map,
       packText: pack?.text ?? null,
+      packFingerprints: (pack?.entries ?? []).map(
+        (entry) => [entry.relPath, entry.fingerprint] as const,
+      ),
+      mapDrift,
       mcpConfig,
       mcpEnabled,
     };
@@ -791,14 +1214,61 @@ export class RunExecutor {
     return env;
   }
 
-  private async failBeforeStart(taskId: string, error: unknown): Promise<void> {
-    const { prisma, logger } = this.deps;
+  private async failBeforeStart(
+    taskId: string,
+    error: unknown,
+    trace: PreparationTrace,
+  ): Promise<void> {
+    const { prisma, logger, runTokens } = this.deps;
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn({ taskId, err: error }, "Run could not start");
+    logger.warn({ taskId, runId: trace.runId, err: error }, "Run could not start");
+    if (trace.runId !== null) {
+      const runId = trace.runId;
+      runTokens.revoke(runId);
+      this.abortRequests.delete(runId);
+      const status = statusItem("FAILED", { message });
+      await prisma
+        .$transaction([
+          prisma.agentEvent.create({
+            data: { runId, seq: 1, type: ONYX_EVENT_TYPE, subtype: "status", payload: status },
+          }),
+          prisma.agentRun.update({
+            where: { id: runId },
+            data: { status: "FAILED", isError: true, errorMessage: message, endedAt: new Date() },
+          }),
+        ])
+        .catch((cleanupError: unknown) =>
+          logger.error(
+            { err: cleanupError, runId },
+            "Could not close the run that failed to start",
+          ),
+        );
+    }
+    if (trace.sessionId !== null)
+      await prisma.session
+        .updateMany({
+          where: { id: trace.sessionId, status: "ACTIVE" },
+          data: { status: "IDLE", lastActivityAt: new Date() },
+        })
+        .catch((cleanupError: unknown) =>
+          logger.error(
+            { err: cleanupError, sessionId: trace.sessionId },
+            "Could not release the session of a run that failed to start",
+          ),
+        );
     const task = await prisma.task
-      .update({ where: { id: taskId }, data: { status: "FAILED", resultSummary: message } })
+      .update({
+        where: { id: taskId },
+        data: { status: "FAILED", resultSummary: message, pendingRun: Prisma.DbNull },
+      })
       .catch(() => null);
-    if (task) this.publishStatus(task.id, task.projectId, "FAILED", null);
+    if (task) this.publishStatus(task.id, task.projectId, "FAILED", trace.runId);
+    for (const mate of trace.mates)
+      await this.deps
+        .onBatchLeftover?.(mate)
+        .catch((cleanupError: unknown) =>
+          logger.error({ err: cleanupError, taskId: mate }, "Could not requeue a grouped task"),
+        );
   }
 
   private publishStatus(

@@ -14,6 +14,8 @@ import type { WsHub } from "../infrastructure/ws-hub";
 import { toStringArray } from "./mappers";
 import { ProjectContext } from "./project-context";
 
+const DEFAULT_MAX_CONTEXTS = 8;
+
 export interface IndexServiceDeps {
   prisma: PrismaClient;
   store: IndexStore;
@@ -22,6 +24,7 @@ export interface IndexServiceDeps {
   analyzer: LeanAnalyzer;
   versionSuffix?: () => string | undefined;
   refreshDelayMs?: number;
+  maxContexts?: number;
 }
 
 interface RunningIndex {
@@ -112,7 +115,11 @@ export class IndexService {
 
   async context(projectId: string): Promise<ProjectContext | null> {
     const cached = this.contexts.get(projectId);
-    if (cached) return cached;
+    if (cached) {
+      this.contexts.delete(projectId);
+      this.contexts.set(projectId, cached);
+      return cached;
+    }
     const project = await this.deps.prisma.project.findUnique({
       where: { id: projectId },
       select: { rootPath: true },
@@ -123,11 +130,21 @@ export class IndexService {
     try {
       const context = new ProjectContext(projectId, project.rootPath, stored, this.deps.analyzer);
       this.contexts.set(projectId, context);
+      while (this.contexts.size > (this.deps.maxContexts ?? DEFAULT_MAX_CONTEXTS)) {
+        const oldest = this.contexts.keys().next().value;
+        if (oldest === undefined) break;
+        this.contexts.delete(oldest);
+      }
       return context;
     } catch (error) {
       this.deps.logger.warn({ err: error, projectId }, "Project index is not usable");
       return null;
     }
+  }
+
+  readyBeforeRun(projectId: string, timeoutMs: number): Promise<void> | null {
+    if (this.stopped || this.contexts.has(projectId)) return null;
+    return this.waitForIndex(projectId, timeoutMs).then(() => undefined);
   }
 
   scheduleRefresh(projectId: string): void {

@@ -1,5 +1,6 @@
 import {
   ContextExperimentSettingsSchema,
+  type CacheReport,
   type ContextExperimentSettings,
   type OtherSavings,
   type PackAccounting,
@@ -7,13 +8,29 @@ import {
   type SavingsReport,
 } from "@onyx/contracts";
 import type { PrismaClient } from "@onyx/db";
+import { CONTINUE_PROMPT_PREFIX } from "../domain/command-rules";
+import { compareMemoryArms } from "../domain/memory";
+import { currentLocale, type Locale } from "../i18n";
+import { experimentRuns, sqlDate } from "../infrastructure/run-totals";
+import type { MemoryService } from "./memory-service";
+import type { OptionsService } from "./options-service";
+
+const EMPTY_MEMORY_EXPERIMENT = compareMemoryArms({
+  enabled: false,
+  withMemory: [],
+  without: [],
+  windowDays: 90,
+});
+import { summarizeCache } from "../domain/prompt-cache";
 import {
   compareArms,
   DEFAULT_EXPERIMENT,
   savingRatio,
   savingsChecks,
+  savingsLedger,
   savingsVerdict,
   type ArmSample,
+  type RunTokens,
 } from "../domain/savings";
 import { toStringArray } from "./mappers";
 import type { RouterService } from "./router-service";
@@ -24,12 +41,15 @@ const DAY_MS = 86_400_000;
 const ACCOUNTING_DAYS = 30;
 const EXPERIMENT_DAYS = 90;
 const TOP_REREADS = 5;
+const REPORT_CACHE_MS = 30_000;
 const MEASURED_STATUSES: RunStatus[] = ["COMPLETED", "FAILED", "TIMEOUT", "INTERRUPTED"];
 
 export interface SavingsServiceDeps {
   prisma: PrismaClient;
   router: Pick<RouterService, "telemetry">;
   contextEnabled: boolean;
+  memory?: Pick<MemoryService, "experiment">;
+  options?: Pick<OptionsService, "get">;
 }
 
 function round(value: number, digits = 6): number {
@@ -38,6 +58,8 @@ function round(value: number, digits = 6): number {
 }
 
 export class SavingsService {
+  private cached: { at: number; locale: Locale; report: SavingsReport } | null = null;
+
   constructor(private readonly deps: SavingsServiceDeps) {}
 
   async experimentSettings(): Promise<ContextExperimentSettings> {
@@ -52,6 +74,7 @@ export class SavingsService {
     input: ContextExperimentSettings,
     actor: string,
   ): Promise<ContextExperimentSettings> {
+    this.cached = null;
     await this.deps.prisma.$transaction(async (tx) => {
       await tx.appSetting.upsert({
         where: { key: EXPERIMENT_SETTING_KEY },
@@ -65,17 +88,55 @@ export class SavingsService {
     return input;
   }
 
-  async report(now = new Date()): Promise<SavingsReport> {
-    const [settings, pack, experimentRuns, other] = await Promise.all([
+  forget(): void {
+    this.cached = null;
+  }
+
+  async report(now?: Date): Promise<SavingsReport> {
+    const locale = currentLocale();
+    if (
+      now === undefined &&
+      this.cached &&
+      this.cached.locale === locale &&
+      Date.now() - this.cached.at < REPORT_CACHE_MS
+    )
+      return this.cached.report;
+    const report = await this.compute(now ?? new Date());
+    if (now === undefined) this.cached = { at: Date.now(), locale, report };
+    return report;
+  }
+
+  private async compute(now: Date): Promise<SavingsReport> {
+    const [
+      settings,
+      pack,
+      experimentRuns,
+      other,
+      sessions,
+      current,
+      previous,
+      quota,
+      memory,
+      signatures,
+      choices,
+    ] = await Promise.all([
       this.experimentSettings(),
       this.accounting(now),
       this.experimentSamples(now),
       this.otherSavings(now),
+      this.sessionReuse(now),
+      this.continuations(now, 0),
+      this.continuations(now, 1),
+      this.quotaRuns(now),
+      this.memoryUse(now),
+      this.signatureUse(now),
+      this.choices(now),
     ]);
     const experiment = compareArms({
       settings,
       pack: experimentRuns.pack,
       control: experimentRuns.control,
+      variant: experimentRuns.variant,
       windowDays: EXPERIMENT_DAYS,
       since: experimentRuns.since,
     });
@@ -87,38 +148,154 @@ export class SavingsService {
       pack,
       checks: savingsChecks({ contextEnabled: this.deps.contextEnabled, pack, experiment }),
       other,
+      ledger: savingsLedger({
+        pack,
+        experiment,
+        other,
+        reuse: sessions.reuse,
+        prefix: sessions.prefix,
+        continuations: { current, previous, windowDays: ACCOUNTING_DAYS },
+        quota,
+        memory,
+        signatures,
+        ...choices,
+      }),
+      cache: sessions.cache,
+      memory: memory.experiment,
+    };
+  }
+
+  private async continuations(now: Date, windowsBack: number): Promise<RunTokens> {
+    const until = new Date(now.getTime() - windowsBack * ACCOUNTING_DAYS * DAY_MS);
+    const since = new Date(until.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const runs = await this.deps.prisma.agentRun.findMany({
+      where: {
+        startedAt: { gte: since, lt: until },
+        prompt: { startsWith: CONTINUE_PROMPT_PREFIX },
+      },
+      select: { id: true },
+    });
+    if (runs.length === 0) return { runs: 0, tokens: 0 };
+    const usage = await this.deps.prisma.tokenLog.aggregate({
+      where: { runId: { in: runs.map((run) => run.id) } },
+      _sum: {
+        inputTokens: true,
+        outputTokens: true,
+        cacheCreationTokens: true,
+        cacheReadTokens: true,
+      },
+    });
+    return {
+      runs: runs.length,
+      tokens:
+        (usage._sum.inputTokens ?? 0) +
+        (usage._sum.outputTokens ?? 0) +
+        (usage._sum.cacheCreationTokens ?? 0) +
+        (usage._sum.cacheReadTokens ?? 0),
+    };
+  }
+
+  private async quotaRuns(
+    now: Date,
+  ): Promise<{ deferredRuns: number; limitedRuns: number; windowDays: number }> {
+    const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const [deferredRuns, limitedRuns] = await Promise.all([
+      this.deps.prisma.agentRun.count({
+        where: { startedAt: { gte: since }, quotaDeferred: true },
+      }),
+      this.deps.prisma.agentRun.count({ where: { startedAt: { gte: since }, quotaLimited: true } }),
+    ]);
+    return { deferredRuns, limitedRuns, windowDays: ACCOUNTING_DAYS };
+  }
+
+  private async sessionReuse(now: Date): Promise<{
+    cache: CacheReport;
+    reuse: { runs: number; tokens: number };
+    prefix: { runs: number; readTokens: number };
+  }> {
+    const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const { prisma } = this.deps;
+    const [runs, reuse, prefix] = await Promise.all([
+      prisma.agentRun.groupBy({
+        by: ["cacheLoss"],
+        where: { startedAt: { gte: since }, cacheLoss: { not: null } },
+        _count: { _all: true },
+        _sum: { cacheLostTokens: true, cacheReadTokens: true },
+      }),
+      prisma.agentRun.aggregate({
+        where: { startedAt: { gte: since }, ctxReusedTokens: { gt: 0 } },
+        _count: { _all: true },
+        _sum: { ctxReusedTokens: true },
+      }),
+      prisma.agentRun.aggregate({
+        where: { startedAt: { gte: since }, ctxMapDrift: true, cacheLoss: "NONE" },
+        _count: { _all: true },
+        _sum: { cacheReadTokens: true },
+      }),
+    ]);
+    return {
+      cache: {
+        windowDays: ACCOUNTING_DAYS,
+        ...summarizeCache(
+          runs.flatMap((group) =>
+            group.cacheLoss === null
+              ? []
+              : [
+                  {
+                    reason: group.cacheLoss,
+                    runs: group._count._all,
+                    lostTokens: group._sum.cacheLostTokens ?? 0,
+                    readTokens: group._sum.cacheReadTokens ?? 0,
+                  },
+                ],
+          ),
+        ),
+      },
+      reuse: { runs: reuse._count._all, tokens: reuse._sum.ctxReusedTokens ?? 0 },
+      prefix: { runs: prefix._count._all, readTokens: prefix._sum.cacheReadTokens ?? 0 },
     };
   }
 
   private async accounting(now: Date): Promise<PackAccounting> {
-    const runs = await this.deps.prisma.agentRun.findMany({
-      where: {
-        status: { in: MEASURED_STATUSES },
-        startedAt: { gte: new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS) },
-        ctxReadFiles: { not: null },
-      },
-      select: {
-        contextArm: true,
-        ctxBaselineTokens: true,
-        ctxDeliveredTokens: true,
-        ctxExpansions: true,
-        ctxReadFiles: true,
-        ctxRereadFiles: true,
-        ctxRereadTokens: true,
-        ctxMissedFiles: true,
-        ctxRereadPaths: true,
-      },
-    });
-    const withPack = runs.filter(
-      (run) => run.contextArm !== "CONTROL" && (run.ctxBaselineTokens ?? 0) > 0,
-    );
-    const sum = (pick: (run: (typeof withPack)[number]) => number | null) =>
-      withPack.reduce((total, run) => total + (pick(run) ?? 0), 0);
-    const baselineTokens = sum((run) => run.ctxBaselineTokens);
-    const deliveredTokens = sum((run) => run.ctxDeliveredTokens);
-    const rereadTokens = sum((run) => run.ctxRereadTokens);
+    const { prisma } = this.deps;
+    const window = {
+      status: { in: MEASURED_STATUSES },
+      startedAt: { gte: new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS) },
+      ctxReadFiles: { not: null },
+    };
+    const withPackWhere = {
+      ...window,
+      OR: [{ contextArm: null }, { contextArm: { not: "CONTROL" as const } }],
+      ctxBaselineTokens: { gt: 0 },
+    };
+    const [runs, controlRuns, withPack, runsWithRereads, rereads] = await Promise.all([
+      prisma.agentRun.count({ where: window }),
+      prisma.agentRun.count({ where: { ...window, contextArm: "CONTROL" } }),
+      prisma.agentRun.aggregate({
+        where: withPackWhere,
+        _count: { _all: true },
+        _sum: {
+          ctxBaselineTokens: true,
+          ctxDeliveredTokens: true,
+          ctxRereadTokens: true,
+          ctxRereadFiles: true,
+          ctxReadFiles: true,
+          ctxMissedFiles: true,
+          ctxExpansions: true,
+        },
+      }),
+      prisma.agentRun.count({ where: { ...withPackWhere, ctxRereadFiles: { gt: 0 } } }),
+      prisma.agentRun.findMany({
+        where: { ...withPackWhere, ctxRereadFiles: { gt: 0 } },
+        select: { ctxRereadPaths: true },
+      }),
+    ]);
+    const totals = withPack._sum;
+    const baselineTokens = totals.ctxBaselineTokens ?? 0;
+    const deliveredTokens = totals.ctxDeliveredTokens ?? 0;
+    const rereadTokens = totals.ctxRereadTokens ?? 0;
     const rereadCounts = new Map<string, number>();
-    for (const run of withPack) {
+    for (const run of rereads) {
       for (const path of toStringArray(run.ctxRereadPaths)) {
         rereadCounts.set(path, (rereadCounts.get(path) ?? 0) + 1);
       }
@@ -127,19 +304,19 @@ export class SavingsService {
     const net = savingRatio(baselineTokens, deliveredTokens + rereadTokens);
     return {
       windowDays: ACCOUNTING_DAYS,
-      runs: runs.length,
-      runsWithPack: withPack.length,
-      controlRuns: runs.filter((run) => run.contextArm === "CONTROL").length,
+      runs,
+      runsWithPack: withPack._count._all,
+      controlRuns,
       baselineTokens,
       deliveredTokens,
       rereadTokens,
       grossSaving: gross === null ? null : round(gross, 4),
       netSaving: net === null ? null : round(net, 4),
-      runsWithRereads: withPack.filter((run) => (run.ctxRereadFiles ?? 0) > 0).length,
-      rereadFiles: sum((run) => run.ctxRereadFiles),
-      readFiles: sum((run) => run.ctxReadFiles),
-      missedFiles: sum((run) => run.ctxMissedFiles),
-      expansions: sum((run) => run.ctxExpansions),
+      runsWithRereads,
+      rereadFiles: totals.ctxRereadFiles ?? 0,
+      readFiles: totals.ctxReadFiles ?? 0,
+      missedFiles: totals.ctxMissedFiles ?? 0,
+      expansions: totals.ctxExpansions ?? 0,
       topRereads: [...rereadCounts.entries()]
         .sort(
           ([leftPath, left], [rightPath, right]) =>
@@ -150,42 +327,214 @@ export class SavingsService {
     };
   }
 
-  private async experimentSamples(
-    now: Date,
-  ): Promise<{ pack: ArmSample[]; control: ArmSample[]; since: string | null }> {
-    const runs = await this.deps.prisma.agentRun.findMany({
+  private async choices(now: Date) {
+    const { prisma } = this.deps;
+    const options = await this.deps.options?.get();
+    const since = options?.conciseSince ? new Date(options.conciseSince) : null;
+    const from = new Date((since ?? now).getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const window = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const [outputs, plans, batchRuns, reviews, resolutions, insights, analyses] = await Promise.all(
+      [
+        prisma.$queryRaw<{ outputTokens: unknown; startedAt: unknown }[]>`
+        SELECT l.outputTokens AS outputTokens, r.startedAt AS startedAt
+        FROM AgentRun r JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
+        WHERE r.status = 'COMPLETED' AND r.startedAt >= ${sqlDate(from)}`,
+        prisma.orchestration.findMany({
+          where: {
+            createdAt: { gte: new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS) },
+            plannerCostUsd: { not: null },
+          },
+          select: { plannerCostUsd: true, plannerModelCostUsd: true, plannerExplorer: true },
+        }),
+        prisma.$queryRaw<
+          { batchSize: unknown; status: unknown; tokens: unknown; mates: unknown }[]
+        >`
+        SELECT r.batchSize AS batchSize, t.status AS status,
+          COALESCE(l.inputTokens + l.outputTokens + l.cacheCreationTokens, 0) AS tokens,
+          (SELECT COUNT(*) FROM Task m WHERE m.batchRunId = r.id AND m.status = 'COMPLETED') AS mates
+        FROM AgentRun r
+        JOIN Task t ON t.id = r.taskId
+        LEFT JOIN TokenLog l ON l.runId = r.id AND l.scope = 'RUN_TOTAL'
+        WHERE r.batchSize IS NOT NULL AND r.startedAt >= ${sqlDate(window)}`,
+        prisma.qaReview.findMany({
+          where: { createdAt: { gte: window } },
+          select: {
+            taskId: true,
+            attempt: true,
+            verdict: true,
+            costUsd: true,
+            inputTokens: true,
+            outputTokens: true,
+          },
+          orderBy: { attempt: "asc" },
+        }),
+        prisma.mergeResolution.findMany({
+          where: { createdAt: { gte: window } },
+          select: { state: true, costUsd: true },
+        }),
+        prisma.insight.findMany({
+          where: { createdAt: { gte: window } },
+          select: { mode: true, tokens: true },
+        }),
+        prisma.ideationRun.findMany({
+          where: { createdAt: { gte: window }, status: "DONE" },
+          select: {
+            reviewedAt: true,
+            projectTokens: true,
+            snippetTokens: true,
+            modelTokens: true,
+            modelCostUsd: true,
+          },
+        }),
+      ],
+    );
+    const reviewedAnalyses = analyses.filter((run) => run.reviewedAt !== null);
+    const verdicts = new Map<string, string[]>();
+    for (const review of reviews)
+      verdicts.set(review.taskId, [...(verdicts.get(review.taskId) ?? []), review.verdict]);
+    const caught = [...verdicts.values()].filter((list) => list[0] === "FAIL");
+    const before: number[] = [];
+    const after: number[] = [];
+    for (const row of outputs) {
+      const at = new Date(String(row.startedAt)).getTime();
+      const value = Number(row.outputTokens ?? 0);
+      if (since && at >= since.getTime()) after.push(value);
+      else if (since && at >= from.getTime()) before.push(value);
+    }
+    const batched = { runs: 0, tokens: 0, tasks: 0 };
+    const single = { runs: 0, tokens: 0, tasks: 0 };
+    for (const row of batchRuns) {
+      const group = Number(row.batchSize) > 1 ? batched : single;
+      group.runs += 1;
+      group.tokens += Number(row.tokens ?? 0);
+      group.tasks += (row.status === "COMPLETED" ? 1 : 0) + Number(row.mates ?? 0);
+    }
+    return {
+      concise: {
+        enabled: options?.conciseAnswers ?? false,
+        since: options?.conciseSince ?? null,
+        before,
+        after,
+        windowDays: ACCOUNTING_DAYS,
+      },
+      exploration: {
+        enabled: options?.cheapExploration ?? false,
+        withExplorer: plans.flatMap((plan) =>
+          plan.plannerExplorer === true
+            ? [plan.plannerModelCostUsd ?? plan.plannerCostUsd ?? 0]
+            : [],
+        ),
+        without: plans.flatMap((plan) =>
+          plan.plannerExplorer === true ? [] : [plan.plannerCostUsd ?? 0],
+        ),
+      },
+      batching: { enabled: options?.batchSmallTasks ?? false, batched, single },
+      review: {
+        reviews: reviews.length,
+        nodes: verdicts.size,
+        caught: caught.length,
+        fixed: caught.filter((list) => list.at(-1) === "PASS").length,
+        tokens: reviews.reduce(
+          (sum, review) => sum + (review.inputTokens ?? 0) + (review.outputTokens ?? 0),
+          0,
+        ),
+        usd: reviews.reduce((sum, review) => sum + (review.costUsd ?? 0), 0),
+        windowDays: ACCOUNTING_DAYS,
+      },
+      insights: {
+        index: insights.filter((entry) => entry.mode === "INDEX").length,
+        model: insights.filter((entry) => entry.mode === "MODEL").length,
+        modelTokens: insights.flatMap((entry) =>
+          entry.mode === "MODEL" && entry.tokens !== null ? [entry.tokens] : [],
+        ),
+        windowDays: ACCOUNTING_DAYS,
+      },
+      ideation: {
+        analyses: analyses.length,
+        reviews: reviewedAnalyses.length,
+        snippetTokens: reviewedAnalyses.reduce((sum, run) => sum + (run.snippetTokens ?? 0), 0),
+        projectTokens: reviewedAnalyses.reduce((sum, run) => sum + (run.projectTokens ?? 0), 0),
+        modelTokens: reviewedAnalyses.reduce((sum, run) => sum + (run.modelTokens ?? 0), 0),
+        usd: reviewedAnalyses.reduce((sum, run) => sum + (run.modelCostUsd ?? 0), 0),
+        windowDays: ACCOUNTING_DAYS,
+      },
+      resolution: {
+        proposals: resolutions.length,
+        applied: resolutions.filter((entry) => entry.state === "APPLIED").length,
+        unusable: resolutions.filter((entry) => entry.state === "FAILED").length,
+        refused: resolutions.filter((entry) => entry.state === "DISCARDED").length,
+        usd: resolutions.reduce((sum, entry) => sum + (entry.costUsd ?? 0), 0),
+        windowDays: ACCOUNTING_DAYS,
+      },
+    };
+  }
+
+  private async signatureUse(now: Date) {
+    const result = await this.deps.prisma.agentRun.aggregate({
       where: {
-        contextArm: { not: null },
-        status: { in: MEASURED_STATUSES },
-        startedAt: { gte: new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS) },
+        startedAt: { gte: new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS) },
+        ctxSignatureTokens: { not: null },
       },
-      orderBy: { startedAt: "asc" },
-      select: {
-        contextArm: true,
-        status: true,
-        costUsd: true,
-        numTurns: true,
-        ctxReadFiles: true,
-        startedAt: true,
-        tokenLogs: { where: { scope: "RUN_TOTAL" }, take: 1 },
-      },
+      _sum: { ctxSignatureTokens: true },
+      _count: { _all: true },
     });
+    return {
+      runs: result._count._all,
+      tokens: result._sum.ctxSignatureTokens ?? 0,
+      windowDays: ACCOUNTING_DAYS,
+    };
+  }
+
+  private async memoryUse(now: Date) {
+    const since = new Date(now.getTime() - ACCOUNTING_DAYS * DAY_MS);
+    const [rows, experiment] = await Promise.all([
+      this.deps.prisma.$queryRaw<{ sessions: unknown; tokens: unknown }[]>`
+        SELECT COUNT(*) AS sessions, COALESCE(SUM(json_extract(memory, '$.tokens')), 0) AS tokens
+        FROM Session WHERE memory IS NOT NULL AND startedAt >= ${sqlDate(since)}`,
+      this.deps.memory?.experiment() ?? Promise.resolve(EMPTY_MEMORY_EXPERIMENT),
+    ]);
+    return {
+      experiment,
+      sessions: Number(rows[0]?.sessions ?? 0),
+      tokens: Number(rows[0]?.tokens ?? 0),
+      windowDays: ACCOUNTING_DAYS,
+    };
+  }
+
+  private async experimentSamples(now: Date): Promise<{
+    pack: ArmSample[];
+    control: ArmSample[];
+    variant: ArmSample[];
+    since: string | null;
+  }> {
+    const runs = await experimentRuns(
+      this.deps.prisma,
+      new Date(now.getTime() - EXPERIMENT_DAYS * DAY_MS),
+      MEASURED_STATUSES,
+    );
     const pack: ArmSample[] = [];
     const control: ArmSample[] = [];
+    const variant: ArmSample[] = [];
     for (const run of runs) {
-      const log = run.tokenLogs[0];
-      if (!log) continue;
+      if (run.inputTokens === null) continue;
       const sample: ArmSample = {
         completed: run.status === "COMPLETED",
-        contextTokens: log.inputTokens + log.cacheCreationTokens + log.cacheReadTokens,
-        outputTokens: log.outputTokens,
-        costUsd: run.costUsd ?? log.costUsd,
+        contextTokens:
+          run.inputTokens + (run.cacheCreationTokens ?? 0) + (run.cacheReadTokens ?? 0),
+        outputTokens: run.outputTokens ?? 0,
+        costUsd: run.costUsd ?? run.logCost,
         turns: run.numTurns,
         readFiles: run.ctxReadFiles ?? 0,
       };
-      (run.contextArm === "CONTROL" ? control : pack).push(sample);
+      (run.contextArm === "CONTROL"
+        ? control
+        : run.contextArm === "TARGET_L2"
+          ? variant
+          : pack
+      ).push(sample);
     }
-    return { pack, control, since: runs[0]?.startedAt.toISOString() ?? null };
+    const first = runs[0]?.startedAt;
+    return { pack, control, variant, since: first ? new Date(first).toISOString() : null };
   }
 
   private async otherSavings(now: Date): Promise<OtherSavings> {

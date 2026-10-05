@@ -303,6 +303,15 @@ describe("runs under a context profile", () => {
       },
     });
     expect(hook.json()).toEqual({});
+    const malformed = await context.app.inject({
+      method: "POST",
+      url: "/internal/hooks/pre-tool-use",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: "not an object" },
+    });
+    expect(malformed.json()).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
     context.container.runTokens.revoke("probe-run");
   });
 });

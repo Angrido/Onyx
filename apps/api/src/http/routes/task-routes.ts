@@ -4,6 +4,7 @@ import {
   ListTasksQuerySchema,
   RunEventsQuerySchema,
   RunTaskRequestSchema,
+  UpdateTaskRequestSchema,
   type BlockedCommandsResponse,
   type RunDto,
   type RunEventsResponse,
@@ -14,7 +15,8 @@ import {
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
-import { continuePrompt, mergeRules } from "../../domain/command-rules";
+import { continuePrompt } from "../../domain/command-rules";
+import { badRequest } from "../../errors";
 import { idParam } from "../params";
 
 export function registerTaskRoutes(app: FastifyInstance, container: Container): void {
@@ -32,6 +34,10 @@ export function registerTaskRoutes(app: FastifyInstance, container: Container): 
 
   app.get("/api/tasks/:id", async (request): Promise<TaskDetailDto> =>
     tasks.get(idParam(request.params)),
+  );
+
+  app.patch("/api/tasks/:id", async (request): Promise<TaskDto> =>
+    tasks.update(idParam(request.params), UpdateTaskRequestSchema.parse(request.body ?? {})),
   );
 
   app.delete("/api/tasks/:id", async (request, reply) => {
@@ -72,18 +78,45 @@ export function registerTaskRoutes(app: FastifyInstance, container: Container): 
 
   app.post("/api/runs/:id/allow", async (request, reply): Promise<RunTaskResponse> => {
     const body = AllowAndContinueRequestSchema.parse(request.body ?? {});
-    const blocked = await runs.blockedCommands(idParam(request.params));
-    const current = await projects.allowedTools(blocked.projectId);
-    await projects.setAllowedTools(
-      blocked.projectId,
-      mergeRules(current, body.rules),
-      request.user ? `user:${request.user.username}` : "user:unknown",
-    );
+    const runId = idParam(request.params);
+    const blocked = await runs.blockedCommands(runId);
+    const proposed = new Map(blocked.suggestions.map((entry) => [entry.rule, entry]));
+    const unknown = body.rules.filter((rule) => !proposed.has(rule));
+    if (unknown.length > 0)
+      throw badRequest(
+        `Only the rules proposed for the refused commands can be allowed here: ${unknown.join(", ")}`,
+      );
+    await projects.grant({
+      projectId: blocked.projectId,
+      rules: body.rules
+        .filter((rule) => !proposed.get(rule)?.allowed)
+        .map((rule) => ({ rule, command: proposed.get(rule)?.command ?? null })),
+      scope: body.scope,
+      taskId: blocked.taskId,
+      agentConfigId: blocked.agentConfigId,
+      expiresAt:
+        body.expiresInHours === null
+          ? null
+          : new Date(Date.now() + body.expiresInHours * 3_600_000),
+      actor: request.user ? `user:${request.user.username}` : "user:unknown",
+    });
     const response = await tasks.requestRun(blocked.taskId, {
       prompt: continuePrompt(body.rules, body.reply),
       newSession: false,
     });
     reply.status(202);
     return response;
+  });
+
+  app.delete("/api/projects/:id/command-grants/:grantId", async (request, reply) => {
+    const params = request.params as { grantId?: unknown };
+    if (typeof params.grantId !== "string" || params.grantId.length === 0)
+      throw badRequest("Missing grant id");
+    await projects.revokeGrant(
+      idParam(request.params),
+      params.grantId,
+      request.user ? `user:${request.user.username}` : "user:unknown",
+    );
+    reply.status(204);
   });
 }

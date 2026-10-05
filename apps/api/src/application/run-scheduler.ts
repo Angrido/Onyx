@@ -1,7 +1,8 @@
 import type { AgentPool } from "@onyx/agent-runtime";
-import type { RunStatus } from "@onyx/contracts";
+import type { QueueItemKind, QueueWaitReason, RunStatus } from "@onyx/contracts";
 import type { Logger } from "pino";
 import type { WsHub } from "../infrastructure/ws-hub";
+import { MAX_BATCH } from "../domain/batch";
 import type { ExecutionResult, RunExecutor, RunRequest } from "./run-executor";
 
 export interface QueuedRun {
@@ -10,7 +11,11 @@ export interface QueuedRun {
   projectId?: string;
   lockKey?: string;
   priority: number;
+  canWait?: boolean;
   enqueuedAt: number;
+  rank?: number;
+  kind?: QueueItemKind;
+  small?: boolean;
   holdId?: string;
   onFinished?: (result: ExecutionResult | null) => void;
 }
@@ -36,15 +41,35 @@ export type WorkspaceHold =
 export type Admission =
   { decision: "go" } | { decision: "hold"; reason: string } | { decision: "deny"; reason: string };
 
+export interface QueuePolicy {
+  agingMs: number;
+  limitOf: (projectId: string) => number | null;
+  batching?: boolean;
+}
+
+export type QueueMove = "top" | "up" | "down" | "bottom";
+
+export interface ActiveRun {
+  taskId: string;
+  projectId: string | null;
+  runId: string | null;
+  startedAt: number;
+}
+
+const NO_POLICY: QueuePolicy = { agingMs: 0, limitOf: () => null };
+
 export interface RunSchedulerDeps {
   executor: RunExecutor;
   pool: AgentPool;
   hub: WsHub;
   logger: Logger;
   maxConcurrent: number;
-  admit?: (projectId: string | null) => Admission;
+  admit?: (item: QueuedRun) => Admission;
   reject?: (item: QueuedRun, reason: string) => Promise<void>;
-  afterRun?: (taskId: string) => void;
+  afterRun?: (taskId: string, outcome: ExecutionResult) => void;
+  policy?: () => QueuePolicy;
+  now?: () => number;
+  prepare?: (item: QueuedRun) => Promise<void> | null;
 }
 
 export class RunScheduler {
@@ -55,6 +80,10 @@ export class RunScheduler {
   private readonly projectsByTask = new Map<string, string | null>();
   private readonly pendingAborts = new Set<string>();
   private readonly holds = new Map<string, string>();
+  private readonly waiting = new Map<string, QueueWaitReason>();
+  private readonly startedAt = new Map<string, number>();
+  private readonly preparing = new Map<QueuedRun, Promise<void>>();
+  private readonly prepared = new WeakSet<QueuedRun>();
   private nextHoldId = 1;
   private inFlight = 0;
   private reserved = 0;
@@ -68,6 +97,66 @@ export class RunScheduler {
 
   get activeCount(): number {
     return this.inFlight;
+  }
+
+  queuedRuns(): readonly QueuedRun[] {
+    return this.ordered();
+  }
+
+  waitingReason(taskId: string): QueueWaitReason | null {
+    return this.waiting.get(taskId) ?? null;
+  }
+
+  effectivePriority(item: QueuedRun): number {
+    return item.priority + this.boost(item);
+  }
+
+  activeRuns(): ActiveRun[] {
+    return [...this.startedAt].map(([taskId, startedAt]) => ({
+      taskId,
+      projectId: this.projectsByTask.get(taskId) ?? null,
+      runId: this.runsByTask.get(taskId) ?? null,
+      startedAt,
+    }));
+  }
+
+  runningIn(projectId: string): number {
+    let count = 0;
+    for (const owner of this.projectsByTask.values()) if (owner === projectId) count += 1;
+    return count;
+  }
+
+  move(taskId: string, to: QueueMove): QueuedRun | null {
+    const ordered = this.ordered();
+    const index = ordered.findIndex((item) => item.request.taskId === taskId);
+    const item = ordered[index];
+    if (!item) return null;
+    const target =
+      to === "top" ? 0 : to === "bottom" ? ordered.length - 1 : to === "up" ? index - 1 : index + 1;
+    const anchor = ordered[target];
+    if (!anchor || target === index) return item;
+    const level = this.effectivePriority(anchor);
+    const step = target < index ? -1 : 1;
+    const beyond = to === "top" || to === "bottom" ? undefined : ordered[target + step];
+    const anchorRank = this.rankOf(anchor);
+    item.priority = level - this.boost(item);
+    item.rank =
+      beyond && beyond !== item && this.effectivePriority(beyond) === level
+        ? (anchorRank + this.rankOf(beyond)) / 2
+        : anchorRank + step;
+    this.announce("reordered", taskId, null, null);
+    this.dispatch();
+    return item;
+  }
+
+  setPriority(taskId: string, priority: number): void {
+    for (const item of this.queue)
+      if (item.request.taskId === taskId) {
+        item.priority = priority;
+        delete item.rank;
+      }
+    this.announce("reordered", taskId, null, null);
+    this.dispatch();
   }
 
   isQueued(taskId: string): boolean {
@@ -133,24 +222,27 @@ export class RunScheduler {
 
   enqueue(item: QueuedRun): number {
     if (this.stopped) throw new Error("Scheduler is stopped");
-    const index = this.queue.findIndex(
-      (queued) =>
-        queued.priority < item.priority ||
-        (queued.priority === item.priority && queued.enqueuedAt > item.enqueuedAt),
-    );
-    if (index === -1) this.queue.push(item);
-    else this.queue.splice(index, 0, item);
+    if (this.isQueued(item.request.taskId))
+      throw new Error(`Task ${item.request.taskId} is already queued`);
+    this.queue.push(item);
     this.announce("queued", item.request.taskId, null, null);
     this.dispatch();
-    const position = this.queue.indexOf(item);
+    const position = this.ordered().indexOf(item);
     return position === -1 ? 0 : position + 1;
+  }
+
+  setCanWait(taskId: string, canWait: boolean): void {
+    for (const item of this.queue) if (item.request.taskId === taskId) item.canWait = canWait;
+    this.dispatch();
   }
 
   removeQueued(taskId: string): boolean {
     const index = this.queue.findIndex((item) => item.request.taskId === taskId);
     if (index === -1) return false;
     const [removed] = this.queue.splice(index, 1);
+    this.waiting.delete(taskId);
     removed?.onFinished?.(null);
+    this.announce("reordered", taskId, null, null);
     return true;
   }
 
@@ -182,14 +274,15 @@ export class RunScheduler {
 
   async shutdown(): Promise<void> {
     this.stopped = true;
+    this.waiting.clear();
     for (const item of this.queue.splice(0)) item.onFinished?.(null);
     await this.deps.pool.shutdown();
     await Promise.allSettled([...this.executions.values()]);
   }
 
   async idle(): Promise<void> {
-    while (this.executions.size > 0) {
-      await Promise.allSettled([...this.executions.values()]);
+    while (this.executions.size > 0 || this.preparing.size > 0) {
+      await Promise.allSettled([...this.executions.values(), ...this.preparing.values()]);
     }
   }
 
@@ -206,18 +299,58 @@ export class RunScheduler {
     return aborted;
   }
 
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
+
+  private policy(): QueuePolicy {
+    return this.deps.policy?.() ?? NO_POLICY;
+  }
+
+  private boost(item: QueuedRun, agingMs = this.policy().agingMs): number {
+    if (agingMs <= 0) return 0;
+    return Math.max(0, Math.floor((this.now() - item.enqueuedAt) / agingMs));
+  }
+
+  private rankOf(item: QueuedRun): number {
+    return item.rank ?? item.enqueuedAt;
+  }
+
+  private ordered(): QueuedRun[] {
+    const { agingMs } = this.policy();
+    const level = new Map(
+      this.queue.map((item) => [item, item.priority + this.boost(item, agingMs)]),
+    );
+    return [...this.queue].sort(
+      (left, right) =>
+        (level.get(right) ?? 0) - (level.get(left) ?? 0) ||
+        this.rankOf(left) - this.rankOf(right) ||
+        left.enqueuedAt - right.enqueuedAt,
+    );
+  }
+
   private dispatch(): void {
     if (this.stopped) return;
-    let index = 0;
-    while (index < this.queue.length && this.inFlight + this.reserved < this.deps.maxConcurrent) {
-      const item = this.queue[index];
-      const admission = item && this.deps.admit ? this.deps.admit(item.projectId ?? null) : null;
-      if (item && admission?.decision === "hold") {
-        index += 1;
+    const policy = this.policy();
+    const running = new Map<string, number>();
+    for (const owner of this.projectsByTask.values())
+      if (owner !== null) running.set(owner, (running.get(owner) ?? 0) + 1);
+    this.waiting.clear();
+    for (const item of this.ordered()) {
+      if (!this.queue.includes(item)) continue;
+      if (!this.ready(item)) continue;
+      const taskId = item.request.taskId;
+      if (this.inFlight + this.reserved >= this.deps.maxConcurrent) {
+        this.waiting.set(taskId, "SLOTS");
         continue;
       }
-      if (item && admission?.decision === "deny") {
-        this.queue.splice(index, 1);
+      const admission = this.deps.admit ? this.deps.admit(item) : null;
+      if (admission?.decision === "hold") {
+        this.waiting.set(taskId, "QUOTA");
+        continue;
+      }
+      if (admission?.decision === "deny") {
+        this.queue.splice(this.queue.indexOf(item), 1);
         void (this.deps.reject?.(item, admission.reason) ?? Promise.resolve())
           .catch((error: unknown) =>
             this.deps.logger.error({ err: error }, "Could not reject a queued run"),
@@ -225,18 +358,71 @@ export class RunScheduler {
           .finally(() => item.onFinished?.(null));
         continue;
       }
-      const holder = item ? this.holds.get(lockOf(item)) : undefined;
+      const holder = this.holds.get(lockOf(item));
       if (
-        !item ||
         this.busyWorkspaces.has(lockOf(item)) ||
         (holder !== undefined && holder !== item.holdId)
       ) {
-        index += 1;
+        this.waiting.set(taskId, "WORKSPACE");
         continue;
       }
-      this.queue.splice(index, 1);
+      const limit = item.projectId ? policy.limitOf(item.projectId) : null;
+      if (item.projectId && limit !== null && (running.get(item.projectId) ?? 0) >= limit) {
+        this.waiting.set(taskId, "PROJECT");
+        continue;
+      }
+      this.queue.splice(this.queue.indexOf(item), 1);
+      if (item.projectId) running.set(item.projectId, (running.get(item.projectId) ?? 0) + 1);
+      if (policy.batching) this.gather(item);
       this.start(item);
     }
+  }
+
+  private ready(item: QueuedRun): boolean {
+    if (this.prepared.has(item)) return true;
+    if (this.preparing.has(item)) return false;
+    const wait = this.deps.prepare?.(item) ?? null;
+    if (wait === null) {
+      this.prepared.add(item);
+      return true;
+    }
+    const settled = wait
+      .catch((error: unknown) =>
+        this.deps.logger.warn(
+          { err: error, taskId: item.request.taskId },
+          "Run preparation failed before it took a slot",
+        ),
+      )
+      .finally(() => {
+        this.preparing.delete(item);
+        this.prepared.add(item);
+        this.dispatch();
+      });
+    this.preparing.set(item, settled);
+    return false;
+  }
+
+  private gather(item: QueuedRun): void {
+    if (!item.small || (item.kind ?? "TASK") !== "TASK" || item.request.batch || item.onFinished)
+      return;
+    const mates = this.ordered()
+      .filter(
+        (other) =>
+          other !== item &&
+          other.small === true &&
+          (other.kind ?? "TASK") === "TASK" &&
+          other.onFinished === undefined &&
+          other.request.batch === undefined &&
+          lockOf(other) === lockOf(item),
+      )
+      .slice(0, MAX_BATCH - 1);
+    if (mates.length === 0) return;
+    for (const mate of mates) {
+      this.queue.splice(this.queue.indexOf(mate), 1);
+      this.waiting.delete(mate.request.taskId);
+    }
+    item.request.batch = mates.map((mate) => mate.request.taskId);
+    this.announce("reordered", item.request.taskId, null, null);
   }
 
   private start(item: QueuedRun): void {
@@ -244,6 +430,7 @@ export class RunScheduler {
     this.inFlight += 1;
     this.busyWorkspaces.add(lockOf(item));
     this.projectsByTask.set(taskId, item.projectId ?? null);
+    this.startedAt.set(taskId, this.now());
     let outcome: ExecutionResult | null = null;
     let handedOver = false;
     const execution = this.deps.executor
@@ -266,6 +453,8 @@ export class RunScheduler {
             ...(item.projectId ? { projectId: item.projectId } : {}),
             ...(item.lockKey ? { lockKey: item.lockKey } : {}),
             ...(item.onFinished ? { onFinished: item.onFinished } : {}),
+            ...(item.canWait ? { canWait: true } : {}),
+            ...(item.kind ? { kind: item.kind } : {}),
             priority: item.priority,
             enqueuedAt: Date.now(),
           });
@@ -279,11 +468,12 @@ export class RunScheduler {
         this.busyWorkspaces.delete(lockOf(item));
         this.runsByTask.delete(taskId);
         this.projectsByTask.delete(taskId);
+        this.startedAt.delete(taskId);
         this.pendingAborts.delete(taskId);
         this.executions.delete(taskId);
         try {
           if (!handedOver) item.onFinished?.(outcome);
-          if (outcome) this.deps.afterRun?.(taskId);
+          if (outcome) this.deps.afterRun?.(taskId, outcome);
         } catch (error) {
           this.deps.logger.error({ err: error, taskId }, "Run completion listener failed");
         }
@@ -297,7 +487,7 @@ export class RunScheduler {
   }
 
   private announce(
-    event: "queued" | "started" | "finished",
+    event: "queued" | "started" | "finished" | "reordered",
     taskId: string,
     runId: string | null,
     status: RunStatus | null,

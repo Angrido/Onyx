@@ -180,6 +180,7 @@ let planPath: string;
 let editsPath: string;
 let context: TestContext;
 let api: ApiClient;
+let sessionCookie: string;
 
 function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, env: GIT_ENV }).toString().trim();
@@ -267,7 +268,8 @@ beforeAll(async () => {
   const address = context.app.server.address();
   if (address === null || typeof address === "string") throw new Error("API is not listening");
   context.container.config.internalApiUrl = `http://127.0.0.1:${address.port}`;
-  api = apiClient(context.app, await authenticate(context.app));
+  sessionCookie = await authenticate(context.app);
+  api = apiClient(context.app, sessionCookie);
 }, 60_000);
 
 afterAll(async () => {
@@ -302,7 +304,18 @@ describe("multi-agent orchestrator", () => {
     );
     expect(planned.status).toBe("AWAITING_APPROVAL");
     expect(planned.summary).toBe(CART_PLAN.summary);
-    expect(planned.plannerCostUsd).toBeGreaterThan(0);
+    expect(planned.plannerCostUsd).toBeCloseTo(0.0031);
+    const stored = await context.container.prisma.orchestration.findUnique({
+      where: { id: planned.id },
+    });
+    expect(stored).toMatchObject({ plannerExplorer: true, plannerModelCostUsd: 0.0025 });
+    const logs = await context.container.prisma.tokenLog.findMany({
+      where: { purpose: "planner" },
+    });
+    expect(logs.map((log) => log.modelId).sort()).toEqual([
+      "claude-haiku-4-5",
+      planned.plannerModelId,
+    ]);
     expect(planned.approvalId).not.toBeNull();
     expect(
       planned.nodes.map((node) => [node.key, node.level, node.workspaceName, node.state]),
@@ -322,6 +335,13 @@ describe("multi-agent orchestrator", () => {
       approveLabel: "Approve and run",
       link: `/projects/${project.id}/plans/${planned.id}`,
     });
+    expect(approval?.title).toMatch(/^Plan for shop: /);
+    expect(approval?.detail).toMatch(/^3 tasks: /);
+    const italian = apiClient(context.app, `${sessionCookie}; onyx_locale=it`);
+    const shown = (await italian.get<ApprovalDto>(`/api/approvals/${planned.approvalId}`)).body;
+    expect(shown.title).toBe(approval?.title.replace(/^Plan for shop: /, "Piano per shop: "));
+    expect(shown.detail).toBe(approval?.detail?.replace(/^3 tasks: /, "3 task: "));
+    await apiClient(context.app, `${sessionCookie}; onyx_locale=en`).get("/api/approvals");
     const listed = await api.get<OrchestrationListResponse>(
       `/api/projects/${project.id}/orchestrations`,
     );
@@ -345,6 +365,12 @@ describe("multi-agent orchestrator", () => {
       180_000,
     );
     expect(finished.message).toBe(`Merged 3 tasks into ${running.workBranch}`);
+    const italianPlan = await apiClient(
+      context.app,
+      `${sessionCookie}; onyx_locale=it`,
+    ).get<OrchestrationDto>(`/api/orchestrations/${planned.id}`);
+    expect(italianPlan.body.message).toBe(`Uniti 3 task in ${running.workBranch}`);
+    await apiClient(context.app, `${sessionCookie}; onyx_locale=en`).get("/api/approvals");
     expect(finished.status).toBe("COMPLETED");
     expect(finished.nodes.every((node) => node.state === "merged")).toBe(true);
     expect(finished.nodes.every((node) => node.taskStatus === "COMPLETED")).toBe(true);
@@ -427,6 +453,144 @@ describe("multi-agent orchestrator", () => {
     });
     expect(budget.body.spentUsd).toBeCloseTo(finished.costUsd, 4);
     await api.delete(`/api/budgets/${budget.body.id}`);
+  }, 240_000);
+
+  it("ignores tests that were already red before the plan but not a node's own tests", async () => {
+    const legacyTest = [
+      'import { expect, it } from "vitest";',
+      'import { legacy } from "./legacy";',
+      "",
+      'it("is still broken", () => {',
+      "  expect(legacy()).toBe(2);",
+      "});",
+      "",
+    ].join("\n");
+    createRepo(
+      "red-shop",
+      {
+        "package.json": JSON.stringify({
+          name: "red-shop",
+          type: "module",
+          private: true,
+          devDependencies: { vitest: "*" },
+        }),
+        "tsconfig.json": TSCONFIG,
+        "src/server/legacy.ts": "export function legacy(): number {\n  return 1;\n}\n",
+        "src/server/legacy.test.ts": legacyTest,
+        "src/server/price.ts":
+          "export function price(cents: number): number {\n  return cents;\n}\n",
+        "src/server/price.test.ts": PRICE_TEST,
+      },
+      true,
+    );
+    const project = await registerProject("red-shop");
+    const body = {
+      summary: "Fix the price conversion and add a badge.",
+      tasks: [
+        {
+          key: "fix-price",
+          title: "Fix price",
+          description: "Fix price(cents) in src/server/price.ts.",
+          workspace: "Backend",
+          dependsOn: [],
+          targetPaths: ["src/server/price.ts"],
+          acceptance: ["src/server/price.test.ts passes"],
+        },
+        {
+          key: "badge",
+          title: "Badge",
+          description: "Add badge(amount) in src/app/badge.ts with a unit test.",
+          workspace: "Frontend",
+          dependsOn: [],
+          targetPaths: ["src/app/badge.ts"],
+          acceptance: ["src/app/badge.test.ts passes"],
+        },
+      ],
+    };
+    const edits = {
+      "Fix price(cents)": {
+        edits: [{ tool: "Write", file: "src/server/price.ts", content: PRICE }],
+      },
+      "Add badge(amount)": {
+        edits: [
+          { tool: "Write", file: "src/app/badge.ts", content: BADGE },
+          { tool: "Write", file: "src/app/badge.test.ts", content: BADGE_TEST },
+        ],
+      },
+    };
+    const planned = await plan(project, "Fix prices and add a badge", body, edits);
+    expect((await api.post(`/api/orchestrations/${planned.id}/approve`)).status).toBe(200);
+    const finished = await waitForPlan(
+      planned.id,
+      (entry) => !["RUNNING", "VERIFYING", "AWAITING_APPROVAL"].includes(entry.status),
+      180_000,
+    );
+    expect(finished.status).toBe("COMPLETED");
+    expect(finished.nodes.map((node) => [node.key, node.state])).toEqual([
+      ["fix-price", "merged"],
+      ["badge", "merged"],
+    ]);
+    const loops = await context.container.prisma.tddLoop.findMany({
+      where: { task: { parentTaskId: finished.rootTaskId } },
+      include: { task: { select: { planKey: true } } },
+    });
+    const message = (key: string) => loops.find((loop) => loop.task.planKey === key)?.message ?? "";
+    expect(message("badge")).toContain("ignored 2 failures that already failed before this work");
+    expect(message("badge")).toContain("src/server/price.test.ts › converts cents");
+    expect(message("fix-price")).toContain("ignored 1 failure");
+    expect(message("fix-price")).toContain("src/server/legacy.test.ts › is still broken");
+    expect(message("fix-price")).not.toContain("price.test.ts");
+    const verification = await api.get<TddLoopDto>(`/api/tdd-loops/${finished.verifyLoopId}`);
+    expect(verification.body.status).toBe("GREEN");
+    expect(verification.body.message).toContain("src/server/legacy.test.ts › is still broken");
+    const worktrees = join(context.dataDir, "worktrees", project.id, planned.id);
+    expect(existsSync(worktrees) ? readdirSync(worktrees) : []).toEqual([]);
+  }, 240_000);
+
+  it("still fails a node that leaves its own test red", async () => {
+    createRepo(
+      "stubborn-shop",
+      {
+        "package.json": JSON.stringify({
+          name: "stubborn-shop",
+          type: "module",
+          private: true,
+          devDependencies: { vitest: "*" },
+        }),
+        "tsconfig.json": TSCONFIG,
+        "src/server/price.ts":
+          "export function price(cents: number): number {\n  return cents;\n}\n",
+        "src/server/price.test.ts": PRICE_TEST,
+      },
+      true,
+    );
+    const project = await registerProject("stubborn-shop");
+    const body = {
+      summary: "Fix the price conversion.",
+      tasks: [
+        {
+          key: "fix-price",
+          title: "Fix price",
+          description: "Repair price(cents) in src/server/price.ts.",
+          workspace: "Backend",
+          dependsOn: [],
+          targetPaths: ["src/server/price.ts"],
+          acceptance: ["src/server/price.test.ts passes"],
+        },
+      ],
+    };
+    const planned = await plan(project, "Fix prices", body, {
+      "Repair price(cents)": { edits: [] },
+    });
+    expect((await api.post(`/api/orchestrations/${planned.id}/approve`)).status).toBe(200);
+    const finished = await waitForPlan(
+      planned.id,
+      (entry) => !["RUNNING", "VERIFYING", "AWAITING_APPROVAL"].includes(entry.status),
+      180_000,
+    );
+    expect(finished.status).toBe("FAILED");
+    expect(finished.nodes[0]?.state).toBe("failed");
+    expect(finished.nodes[0]?.message).toContain("The tests did not pass");
   }, 240_000);
 
   it("asks how to handle a merge conflict, then resumes the plan", async () => {

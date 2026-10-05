@@ -1,5 +1,7 @@
 import type { ProcessExit } from "@onyx/agent-runtime";
 import type { RunItemOf, RunStatus, TaskStatus } from "@onyx/contracts";
+import { interpolate } from "../i18n";
+import { RUN_TEXT } from "./run-texts";
 
 export interface RunOutcome {
   runStatus: RunStatus;
@@ -8,9 +10,9 @@ export interface RunOutcome {
 }
 
 const TIMEOUT_MESSAGES = {
-  wall_clock_timeout: "Run exceeded its wall-clock limit",
-  idle_timeout: "Run produced no output within the idle limit",
-  init_timeout: "Claude Code did not initialise in time",
+  wall_clock_timeout: RUN_TEXT.wallClock,
+  idle_timeout: RUN_TEXT.idle,
+  init_timeout: RUN_TEXT.init,
 } as const;
 
 function lastLine(text: string): string | null {
@@ -27,12 +29,12 @@ export function resolveRunOutcome(
 ): RunOutcome {
   switch (exit.reason) {
     case "aborted":
-      return { runStatus: "ABORTED", taskStatus: "CANCELLED", errorMessage: "Aborted by operator" };
+      return { runStatus: "ABORTED", taskStatus: "CANCELLED", errorMessage: RUN_TEXT.aborted };
     case "shutdown":
       return {
         runStatus: "INTERRUPTED",
         taskStatus: "INTERRUPTED",
-        errorMessage: "Interrupted by Onyx shutdown",
+        errorMessage: RUN_TEXT.shutdown,
       };
     case "wall_clock_timeout":
     case "idle_timeout":
@@ -46,7 +48,7 @@ export function resolveRunOutcome(
       return {
         runStatus: "FAILED",
         taskStatus: "FAILED",
-        errorMessage: `Unable to start Claude Code: ${exit.error ?? "unknown error"}`,
+        errorMessage: interpolate(RUN_TEXT.spawn, { error: exit.error ?? RUN_TEXT.unknownError }),
       };
     case "completed":
       break;
@@ -60,7 +62,7 @@ export function resolveRunOutcome(
       return {
         runStatus: "ABORTED",
         taskStatus: "CANCELLED",
-        errorMessage: "Run aborted by Claude Code",
+        errorMessage: RUN_TEXT.claudeAborted,
       };
     }
     const reported = result.subtype === "success" ? lastLine(result.resultText ?? "") : null;
@@ -69,20 +71,27 @@ export function resolveRunOutcome(
       runStatus: "FAILED",
       taskStatus: "FAILED",
       errorMessage: reported
-        ? `Claude Code reported an error: ${reported.slice(0, 300)}`
+        ? interpolate(RUN_TEXT.reported, { error: reported.slice(0, 300) })
         : cause
-          ? `Claude Code finished with ${result.subtype}: ${cause.slice(0, 300)}`
-          : `Claude Code finished with ${result.subtype}`,
+          ? interpolate(RUN_TEXT.finishedWithCause, {
+              subtype: result.subtype,
+              cause: cause.slice(0, 300),
+            })
+          : interpolate(RUN_TEXT.finished, { subtype: result.subtype }),
     };
   }
 
   const detail = lastLine(exit.stderrTail);
   const exitDescription =
-    exit.signal !== null ? `signal ${exit.signal}` : `exit code ${exit.exitCode ?? "unknown"}`;
+    exit.signal !== null
+      ? interpolate(RUN_TEXT.signal, { signal: exit.signal })
+      : interpolate(RUN_TEXT.exitCode, { code: exit.exitCode ?? "unknown" });
   return {
     runStatus: "FAILED",
     taskStatus: "FAILED",
-    errorMessage: `Claude Code exited without a result (${exitDescription})${detail ? `: ${detail}` : ""}`,
+    errorMessage: detail
+      ? interpolate(RUN_TEXT.exitedWithDetail, { exit: exitDescription, detail })
+      : interpolate(RUN_TEXT.exited, { exit: exitDescription }),
   };
 }
 

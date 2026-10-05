@@ -13,8 +13,10 @@ import { GitHubMark } from "@/components/ui/github-mark";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { GITHUB_TOKEN_URL } from "@/lib/github";
+import { useT } from "@/lib/i18n/client";
 
 export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const account = useQuery({
@@ -30,25 +32,29 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
     onSuccess: (next) => {
       store(next);
       setToken("");
-      toast.success(`Connected to GitHub as ${next.login ?? "your account"}`);
+      toast.success(
+        next.login
+          ? t("Connected to GitHub as {login}", { login: next.login })
+          : t("Connected to GitHub"),
+      );
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
   const disconnect = useMutation({
     mutationFn: () => api.delete<GitHubAccountDto>("/api/github/token"),
     onSuccess: store,
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, t)),
   });
 
   return (
-    <Card data-testid="github-account">
+    <Card id="github" data-testid="github-account">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <GitHubMark className="size-4" />
           GitHub
         </CardTitle>
         <CardDescription>
-          Used to list and clone your repositories and to push the branches Onyx prepares.
+          {t("Used to list and clone your repositories and to push the branches Onyx prepares.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -59,7 +65,7 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
             <XCircle className="size-4 text-muted-foreground" />
           )}
           <span className="text-sm font-medium">
-            {data.connected ? (data.login ?? "Token saved") : "Not connected"}
+            {data.connected ? (data.login ?? t("Token saved")) : t("Not connected")}
           </span>
           {data.source === "env" ? <Badge>ONYX_GITHUB_TOKEN</Badge> : null}
           {data.error ? <span className="text-xs text-destructive">{data.error}</span> : null}
@@ -72,7 +78,7 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
               disabled={disconnect.isPending}
             >
               <LogOut />
-              Disconnect
+              {t("Disconnect")}
             </Button>
           ) : null}
         </div>
@@ -85,9 +91,8 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
             }}
           >
             <Field
-              label={data.connected ? "Replace the token" : "Personal access token"}
+              label={data.connected ? t("Replace the token") : t("Personal access token")}
               htmlFor="settings-github-token"
-              hint="Fine-grained token with Contents read and write on the repositories Onyx works on (read-only is enough to clone, write is needed to push branches)."
             >
               <div className="flex gap-2">
                 <Input
@@ -95,7 +100,7 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
                   type="password"
                   autoComplete="off"
                   className="font-mono text-xs"
-                  placeholder="github_pat_… or ghp_…"
+                  placeholder={t("github_pat_… or ghp_…")}
                   value={token}
                   onChange={(event) => setToken(event.target.value)}
                 />
@@ -105,17 +110,43 @@ export function GitHubAccountCard({ initial }: { initial: GitHubAccountDto }) {
                   disabled={connect.isPending || token.trim().length < 20}
                 >
                   {connect.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
-                  Connect
+                  {t("Connect")}
                 </Button>
               </div>
             </Field>
+            <div
+              className="space-y-1 text-xs text-muted-foreground"
+              data-testid="github-permissions"
+            >
+              <p>
+                {t(
+                  "Create a fine-grained token on the repositories Onyx works on, with these permissions:",
+                )}
+              </p>
+              <ul className="list-disc space-y-0.5 pl-5">
+                <li>
+                  <span className="font-medium text-foreground">{"Contents"}</span>{" "}
+                  {t("read and write: clone and push branches (read only is enough to clone)")}
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">{"Pull requests"}</span>{" "}
+                  {t("read and write: open pull requests")}
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">
+                    {"Issues, Checks, Commit statuses"}
+                  </span>{" "}
+                  {t("read only: import issues and follow the checks")}
+                </li>
+              </ul>
+            </div>
             <a
               href={GITHUB_TOKEN_URL}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
             >
-              Create a token on GitHub
+              {t("Create a token on GitHub")}
               <ExternalLink className="size-3" />
             </a>
           </form>

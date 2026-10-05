@@ -5,6 +5,7 @@ import {
   type ModelProfileDto,
   type ProjectDto,
   type RunDto,
+  type RunSummaryDto,
   type SessionDto,
   type TaskDto,
   type TokenUsage,
@@ -21,6 +22,8 @@ import type {
   TokenLog,
   Workspace,
 } from "@onyx/db";
+import { localizeRationale } from "../domain/routing/rationale";
+import { localizeRunText } from "../domain/run-texts";
 
 export function toStringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -141,7 +144,7 @@ export function toRunDto(run: RunWithRelations): RunDto {
     numTurns: run.numTurns,
     durationMs: run.durationMs,
     costUsd: run.costUsd,
-    errorMessage: run.errorMessage,
+    errorMessage: localizeRunText(run.errorMessage),
     cliVersion: run.cliVersion,
     usage: usageFromTokenLog(run.tokenLogs[0]),
     context: {
@@ -154,6 +157,13 @@ export function toRunDto(run: RunWithRelations): RunDto {
       rereadTokens: run.ctxRereadTokens,
       missedFiles: run.ctxMissedFiles,
       rereadPaths: toStringArray(run.ctxRereadPaths),
+      reusedTokens: run.ctxReusedTokens,
+    },
+    cache: {
+      loss: run.cacheLoss,
+      readTokens: run.cacheReadTokens,
+      writeTokens: run.cacheWriteTokens,
+      lostTokens: run.cacheLostTokens,
     },
     guardDenials: run.guardDenials,
     changedFiles: toStringArray(run.changedFiles),
@@ -161,7 +171,7 @@ export function toRunDto(run: RunWithRelations): RunDto {
       ? {
           strategy: run.routingDecision.strategy,
           tier: run.routingDecision.tier,
-          rationale: run.routingDecision.rationale,
+          rationale: localizeRationale(run.routingDecision.rationale),
         }
       : null,
     startedAt: iso(run.startedAt),
@@ -169,10 +179,39 @@ export function toRunDto(run: RunWithRelations): RunDto {
   };
 }
 
-export type TaskWithLastRun = Task & { runs: RunWithRelations[] };
+export type RunSummaryRow = Pick<
+  AgentRun,
+  "id" | "status" | "modelId" | "costUsd" | "changedFiles" | "startedAt" | "endedAt"
+>;
+
+export type TaskWithLastRun = Task & { runs: RunSummaryRow[] };
+
+export const RUN_SUMMARY_SELECT = {
+  id: true,
+  status: true,
+  modelId: true,
+  costUsd: true,
+  changedFiles: true,
+  startedAt: true,
+  endedAt: true,
+} as const;
 
 export function taskIncludeLastRun() {
-  return { runs: { orderBy: { startedAt: "desc" as const }, take: 1, include: RUN_INCLUDE } };
+  return {
+    runs: { orderBy: { startedAt: "desc" as const }, take: 1, select: RUN_SUMMARY_SELECT },
+  };
+}
+
+export function toRunSummaryDto(run: RunSummaryRow): RunSummaryDto {
+  return {
+    id: run.id,
+    status: run.status,
+    modelId: run.modelId,
+    costUsd: run.costUsd,
+    changedFileCount: toStringArray(run.changedFiles).length,
+    startedAt: iso(run.startedAt),
+    endedAt: run.endedAt ? iso(run.endedAt) : null,
+  };
 }
 
 export function toTaskDto(task: TaskWithLastRun): TaskDto {
@@ -190,11 +229,21 @@ export function toTaskDto(task: TaskWithLastRun): TaskDto {
     modelOverride: task.modelOverride,
     targetPaths: toStringArray(task.targetPaths),
     branchName: task.branchName,
+    canWait: task.canWait,
     createdAt: iso(task.createdAt),
     updatedAt: iso(task.updatedAt),
     startedAt: isoOrNull(task.startedAt),
     completedAt: isoOrNull(task.completedAt),
-    lastRun: lastRun ? toRunDto(lastRun) : null,
+    lastRun: lastRun ? toRunSummaryDto(lastRun) : null,
+    issue:
+      task.issueRepo && task.issueNumber !== null && task.issueUrl
+        ? {
+            repo: task.issueRepo,
+            number: task.issueNumber,
+            url: task.issueUrl,
+            labels: toStringArray(task.issueLabels),
+          }
+        : null,
   };
 }
 

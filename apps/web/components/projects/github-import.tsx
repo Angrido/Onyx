@@ -34,11 +34,13 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { GITHUB_TOKEN_URL, filterRepos, formatRepoSize, projectNameFor } from "@/lib/github";
+import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 const ACTIVE_STATES = new Set(["cloning", "registering"]);
 
 function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const [owner, setOwner] = useState("");
@@ -47,7 +49,9 @@ function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
     onSuccess: (account) => {
       queryClient.setQueryData(queryKeys.githubAccount, account);
       setToken("");
-      toast.success(`Connected to GitHub as ${account.login ?? "your account"}`);
+      toast.success(
+        t("Connected to GitHub as {login}", { login: account.login ?? t("your account") }),
+      );
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -62,9 +66,11 @@ function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
         }}
       >
         <Field
-          label="GitHub token"
+          label={t("GitHub token")}
           htmlFor="github-token"
-          hint="Fine-grained token with Contents access on the repositories you want: read-only is enough to clone, read and write lets Onyx push branches. A classic token needs the repo scope. It is stored on this Onyx server and never shown again."
+          hint={t(
+            "Fine-grained token with Contents access on the repositories you want: read-only is enough to clone, read and write lets Onyx push branches, and Pull requests read and write lets it open pull requests. A classic token needs the repo scope. It is stored on this Onyx server and never shown again.",
+          )}
         >
           <div className="flex gap-2">
             <Input
@@ -72,13 +78,13 @@ function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
               type="password"
               autoComplete="off"
               className="font-mono text-xs"
-              placeholder="github_pat_… or ghp_…"
+              placeholder={t("github_pat_… or ghp_…")}
               value={token}
               onChange={(event) => setToken(event.target.value)}
             />
             <Button type="submit" disabled={connect.isPending || token.trim().length < 20}>
               {connect.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
-              Connect
+              {t("Connect")}
             </Button>
           </div>
         </Field>
@@ -88,7 +94,7 @@ function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
         >
-          Create a token on GitHub
+          {t("Create a token on GitHub")}
           <ExternalLink className="size-3" />
         </a>
       </form>
@@ -101,20 +107,20 @@ function ConnectPanel({ onOwner }: { onOwner: (owner: string) => void }) {
       >
         <div className="flex-1">
           <Field
-            label="Or browse public repositories of"
+            label={t("Or browse public repositories of")}
             htmlFor="github-owner"
-            hint="No token needed for public repositories."
+            hint={t("No token needed for public repositories.")}
           >
             <Input
               id="github-owner"
-              placeholder="GitHub user or organization"
+              placeholder={t("GitHub user or organization")}
               value={owner}
               onChange={(event) => setOwner(event.target.value)}
             />
           </Field>
         </div>
         <Button type="submit" variant="secondary" className="mb-6" disabled={!owner.trim()}>
-          Browse
+          {t("Browse")}
         </Button>
       </form>
     </div>
@@ -134,6 +140,7 @@ function AccountBar({
   onRefresh: () => void;
   refreshing: boolean;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(owner);
   const disconnect = useMutation({
@@ -166,9 +173,9 @@ function AccountBar({
         }}
       >
         <Input
-          aria-label="GitHub user or organization"
+          aria-label={t("GitHub user or organization")}
           className="h-8 flex-1 text-xs sm:w-40 sm:flex-none"
-          placeholder="Other user or org"
+          placeholder={t("Other user or org")}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
@@ -182,7 +189,7 @@ function AccountBar({
               onOwner("");
             }}
           >
-            Mine
+            {t("Mine")}
           </Button>
         ) : null}
       </form>
@@ -190,7 +197,7 @@ function AccountBar({
         <Button
           size="icon"
           variant="ghost"
-          aria-label="Refresh repositories"
+          aria-label={t("Refresh repositories")}
           onClick={onRefresh}
           disabled={refreshing}
         >
@@ -200,7 +207,7 @@ function AccountBar({
           <Button
             size="icon"
             variant="ghost"
-            aria-label="Disconnect GitHub"
+            aria-label={t("Disconnect GitHub")}
             onClick={() => disconnect.mutate()}
             disabled={disconnect.isPending}
           >
@@ -221,6 +228,7 @@ function RepoRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const t = useT();
   return (
     <li>
       <button
@@ -239,22 +247,22 @@ function RepoRow({
           {repo.private ? (
             <Badge>
               <Lock className="size-3" />
-              private
+              {t("private")}
             </Badge>
           ) : null}
           {repo.fork ? (
             <Badge>
               <GitFork className="size-3" />
-              fork
+              {t("fork")}
             </Badge>
           ) : null}
           {repo.archived ? (
             <Badge tone="warning">
               <Archive className="size-3" />
-              archived
+              {t("archived")}
             </Badge>
           ) : null}
-          {repo.importedProjectId ? <Badge tone="success">imported</Badge> : null}
+          {repo.importedProjectId ? <Badge tone="success">{t("imported")}</Badge> : null}
         </span>
         {repo.description ? (
           <span className="line-clamp-1 text-xs text-muted-foreground">{repo.description}</span>
@@ -264,7 +272,7 @@ function RepoRow({
           <span>{formatRepoSize(repo.sizeKb)}</span>
           {repo.pushedAt ? (
             <span>
-              pushed <RelativeTime iso={repo.pushedAt} />
+              {t("pushed")} <RelativeTime iso={repo.pushedAt} />
             </span>
           ) : null}
         </span>
@@ -274,6 +282,7 @@ function RepoRow({
 }
 
 function ImportProgress({ job }: { job: CloneJobDto }) {
+  const t = useT();
   const failed = job.state === "failed";
   const done = job.state === "done";
   return (
@@ -294,10 +303,10 @@ function ImportProgress({ job }: { job: CloneJobDto }) {
         )}
         <span className="font-medium">
           {failed
-            ? `Could not import ${job.fullName}`
+            ? t("Could not import {name}", { name: job.fullName })
             : done
-              ? `${job.fullName} imported`
-              : `${job.phase ?? "Cloning"} ${job.fullName}`}
+              ? t("{name} imported", { name: job.fullName })
+              : `${job.phase ?? t("Cloning")} ${job.fullName}`}
         </span>
         {job.percent !== null && !done && !failed ? (
           <span className="tabular ml-auto text-xs text-muted-foreground">{job.percent}%</span>
@@ -325,6 +334,7 @@ export function GitHubImport({
   defaultWorkspaces: boolean;
   onImported: () => void;
 }) {
+  const t = useT();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [owner, setOwner] = useState("");
@@ -361,12 +371,13 @@ export function GitHubImport({
 
   const start = useMutation({
     mutationFn: () => {
-      if (!selected) throw new Error("Choose a repository");
+      if (!selected) throw new Error(t("Choose a repository"));
       return api.post<CloneJobDto>("/api/github/imports", {
         fullName: selected.fullName,
         name: name.trim() || projectNameFor(selected.name),
         ...(branch.trim() ? { branch: branch.trim() } : {}),
         createDefaultWorkspaces: defaultWorkspaces,
+        proposeWorkspaces: true,
       });
     },
     onSuccess: (created) => {
@@ -381,10 +392,10 @@ export function GitHubImport({
     if (!finished?.projectId) return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
     void queryClient.invalidateQueries({ queryKey: ["github", "repos"] });
-    toast.success(`${finished.fullName} cloned and registered`);
+    toast.success(t("{name} cloned and registered", { name: finished.fullName }));
     onImported();
     router.push(`/projects/${finished.projectId}`);
-  }, [finished, queryClient, onImported, router]);
+  }, [finished, queryClient, onImported, router, t]);
 
   const running = job.data !== undefined && ACTIVE_STATES.has(job.data.state);
 
@@ -420,9 +431,9 @@ export function GitHubImport({
       ) : owner ? (
         <div className="flex items-center gap-2 text-sm">
           <GitHubMark className="size-4 text-muted-foreground" />
-          Public repositories of <span className="font-medium">{owner}</span>
+          {t("Public repositories of")} <span className="font-medium">{owner}</span>
           <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setOwner("")}>
-            Connect a token instead
+            {t("Connect a token instead")}
           </Button>
         </div>
       ) : (
@@ -434,9 +445,9 @@ export function GitHubImport({
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              aria-label="Search repositories"
+              aria-label={t("Search repositories")}
               className="pl-9"
-              placeholder="Search repositories"
+              placeholder={t("Search repositories")}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -467,14 +478,14 @@ export function GitHubImport({
               ))}
               {visible.length === 0 ? (
                 <li className="py-6 text-center text-sm text-muted-foreground">
-                  No repositories match.
+                  {t("No repositories match.")}
                 </li>
               ) : null}
             </ul>
           )}
           {repos.data?.truncated ? (
             <p className="text-xs text-muted-foreground">
-              Showing the 1,000 most recently pushed repositories.
+              {t("Showing the 1,000 most recently pushed repositories.")}
             </p>
           ) : null}
         </div>
@@ -484,10 +495,10 @@ export function GitHubImport({
         selected.importedProjectId ? (
           <div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/8 px-3 py-2 text-sm">
             <CheckCircle2 className="size-4 text-success" />
-            {selected.fullName} is already a project.
+            {t("{name} is already a project.", { name: selected.fullName })}
             <Button asChild size="sm" variant="secondary" className="ml-auto">
               <Link href={`/projects/${selected.importedProjectId}`} onClick={onImported}>
-                Open
+                {t("Open")}
               </Link>
             </Button>
           </div>
@@ -499,7 +510,7 @@ export function GitHubImport({
               start.mutate();
             }}
           >
-            <Field label="Project name" htmlFor="import-name">
+            <Field label={t("Project name")} htmlFor="import-name">
               <Input
                 id="import-name"
                 value={name}
@@ -507,7 +518,7 @@ export function GitHubImport({
                 required
               />
             </Field>
-            <Field label="Branch" htmlFor="import-branch">
+            <Field label={t("Branch")} htmlFor="import-branch">
               <Input
                 id="import-branch"
                 className="font-mono text-xs"
@@ -518,7 +529,7 @@ export function GitHubImport({
             </Field>
             <Button type="submit" disabled={start.isPending || running}>
               {start.isPending || running ? <Loader2 className="animate-spin" /> : <Download />}
-              Clone and register
+              {t("Clone and register")}
             </Button>
           </form>
         )

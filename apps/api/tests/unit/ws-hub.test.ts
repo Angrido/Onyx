@@ -122,4 +122,51 @@ describe("WsHub", () => {
     await hub.subscribe(hub.connect(connection), ["system"], { system: 0 });
     expect(connection.seqs("system.runs")).toEqual([1]);
   });
+
+  it("groups streamed text and sends it before the next event (M22)", async () => {
+    const hub = new WsHub(async () => []);
+    const connection = new FakeConnection();
+    await hub.subscribe(hub.connect(connection), ["run:r1"]);
+    hub.publishRunDelta("r1", 0, "Hel");
+    hub.publishRunDelta("r1", 0, "lo");
+    hub.publishRunEvent("r1", 1, "t", [item]);
+    expect(
+      connection.messages.map((message) =>
+        message.type === "run.delta" ? `delta:${message.data.text}` : message.type,
+      ),
+    ).toEqual(["subscribed", "delta:Hello", "run.event"]);
+  });
+
+  it("bounds the buffer in bytes and forgets it when the run ends (M22)", async () => {
+    const calls: number[] = [];
+    const hub = new WsHub(
+      async (_runId, after, before) => {
+        calls.push(after);
+        return storedEvents(
+          [1, 2, 3].filter((seq) => seq > after && (before === null || seq < before)),
+        );
+      },
+      { bufferBytes: 400 },
+    );
+    const big: RunItem = { kind: "stderr", text: "x".repeat(300) };
+    for (const seq of [1, 2, 3]) hub.publishRunEvent("r1", seq, "t", [big]);
+    const first = new FakeConnection();
+    await hub.subscribe(hub.connect(first), ["run:r1"], { "run:r1": 0 });
+    expect(calls).toEqual([0]);
+    expect(first.seqs()).toEqual([1, 2, 3]);
+    hub.releaseRun("r1");
+    const second = new FakeConnection();
+    await hub.subscribe(hub.connect(second), ["run:r1"], { "run:r1": 0 });
+    expect(calls).toEqual([0, 0]);
+    expect(second.seqs()).toEqual([1, 2, 3]);
+  });
+
+  it("drops the listeners of channels nobody watches (M22)", async () => {
+    const hub = new WsHub(async () => []);
+    const subscriber = hub.connect(new FakeConnection());
+    await hub.subscribe(subscriber, ["task:t1"]);
+    expect(hub.hasListeners("task:t1")).toBe(true);
+    hub.unsubscribe(subscriber, ["task:t1"]);
+    expect(hub.hasListeners("task:t1")).toBe(false);
+  });
 });

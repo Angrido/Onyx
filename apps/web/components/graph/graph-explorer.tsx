@@ -15,6 +15,7 @@ import { EmptyState, Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_COLORS, DOMAIN_LABELS, domainColor } from "@/lib/domains";
+import { useT } from "@/lib/i18n/client";
 
 const ForceCanvas = dynamic(() => import("@/components/graph/force-canvas"), {
   ssr: false,
@@ -64,6 +65,7 @@ function dependentsOf(graph: GraphResponse, start: string): Set<string> {
 }
 
 export function GraphExplorer({ projectId }: { projectId: string }) {
+  const t = useT();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -154,7 +156,7 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
     return (
       <EmptyState
         icon={<Network className="size-5" />}
-        title="Graph unavailable"
+        title={t("Graph unavailable")}
         description={errorMessage(error)}
       />
     );
@@ -168,9 +170,9 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
             list="graph-files"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Focus on a file, e.g. src/index.ts"
+            placeholder={t("Focus on a file, e.g. src/index.ts")}
             className="min-w-56 flex-1 font-mono text-xs"
-            aria-label="Focus file"
+            aria-label={t("Focus file")}
           />
           <datalist id="graph-files">
             {nodeIds.map((id) => (
@@ -181,17 +183,17 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
             value={String(depth)}
             onChange={(event) => navigate(focus, Number(event.target.value))}
             disabled={!focus}
-            aria-label="Depth"
+            aria-label={t("Depth")}
             className="w-28"
           >
             {[1, 2, 3, 4].map((value) => (
               <option key={value} value={value}>
-                depth {value}
+                {t("depth {value}", { value })}
               </option>
             ))}
           </Select>
           <Button type="submit" variant="secondary" size="sm">
-            Focus
+            {t("Focus")}
           </Button>
           <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
             <input
@@ -200,18 +202,18 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
               checked={showUnlinked}
               onChange={(event) => setShowUnlinked(event.target.checked)}
             />
-            Unlinked files
+            {t("Unlinked files")}
           </label>
           <Button type="button" variant="ghost" size="sm" onClick={() => navigate(null)}>
             <Maximize2 />
-            Whole project
+            {t("Whole project")}
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             onClick={() => void refetch()}
-            title="Reload"
+            title={t("Reload")}
           >
             <RefreshCcw className={isFetching ? "animate-spin" : undefined} />
           </Button>
@@ -243,23 +245,33 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
                       backgroundColor: DOMAIN_COLORS[(domain ?? "SHARED") as Domain | "SHARED"],
                     }}
                   />
-                  {domain ? DOMAIN_LABELS[domain] : "Shared"}
+                  {domain ? t(DOMAIN_LABELS[domain]) : t("Shared")}
                 </span>
               ))}
-              <span>· size = centrality · dashed = type-only · red ring = cycle</span>
+              <span>{t("· size = centrality · dashed = type-only · red ring = cycle")}</span>
             </div>
           ) : null}
         </Card>
 
         {data ? (
           <p className="text-xs text-muted-foreground">
-            {data.nodes.length} files, {data.edges.length} imports
-            {data.truncated ? ` (most central of ${data.totalNodes})` : ""}
-            {canvas.hidden > 0 ? ` · ${canvas.hidden} unlinked files hidden` : ""}
-            {data.cycles.length > 0 ? ` · ${data.cycles.length} import cycles` : ""}
+            {t("{files} files, {imports} imports", {
+              files: data.nodes.length,
+              imports: data.edges.length,
+            })}
+            {data.truncated ? ` ${t("(most central of {total})", { total: data.totalNodes })}` : ""}
+            {canvas.hidden > 0
+              ? ` · ${t("{count} unlinked files hidden", { count: canvas.hidden })}`
+              : ""}
+            {data.cycles.length > 0
+              ? ` · ${t("{count} import cycles", { count: data.cycles.length })}`
+              : ""}
             {blast && selected
-              ? ` · ${blast.size - 1} files depend on ${selected.slice(selected.lastIndexOf("/") + 1)}`
-              : " · click a file to see its blast radius, double-click to focus"}
+              ? ` · ${t("{count} files depend on {file}", {
+                  count: blast.size - 1,
+                  file: selected.slice(selected.lastIndexOf("/") + 1),
+                })}`
+              : ` · ${t("click a file to see its blast radius, double-click to focus")}`}
           </p>
         ) : null}
       </div>
@@ -276,7 +288,7 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
           />
         ) : (
           <Card className="space-y-3 p-4 text-xs text-muted-foreground">
-            <p className="text-sm font-medium text-foreground">Most used externals</p>
+            <p className="text-sm font-medium text-foreground">{t("Most used externals")}</p>
             <ul className="space-y-1">
               {(data?.externalModules ?? []).slice(0, 12).map((module) => (
                 <li key={module.name} className="flex justify-between gap-3 font-mono">
@@ -288,13 +300,13 @@ export function GraphExplorer({ projectId }: { projectId: string }) {
             {data && Object.keys(data.proposedWorkspaceGlobs).length > 0 ? (
               <>
                 <p className="pt-2 text-sm font-medium text-foreground">
-                  Suggested workspace globs
+                  {t("Suggested workspace globs")}
                 </p>
                 <ul className="space-y-1">
                   {Object.entries(data.proposedWorkspaceGlobs).map(([domain, globs]) => (
                     <li key={domain}>
                       <span className="text-foreground">
-                        {DOMAIN_LABELS[domain as Domain] ?? domain}
+                        {t(DOMAIN_LABELS[domain as Domain] ?? domain)}
                       </span>{" "}
                       <span className="font-mono">{globs.join(", ")}</span>
                     </li>

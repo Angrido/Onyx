@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -106,7 +115,9 @@ function readPrompt(): Promise<string> {
 }
 
 function scenarioFor(prompt: string): string {
-  const marker = /\[stub:([a-z-]+)\]/.exec(prompt);
+  const marker = /\[stub:([a-z-]+)\]/.exec(taskSection(prompt));
+  const name = marker?.[1] ?? "";
+  if (/^(fail-task|skip-task|qa-|resolve-|tdd-)/.test(name)) return "success";
   return marker?.[1] ?? process.env.CLAUDE_STUB_SCENARIO ?? "success";
 }
 
@@ -133,11 +144,262 @@ function initLine(): string {
   return line;
 }
 
-function writeLine(line: string): Promise<void> {
+interface StubSessionState {
+  historyTokens: number;
+  prefixKey: string;
+  lastAt: number;
+}
+
+interface StubUsage {
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+  service_tier: string;
+}
+
+const MODEL_INPUT_PRICE: readonly [RegExp, number][] = [
+  [/opus/, 4],
+  [/haiku/, 1],
+  [/./, 2],
+];
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function readOptionalFile(path: string | null): string {
+  if (path === null) return "";
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+class UsageModel {
+  private readonly stateDir =
+    process.env.CLAUDE_STUB_STATE_DIR ?? join(tmpdir(), "onyx-claude-stub");
+  private readonly ttlMs = Number(process.env.CLAUDE_STUB_CACHE_TTL_MS ?? "300000");
+  private readonly systemTokens: number;
+  private readonly prefixKey: string;
+  private readonly resumed = flagValue("--resume") !== null;
+  private context = 0;
+  private pending = 0;
+  private turns = 0;
+  private readonly userTokens: number;
+  private readonly totals: StubUsage = {
+    input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    output_tokens: 0,
+    service_tier: "standard",
+  };
+
+  constructor(userTokens: number) {
+    this.userTokens = userTokens;
+    const appended = readOptionalFile(flagValue("--append-system-prompt-file"));
+    const agents = readOptionalFile(flagValue("--agents"));
+    this.systemTokens =
+      Number(process.env.CLAUDE_STUB_SYSTEM_TOKENS ?? "14000") +
+      estimateTokens(appended) +
+      estimateTokens(agents);
+    this.prefixKey = createHash("sha256").update(`${model}\0${appended}\0${agents}`).digest("hex");
+  }
+
+  transform(line: string): string {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return line;
+    }
+    if (!isRecord(parsed)) return line;
+    if (parsed.type === "user" && !parsed.parent_tool_use_id) {
+      this.pending += estimateTokens(JSON.stringify(parsed.message ?? ""));
+      return line;
+    }
+    if (parsed.type === "assistant" && !parsed.parent_tool_use_id && isRecord(parsed.message)) {
+      parsed.message.usage = this.turn(
+        estimateTokens(JSON.stringify(parsed.message.content ?? "")),
+      );
+      return JSON.stringify(parsed);
+    }
+    if (parsed.type === "result") {
+      this.save();
+      const cost = this.cost(this.totals);
+      parsed.usage = { ...this.totals };
+      parsed.total_cost_usd = cost;
+      parsed.modelUsage = {
+        [model]: {
+          inputTokens: this.totals.input_tokens,
+          outputTokens: this.totals.output_tokens,
+          cacheReadInputTokens: this.totals.cache_read_input_tokens,
+          cacheCreationInputTokens: this.totals.cache_creation_input_tokens,
+          webSearchRequests: 0,
+          costUSD: cost,
+          contextWindow: 1_000_000,
+        },
+      };
+      return JSON.stringify(parsed);
+    }
+    return line;
+  }
+
+  private turn(outputTokens: number): StubUsage {
+    const output = Math.max(8, outputTokens);
+    let read: number;
+    let created: number;
+    if (this.turns === 0) {
+      const previous = this.resumed ? this.load() : null;
+      const history = previous?.historyTokens ?? 0;
+      const warmPrefix = this.resumed
+        ? previous !== null &&
+          previous.prefixKey === this.prefixKey &&
+          Date.now() - previous.lastAt <= this.ttlMs
+        : this.prefixWarm();
+      const cached = this.systemTokens + history;
+      read = warmPrefix ? cached : 0;
+      created = warmPrefix ? this.userTokens : cached + this.userTokens;
+    } else {
+      read = this.context;
+      created = this.pending;
+    }
+    this.turns += 1;
+    this.pending = output;
+    this.context = read + created;
+    const usage: StubUsage = {
+      input_tokens: 3,
+      cache_creation_input_tokens: created,
+      cache_read_input_tokens: read,
+      output_tokens: output,
+      service_tier: "standard",
+    };
+    this.totals.input_tokens += usage.input_tokens;
+    this.totals.cache_creation_input_tokens += created;
+    this.totals.cache_read_input_tokens += read;
+    this.totals.output_tokens += output;
+    return usage;
+  }
+
+  private cost(usage: StubUsage): number {
+    const price = MODEL_INPUT_PRICE.find(([pattern]) => pattern.test(model))?.[1] ?? 2;
+    const units =
+      usage.input_tokens +
+      usage.cache_creation_input_tokens * 1.25 +
+      usage.cache_read_input_tokens * 0.1 +
+      usage.output_tokens * 5;
+    return Math.round(((units * price) / 1_000_000) * 1_000_000) / 1_000_000;
+  }
+
+  private sessionFile(): string {
+    return join(this.stateDir, `${sessionId}.json`);
+  }
+
+  private prefixFile(): string {
+    return join(this.stateDir, `prefix-${this.prefixKey}.json`);
+  }
+
+  private load(): StubSessionState | null {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.sessionFile(), "utf8"));
+      return isRecord(parsed) &&
+        typeof parsed.historyTokens === "number" &&
+        typeof parsed.prefixKey === "string" &&
+        typeof parsed.lastAt === "number"
+        ? {
+            historyTokens: parsed.historyTokens,
+            prefixKey: parsed.prefixKey,
+            lastAt: parsed.lastAt,
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private prefixWarm(): boolean {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.prefixFile(), "utf8"));
+      return isRecord(parsed) && typeof parsed.lastAt === "number"
+        ? Date.now() - parsed.lastAt <= this.ttlMs
+        : false;
+    } catch {
+      return false;
+    }
+  }
+
+  private save(): void {
+    const now = Date.now();
+    const state: StubSessionState = {
+      historyTokens: Math.max(0, this.context + this.pending - this.systemTokens),
+      prefixKey: this.prefixKey,
+      lastAt: now,
+    };
+    try {
+      mkdirSync(this.stateDir, { recursive: true });
+      for (const [file, content] of [
+        [this.sessionFile(), state],
+        [this.prefixFile(), { lastAt: now }],
+      ] as const) {
+        const partial = `${file}.${process.pid}.partial`;
+        writeFileSync(partial, JSON.stringify(content));
+        renameSync(partial, file);
+      }
+    } catch {
+      return;
+    }
+  }
+}
+
+let usageModel: UsageModel | null = null;
+let rateLimitSent = false;
+
+function rateLimitSpec(): string | null {
+  const value = process.env.CLAUDE_STUB_RATE_LIMIT?.trim();
+  if (!value) return null;
+  if (!value.startsWith("@")) return value;
+  try {
+    return readFileSync(value.slice(1), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function rateLimitLine(): string | null {
+  const spec = rateLimitSpec();
+  if (spec === null) return null;
+  const [status = "allowed", utilization, type = "five_hour", resetsIn = "3600"] = spec.split(":");
+  return JSON.stringify({
+    type: "rate_limit_event",
+    rate_limit_info: {
+      status,
+      resetsAt: Date.now() + Number(resetsIn) * 1_000,
+      utilization: utilization ? Number(utilization) : null,
+      rateLimitType: type,
+      overageStatus: null,
+      overageResetsAt: null,
+      overageDisabledReason: null,
+      isUsingOverage: false,
+    },
+    uuid: randomUUID(),
+    session_id: sessionId,
+  });
+}
+
+function emit(line: string): Promise<void> {
   return new Promise((resolve) => {
     if (process.stdout.write(`${line}\n`)) resolve();
     else process.stdout.once("drain", () => resolve());
   });
+}
+
+async function writeLine(raw: string): Promise<void> {
+  await emit(usageModel ? usageModel.transform(raw) : raw);
+  if (rateLimitSent || !raw.includes('"subtype":"init"')) return;
+  rateLimitSent = true;
+  const limit = rateLimitLine();
+  if (limit !== null) await emit(limit);
 }
 
 async function replay(lines: readonly string[]): Promise<void> {
@@ -379,6 +641,7 @@ interface HttpHookSettings {
 interface ToolAttempt {
   tool: string;
   input: Record<string, unknown>;
+  fails?: boolean;
 }
 
 function readSettings(): Record<string, unknown> | null {
@@ -440,7 +703,7 @@ function stubNotes(prompt: string): string[] {
 function parseAttempts(prompt: string): ToolAttempt[] {
   const attempts: ToolAttempt[] = [];
   for (const match of taskSection(prompt).matchAll(
-    /\b(read|grep|glob|bash|edit|write):(\{[^}]*\}|\S+)/g,
+    /\b(read|grep|glob|bash|fail|edit|write):(\{[^}]*\}|\S+)/g,
   )) {
     const kind = match[1];
     const raw = match[2] ?? "";
@@ -454,6 +717,7 @@ function parseAttempts(prompt: string): ToolAttempt[] {
       });
     if (kind === "glob") attempts.push({ tool: "Glob", input: { pattern: value } });
     if (kind === "bash") attempts.push({ tool: "Bash", input: { command: value } });
+    if (kind === "fail") attempts.push({ tool: "Bash", input: { command: value }, fails: true });
     if (kind === "edit")
       attempts.push({
         tool: "Edit",
@@ -503,6 +767,8 @@ async function askHook(
 }
 
 function simulateTool(attempt: ToolAttempt): string {
+  if (attempt.fails)
+    return `Exit code 1\n> ${String(attempt.input.command)}\nError: Cannot find module './generated/client' from src/db.ts`;
   if (attempt.tool === "Read") {
     try {
       return readFileSync(String(attempt.input.file_path), "utf8").slice(0, 400);
@@ -596,7 +862,7 @@ async function runGuardScenario(prompt: string, enforceAllowlist = false): Promi
                 denial === null
                   ? simulateTool(attempt)
                   : `PreToolUse hook denied this tool call: ${denial}`,
-              is_error: denial !== null,
+              is_error: denial !== null || attempt.fails === true,
             },
           ],
         },
@@ -657,6 +923,13 @@ function runStatusLine(command: string, payload: object): Promise<string> {
   });
 }
 
+function rememberTranscript(id: string): void {
+  const transcripts = process.env.CLAUDE_STUB_TRANSCRIPTS;
+  if (!transcripts) return;
+  mkdirSync(transcripts, { recursive: true });
+  writeFileSync(join(transcripts, id), "");
+}
+
 async function runInteractive(): Promise<void> {
   const baseTokens = Number(process.env.CLAUDE_STUB_BASE_TOKENS ?? "4000");
   const perMessage = Number(process.env.CLAUDE_STUB_TOKENS_PER_MESSAGE ?? "1500");
@@ -685,6 +958,11 @@ async function runInteractive(): Promise<void> {
     });
     if (status) say(`[status] ${status}`);
   };
+  const transcripts = process.env.CLAUDE_STUB_TRANSCRIPTS;
+  if (transcripts && argv.includes("--resume") && !existsSync(join(transcripts, current))) {
+    process.stderr.write(`No conversation found with session ID: ${current}\n`);
+    process.exit(1);
+  }
   say(`Claude Code stub · ${model} · session ${current}`);
   showContext(
     await interactiveSessionStart(argv.includes("--resume") ? "resume" : "startup", current),
@@ -692,7 +970,15 @@ async function runInteractive(): Promise<void> {
   await reportStatus();
   process.stdout.write("> ");
   const lines = createInterface({ input: process.stdin, terminal: false });
-  for await (const line of lines) {
+  let pasted: string[] | null = null;
+  for await (const raw of lines) {
+    let line = raw;
+    if (pasted !== null || line.includes("\u001b[200~")) {
+      pasted = [...(pasted ?? []), line];
+      if (!line.includes("\u001b[201~")) continue;
+      line = pasted.join(" ").replaceAll("\u001b[200~", "").replaceAll("\u001b[201~", "");
+      pasted = null;
+    }
     const text = line.trim();
     if (text === "/exit") process.exit(0);
     if (text === "/clear") {
@@ -714,6 +1000,7 @@ async function runInteractive(): Promise<void> {
           prompt: text,
         });
       contextTokens += perMessage;
+      rememberTranscript(current);
       say(`Stub reply: ${text}`);
     }
     await reportStatus();
@@ -946,7 +1233,36 @@ function isTddEdit(edit: unknown): edit is TddEdit {
   return isRecord(edit) && (typeof edit.file === "string" || typeof edit.command === "string");
 }
 
+async function exitWithLostSession(): Promise<never> {
+  process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
+  await writeLine(
+    JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      duration_ms: 0,
+      duration_api_ms: 0,
+      is_error: true,
+      num_turns: 0,
+      stop_reason: null,
+      session_id: sessionId,
+      total_cost_usd: 0,
+      usage: {
+        input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 0,
+      },
+      modelUsage: {},
+      permission_denials: [],
+      errors: [`No conversation found with session ID: ${sessionId}`],
+    }),
+  );
+  process.exit(1);
+}
+
 async function runTddScenario(prompt: string): Promise<void> {
+  if (flagValue("--resume") !== null && prompt.includes("[stub:tdd-lost-session]"))
+    await exitWithLostSession();
   await writeLine(editInitLine());
   const step = takeTddStep();
   const firstFailure = /^### 1\. (.+)$/m.exec(prompt)?.[1] ?? "the failures";
@@ -1124,8 +1440,150 @@ async function runPlanScenario(prompt: string): Promise<void> {
   const text = JSON.stringify(plan);
   await writeLine(assistantLine("msg_stub_plan_done", [{ type: "text", text }]));
   await writeLine(
-    resultLine(text, [], process.env.CLAUDE_STUB_PLAN_AS_TEXT === "1" ? undefined : plan),
+    withExplorerUsage(
+      resultLine(text, [], process.env.CLAUDE_STUB_PLAN_AS_TEXT === "1" ? undefined : plan),
+    ),
   );
+}
+
+async function runBatchScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const sections = prompt.split(/^## Task \d+: /m).slice(1);
+  const lines = sections.flatMap((section, index) => {
+    if (section.includes("[stub:skip-task]")) return [];
+    if (section.includes("[stub:fail-task]"))
+      return [`TASK ${index + 1}: FAILED the stub could not do this one`];
+    return [`TASK ${index + 1}: DONE`];
+  });
+  const text = ["Worked through the grouped tasks.", ...lines].join("\n");
+  await writeLine(assistantLine("msg_stub_batch_done", [{ type: "text", text }]));
+  await writeLine(resultLine(text));
+}
+
+function headingSection(prompt: string, title: string): string {
+  const start = prompt.indexOf(`# ${title}\n`);
+  if (start === -1) return "";
+  const rest = prompt.slice(start + title.length + 3);
+  const end = rest.search(/\n# /);
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+async function runQaScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const criteria = [...headingSection(prompt, "Acceptance criteria").matchAll(/^(\d+)\. /gm)].map(
+    (match) => Number(match[1]),
+  );
+  const files = [...headingSection(prompt, "Changed files").matchAll(/^- (.+)$/gm)].map(
+    (match) => match[1] ?? "",
+  );
+  const attempt = Number(/Review attempt: (\d+)/.exec(prompt)?.[1] ?? "1");
+  const fail =
+    prompt.includes("[stub:qa-fail]") || (prompt.includes("[stub:qa-fail-once]") && attempt === 1);
+  const file = files[0] ?? "README.md";
+  const verdict = {
+    verdict: fail ? "fail" : "pass",
+    summary: fail ? "The change misses the empty case." : "The change does what the task asks.",
+    criteria: criteria.map((index) => ({
+      index,
+      met: !(fail && index === 1),
+      evidence: prompt.includes("[stub:qa-no-evidence]")
+        ? "Looks right to me"
+        : `${file}:1 the change is in the diff`,
+    })),
+    issues: fail ? [{ file, problem: "The empty case is not handled" }] : [],
+  };
+  const text = JSON.stringify(verdict);
+  await writeLine(assistantLine("msg_stub_qa", [{ type: "text", text }]));
+  await writeLine(resultLine(text, [], verdict));
+}
+
+async function runResolutionScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const files = [...headingSection(prompt, "Conflicted files").matchAll(/^- (.+)$/gm)].map(
+    (match) => match[1] ?? "",
+  );
+  if (!prompt.includes("[stub:resolve-leave]"))
+    for (const file of files) {
+      const path = join(process.cwd(), file);
+      const content = readFileSync(path, "utf8");
+      writeFileSync(
+        path,
+        content.replace(
+          /^<{7}[^\n]*\n([\s\S]*?)^={7}\n([\s\S]*?)^>{7}[^\n]*\n/gm,
+          (_block, ours: string, theirs: string) => `${ours}${theirs}`,
+        ),
+      );
+    }
+  const text = `Kept both sides in ${files.join(", ")}.`;
+  await writeLine(assistantLine("msg_stub_resolve", [{ type: "text", text }]));
+  await writeLine(resultLine(text));
+}
+
+async function runInsightScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const found = headingSection(prompt, "What the Onyx index already found");
+  const cited = /`([\w@./-]+\.[a-z]{1,5}(?::\d+)?)`/.exec(found)?.[1] ?? "README.md:1";
+  const question = headingSection(prompt, "Question").trim();
+  const text = `From the code: \`${cited}\` answers "${question}".`;
+  await writeLine(assistantLine("msg_stub_insight", [{ type: "text", text }]));
+  await writeLine(resultLine(text));
+}
+
+async function runIdeationScenario(prompt: string): Promise<void> {
+  await writeLine(initLine());
+  await sleep(delayMs);
+  const items = [
+    ...prompt.matchAll(/^## Item (\d+): [^\n]*\n([\s\S]*?)(?=^## Item |\nAnswer with)/gm),
+  ];
+  const verdict = {
+    findings: items.map((match) => {
+      const flagged = /^\s*\d+> .*$/m.exec(match[2] ?? "")?.[0] ?? "";
+      const falsePositive = flagged.includes("stub-fp");
+      return {
+        id: match[1] ?? "",
+        verdict: falsePositive ? "false_positive" : "real",
+        confidence: falsePositive ? 0.1 : 0.85,
+        explanation: falsePositive
+          ? "The value never comes from outside."
+          : "Outside input reaches this call.",
+        ...(falsePositive ? {} : { fix: "Pass the value as a parameter instead." }),
+      };
+    }),
+  };
+  const text = JSON.stringify(verdict);
+  await writeLine(assistantLine("msg_stub_ideation", [{ type: "text", text }]));
+  await writeLine(resultLine(text, [], verdict));
+}
+
+function withExplorerUsage(line: string): string {
+  const agentsPath = flagValue("--agents");
+  if (!agentsPath) return line;
+  let agents: unknown;
+  try {
+    agents = JSON.parse(readFileSync(agentsPath, "utf8"));
+  } catch {
+    return line;
+  }
+  if (!isRecord(agents) || !isRecord(agents.explorer)) return line;
+  const parsed = JSON.parse(line) as Record<string, unknown>;
+  const usage = (tokens: number) => ({
+    inputTokens: tokens,
+    outputTokens: Math.round(tokens / 10),
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    webSearchRequests: 0,
+    contextWindow: 200_000,
+  });
+  parsed.modelUsage = {
+    [model]: { ...usage(600), costUSD: 0.0025 },
+    "claude-haiku-4-5": { ...usage(900), costUSD: 0.0006 },
+  };
+  parsed.total_cost_usd = 0.0031;
+  return JSON.stringify(parsed);
 }
 
 function base64Url(bytes: number): string {
@@ -1251,6 +1709,44 @@ async function runSetupToken(): Promise<void> {
   await new Promise<never>(() => undefined);
 }
 
+interface ProbeStep {
+  path: string;
+  action: "read" | "write" | "list";
+}
+
+function probe(step: ProbeStep): {
+  path: string;
+  action: string;
+  ok: boolean;
+  code: string | null;
+} {
+  try {
+    if (step.action === "read") readFileSync(step.path);
+    else if (step.action === "list") readdirSync(step.path);
+    else writeFileSync(step.path, "written by the agent\n");
+    return { ...step, ok: true, code: null };
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? String(error.code) : "ERROR";
+    return { ...step, ok: false, code };
+  }
+}
+
+async function runProbeScenario(): Promise<void> {
+  const file = process.env.CLAUDE_STUB_PROBE;
+  const steps: ProbeStep[] = file ? (JSON.parse(readFileSync(file, "utf8")) as ProbeStep[]) : [];
+  const report = JSON.stringify({
+    uid: process.getuid?.() ?? null,
+    home: process.env.HOME ?? null,
+    results: steps.map(probe),
+  });
+  await replay([
+    initLine(),
+    assistantLine("msg_stub_probe", [{ type: "text", text: report }]),
+    resultLine(report),
+  ]);
+}
+
 function missingCredentials(): boolean {
   if (process.env.CLAUDE_STUB_REQUIRE_AUTH !== "1") return false;
   return !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY;
@@ -1261,6 +1757,9 @@ async function main(): Promise<void> {
   if (!argv.includes("-p")) return runInteractive();
   const prompt = await readPrompt();
   if (flagValue("--input-format") === "stream-json" && prompt.length === 0) return;
+  rememberTranscript(sessionId);
+  if (process.env.CLAUDE_STUB_USAGE === "model")
+    usageModel = new UsageModel(estimateTokens(prompt));
   if (missingCredentials()) {
     await writeLine(initLine());
     await writeLine(
@@ -1289,8 +1788,28 @@ async function main(): Promise<void> {
     await runPlanScenario(prompt);
     return;
   }
+  if (prompt.startsWith("ONYX_INSIGHT_QUESTION")) {
+    await runInsightScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_IDEATION_REVIEW")) {
+    await runIdeationScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_QA_REQUEST")) {
+    await runQaScenario(prompt);
+    return;
+  }
+  if (prompt.startsWith("ONYX_MERGE_RESOLUTION")) {
+    await runResolutionScenario(prompt);
+    return;
+  }
   if (prompt.includes("Onyx TDD loop")) {
     await runTddScenario(prompt);
+    return;
+  }
+  if (/^# \d+ small tasks$/m.test(prompt)) {
+    await runBatchScenario(prompt);
     return;
   }
   const keyed = keyedStep(prompt);
@@ -1308,33 +1827,22 @@ async function main(): Promise<void> {
       await replay(renderFixture(scenario, prompt));
       return;
     case "lost-session":
-      if (flagValue("--resume") !== null) {
-        process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
-        await writeLine(
-          JSON.stringify({
-            type: "result",
-            subtype: "error_during_execution",
-            duration_ms: 0,
-            duration_api_ms: 0,
-            is_error: true,
-            num_turns: 0,
-            stop_reason: null,
-            session_id: sessionId,
-            total_cost_usd: 0,
-            usage: {
-              input_tokens: 0,
-              cache_creation_input_tokens: 0,
-              cache_read_input_tokens: 0,
-              output_tokens: 0,
-            },
-            modelUsage: {},
-            permission_denials: [],
-            errors: [`No conversation found with session ID: ${sessionId}`],
-          }),
-        );
-        process.exit(1);
-      }
+      if (flagValue("--resume") !== null) await exitWithLostSession();
       await replay(renderFixture("quick", prompt));
+      return;
+    case "compact": {
+      const lines = renderFixture("quick", prompt);
+      const boundary = JSON.stringify({
+        type: "system",
+        subtype: "compact_boundary",
+        session_id: sessionId,
+        compact_metadata: { trigger: "auto", pre_tokens: 150_000 },
+      });
+      await replay([...lines.slice(0, -1), boundary, ...lines.slice(-1)]);
+      return;
+    }
+    case "probe":
+      await runProbeScenario();
       return;
     case "crash":
       await replay([initLine()]);

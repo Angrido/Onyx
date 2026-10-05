@@ -79,6 +79,7 @@ export const TurnUsageItemSchema = z.object({
   messageId: z.string(),
   model: z.string().nullable(),
   usage: TokenUsageSchema,
+  parentToolUseId: ParentToolUseIdSchema.default(null),
 });
 
 export const ResultItemSchema = z.object({
@@ -122,6 +123,7 @@ export const ContextEntrySchema = z.object({
   level: ContextLevelSchema,
   tokens: z.number().int(),
   symbols: z.array(z.string()).nullable(),
+  reused: z.boolean().default(false),
 });
 export type ContextEntry = z.infer<typeof ContextEntrySchema>;
 
@@ -134,6 +136,9 @@ export const ContextItemSchema = z.object({
   packTokens: z.number().int(),
   baselineTokens: z.number().int(),
   deliveredTokens: z.number().int(),
+  reusedTokens: z.number().int().default(0),
+  signatureTokens: z.number().int().default(0),
+  mapFrozen: z.boolean().default(false),
   indexedAt: z.string().nullable(),
   mcpEnabled: z.boolean(),
   note: z.string().nullable(),
@@ -141,7 +146,7 @@ export const ContextItemSchema = z.object({
 });
 export type ContextItem = z.infer<typeof ContextItemSchema>;
 
-export const GuardSourceSchema = z.enum(["hook", "permission"]);
+export const GuardSourceSchema = z.enum(["hook", "permission", "audit"]);
 export type GuardSource = z.infer<typeof GuardSourceSchema>;
 
 export const GuardItemSchema = z.object({
@@ -183,6 +188,17 @@ export const SessionItemSchema = z.object({
 });
 export type SessionItem = z.infer<typeof SessionItemSchema>;
 
+export const RateLimitItemSchema = z.object({
+  kind: z.literal("rate_limit"),
+  status: z.string(),
+  limitType: z.string().nullable(),
+  resetsAt: z.string().nullable(),
+  utilization: z.number().nullable(),
+  overageStatus: z.string().nullable(),
+  usingOverage: z.boolean(),
+});
+export type RateLimitItem = z.infer<typeof RateLimitItemSchema>;
+
 export const UnknownItemSchema = z.object({
   kind: z.literal("unknown"),
   type: z.string(),
@@ -205,6 +221,7 @@ export const RunItemSchema = z.discriminatedUnion("kind", [
   GuardItemSchema,
   RoutingItemSchema,
   SessionItemSchema,
+  RateLimitItemSchema,
   UnknownItemSchema,
 ]);
 export type RunItem = z.infer<typeof RunItemSchema>;

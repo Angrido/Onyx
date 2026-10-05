@@ -3,28 +3,31 @@
 import type { IndexProgress, IndexStatusDto, ServerMessage } from "@onyx/contracts";
 import { channels } from "@onyx/contracts/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Network, RefreshCw, ScanSearch, Scissors } from "lucide-react";
+import { AlertTriangle, RefreshCw, ScanSearch } from "lucide-react";
 import { motion } from "motion/react";
-import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { HelpTip } from "@/components/ui/help-tip";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatDuration, formatPercent, formatTokens } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { msg } from "@/lib/i18n/core";
 import { useChannel } from "@/lib/ws/context";
 
 const PHASE_LABELS: Record<IndexProgress["phase"], string> = {
-  enumerating: "Scanning files",
-  analyzing: "Parsing with tree-sitter",
-  linking: "Resolving imports",
-  ranking: "Ranking the graph",
-  saving: "Saving the index",
+  enumerating: msg("Scanning files"),
+  analyzing: msg("Reading the code"),
+  linking: msg("Resolving imports"),
+  ranking: msg("Ranking the graph"),
+  saving: msg("Saving the index"),
 };
 
 function ProgressBar({ progress }: { progress: IndexProgress | null }) {
+  const t = useT();
   const ratio = progress && progress.total > 0 ? progress.done / progress.total : null;
   return (
     <div className="space-y-1.5">
@@ -44,23 +47,39 @@ function ProgressBar({ progress }: { progress: IndexProgress | null }) {
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        {progress ? PHASE_LABELS[progress.phase] : "Starting"}
-        {progress && progress.total > 0 ? ` · ${progress.done}/${progress.total} files` : ""}
+        {progress ? t(PHASE_LABELS[progress.phase]) : t("Starting")}
+        {progress && progress.total > 0
+          ? ` · ${t("{done}/{total} files", { done: progress.done, total: progress.total })}`
+          : ""}
       </p>
     </div>
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string | undefined }) {
+function Stat({
+  label,
+  value,
+  hint,
+  help,
+}: {
+  label: string;
+  value: string;
+  hint?: string | undefined;
+  help?: ReactNode;
+}) {
   return (
     <div className="rounded-lg bg-surface-0/60 px-3 py-2" title={hint}>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+        {help}
+      </p>
       <p className="font-mono text-sm">{value}</p>
     </div>
   );
 }
 
 export function IndexCard({ projectId, initial }: { projectId: string; initial: IndexStatusDto }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const key = queryKeys.index(projectId);
   const { data: status } = useQuery({
@@ -105,44 +124,31 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
   return (
     <Card className="space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <ScanSearch className="size-4 text-primary" />
-          <span className="text-sm font-medium">Code index</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <ScanSearch className="size-4 text-primary" aria-hidden />
+          <h3 className="text-sm font-medium">{t("Code index")}</h3>
+          <HelpTip term="index" />
           <span className="text-xs text-muted-foreground">
             {status.state === "indexing" ? (
-              "indexing…"
+              t("indexing…")
             ) : status.indexedAt ? (
               <>
-                updated <RelativeTime iso={status.indexedAt} />
+                {t("updated")} <RelativeTime iso={status.indexedAt} />
               </>
             ) : (
-              "never indexed"
+              t("never indexed")
             )}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={status.state === "indexing" || reindex.isPending}
-            onClick={() => reindex.mutate()}
-          >
-            <RefreshCw className={status.state === "indexing" ? "animate-spin" : undefined} />
-            Re-index
-          </Button>
-          <Button asChild variant="secondary" size="sm" disabled={!status.indexedAt}>
-            <Link href={`/projects/${projectId}/graph`}>
-              <Network />
-              Graph
-            </Link>
-          </Button>
-          <Button asChild variant="secondary" size="sm">
-            <Link href={`/projects/${projectId}/surgeon`}>
-              <Scissors />
-              Context Surgeon
-            </Link>
-          </Button>
-        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={status.state === "indexing" || reindex.isPending}
+          onClick={() => reindex.mutate()}
+        >
+          <RefreshCw className={status.state === "indexing" ? "animate-spin" : undefined} />
+          {t("Re-index")}
+        </Button>
       </div>
 
       {status.state === "indexing" ? <ProgressBar progress={status.progress} /> : null}
@@ -156,36 +162,42 @@ export function IndexCard({ projectId, initial }: { projectId: string; initial: 
       {stats ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Stat
-            label="Files"
+            label={t("Files")}
             value={formatTokens(stats.files)}
-            hint={`${stats.parsedFiles} parsed, ${stats.reusedFiles} reused from cache`}
+            hint={t("{parsed} parsed, {reused} reused from cache", {
+              parsed: stats.parsedFiles,
+              reused: stats.reusedFiles,
+            })}
           />
-          <Stat label="Symbols" value={formatTokens(stats.symbols)} />
+          <Stat label={t("Functions and types")} value={formatTokens(stats.symbols)} />
           <Stat
-            label="Imports"
+            label={t("Imports")}
             value={formatTokens(stats.internalEdges)}
-            hint={`${stats.externalModules} external packages`}
+            hint={t("{count} external packages", { count: stats.externalModules })}
           />
           <Stat
-            label="Skeleton saving"
+            label={t("Context saved")}
+            help={<HelpTip term="context" className="-my-1.5" />}
             value={compression === null ? "—" : formatPercent(compression)}
-            hint={`${formatTokens(stats.rawTokens)} tokens of source → ${formatTokens(stats.l1Tokens)} as L1 signatures`}
+            hint={t("{raw} tokens of code become {l1} tokens of summaries for the agents", {
+              raw: formatTokens(stats.rawTokens),
+              l1: formatTokens(stats.l1Tokens),
+            })}
           />
-          <Stat label="Cycles" value={String(stats.cycles)} />
+          <Stat label={t("Circular imports")} value={String(stats.cycles)} />
           <Stat
-            label="Indexed in"
+            label={t("Indexed in")}
             value={formatDuration(stats.durationMs)}
             hint={
               stats.sensitiveFiles > 0
-                ? `${stats.sensitiveFiles} files withheld by the secret scan`
+                ? t("{count} files withheld by the secret scan", { count: stats.sensitiveFiles })
                 : undefined
             }
           />
         </div>
       ) : status.state !== "indexing" ? (
         <p className="text-xs text-muted-foreground">
-          Index the project to give agents a project map, skeletons of nearby files and the onyx MCP
-          tools.
+          {t("Index the project so that agents get a map of the code and read fewer files.")}
         </p>
       ) : null}
     </Card>

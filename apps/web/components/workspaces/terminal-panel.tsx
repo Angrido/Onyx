@@ -19,13 +19,16 @@ import { TerminalView } from "@/components/workspaces/terminal-view";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatTokens, shortId } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import type { Translate } from "@/lib/i18n/core";
 import { END_REASON_LABELS } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
 function ContextMeter({ used, max }: { used: number; max: number }) {
+  const t = useT();
   const ratio = max > 0 ? Math.min(1, used / max) : 0;
   return (
-    <div className="flex min-w-36 items-center gap-2 text-xs" title="Context of the last turn">
+    <div className="flex min-w-36 items-center gap-2 text-xs" title={t("Context of the last turn")}>
       <div className="h-1.5 flex-1 rounded-full bg-surface-2">
         <div
           className={cn(
@@ -42,11 +45,11 @@ function ContextMeter({ used, max }: { used: number; max: number }) {
   );
 }
 
-function injectionLabel(terminal: TerminalDto): string | null {
+function injectionLabel(terminal: TerminalDto, t: Translate): string | null {
   const pending = terminal.pending;
   if (!pending) return null;
-  const reason = pending.reason ? ` · ${END_REASON_LABELS[pending.reason]}` : "";
-  return `/${pending.action} queued${reason}`;
+  const reason = pending.reason ? ` · ${t(END_REASON_LABELS[pending.reason])}` : "";
+  return `${t("/{action} queued", { action: pending.action })}${reason}`;
 }
 
 export function TerminalPanel({
@@ -62,6 +65,7 @@ export function TerminalPanel({
   catalog: CatalogResponse;
   onSessionChange: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [model, setModel] = useState("");
   const [fresh, setFresh] = useState(false);
@@ -110,7 +114,11 @@ export function TerminalPanel({
       api.post<TerminalDto>(`/api/terminals/${terminal?.id ?? ""}/inject`, input),
     onSuccess: (updated) => {
       store(updated);
-      toast.info(`/${updated.pending?.action ?? "command"} runs as soon as the terminal is idle`);
+      toast.info(
+        t("/{action} runs as soon as the terminal is idle", {
+          action: updated.pending?.action ?? "command",
+        }),
+      );
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -121,7 +129,7 @@ export function TerminalPanel({
     onError: (error) => toast.error(errorMessage(error)),
   });
 
-  const pending = terminal ? injectionLabel(terminal) : null;
+  const pending = terminal ? injectionLabel(terminal, t) : null;
 
   return (
     <Card className="flex flex-col">
@@ -129,22 +137,29 @@ export function TerminalPanel({
         <div className="space-y-1.5">
           <CardTitle className="flex items-center gap-2">
             <SquareTerminal className="size-4 text-primary" />
-            Interactive Claude Code
+            {t("Interactive Claude Code")}
           </CardTitle>
           <CardDescription>
-            Runs in the {workspaceName} compartment with its primer, read policy and write fence.
-            Onyx injects <code className="font-mono">/compact</code> under context pressure and{" "}
-            <code className="font-mono">/clear</code> with a handoff after a domain switch.
+            {t("Runs in the {name} compartment with its primer, read policy and write fence.", {
+              name: workspaceName,
+            })}{" "}
+            {t("Onyx injects")} <code className="font-mono">{"/compact"}</code>{" "}
+            {t("under context pressure and")} <code className="font-mono">{"/clear"}</code>{" "}
+            {t("with a handoff after a domain switch.")}
           </CardDescription>
         </div>
         {terminal ? (
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <ModelBadge modelId={terminal.modelId} />
             <Badge tone={running ? "success" : "neutral"}>
-              {running ? "running" : `exited ${terminal.exitCode ?? ""}`.trim()}
+              {running
+                ? t("running")
+                : terminal.exitCode === null
+                  ? t("exited")
+                  : t("exited {code}", { code: terminal.exitCode })}
             </Badge>
             <span className="font-mono text-muted-foreground" title={terminal.sessionId}>
-              session {shortId(terminal.sessionId)}
+              {t("session {id}", { id: shortId(terminal.sessionId) })}
             </span>
           </div>
         ) : null}
@@ -161,9 +176,9 @@ export function TerminalPanel({
                 </Badge>
               ) : terminal.lastInjection ? (
                 <Badge>
-                  last /{terminal.lastInjection.action}
+                  {t("last /{action}", { action: terminal.lastInjection.action })}
                   {terminal.lastInjection.reason
-                    ? ` · ${END_REASON_LABELS[terminal.lastInjection.reason]}`
+                    ? ` · ${t(END_REASON_LABELS[terminal.lastInjection.reason])}`
                     : ""}
                 </Badge>
               ) : null}
@@ -173,30 +188,30 @@ export function TerminalPanel({
                   variant="secondary"
                   disabled={!running || inject.isPending}
                   onClick={() => inject.mutate({ action: "compact", handoff: false })}
-                  title="Summarise the conversation in place"
+                  title={t("Summarise the conversation in place")}
                 >
                   <Minimize2 />
-                  Compact
+                  {t("Compact")}
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
                   disabled={!running || inject.isPending}
                   onClick={() => inject.mutate({ action: "clear", handoff: true })}
-                  title="New session with a handoff note"
+                  title={t("New session with a handoff note")}
                 >
                   <ScrollText />
-                  Clear + handoff
+                  {t("Clear + handoff")}
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   disabled={!running || inject.isPending}
                   onClick={() => inject.mutate({ action: "clear", handoff: false })}
-                  title="New session with an empty context"
+                  title={t("New session with an empty context")}
                 >
                   <Eraser />
-                  Clear
+                  {t("Clear")}
                 </Button>
                 {running ? (
                   <Button
@@ -206,7 +221,7 @@ export function TerminalPanel({
                     onClick={() => close.mutate()}
                   >
                     {close.isPending ? <Loader2 className="animate-spin" /> : <Power />}
-                    Close
+                    {t("Close")}
                   </Button>
                 ) : null}
               </div>
@@ -221,21 +236,21 @@ export function TerminalPanel({
           </>
         ) : (
           <div className="grid min-h-80 flex-1 place-items-center rounded-lg border border-dashed border-border bg-surface-0/40 text-sm text-muted-foreground">
-            No terminal yet.
+            {t("No terminal yet.")}
           </div>
         )}
         {!running ? (
           <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-0/60 p-3">
             <div className="min-w-56 flex-1 space-y-1.5">
               <label htmlFor="terminal-model" className="text-xs text-muted-foreground">
-                Model
+                {t("Model")}
               </label>
               <ModelSelect
                 id="terminal-model"
                 models={catalog.models}
                 value={model}
                 onChange={setModel}
-                defaultLabel="Session model, else agent default"
+                defaultLabel={t("Session model, else agent default")}
               />
             </div>
             <label className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
@@ -245,11 +260,11 @@ export function TerminalPanel({
                 checked={fresh}
                 onChange={(event) => setFresh(event.target.checked)}
               />
-              Fresh context
+              {t("Fresh context")}
             </label>
             <Button onClick={() => open.mutate()} disabled={open.isPending}>
               {open.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-              {terminal ? "Open again" : "Open terminal"}
+              {terminal ? t("Open again") : t("Open terminal")}
             </Button>
           </div>
         ) : null}

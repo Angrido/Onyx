@@ -1,15 +1,22 @@
 import {
+  CreateMemoryNoteRequestSchema,
   CreateProjectRequestSchema,
+  UpdateMemoryFactRequestSchema,
+  type ProjectMemoryDto,
   CreateWorkspaceRequestSchema,
   ResetWorkspaceRequestSchema,
   UpdateAllowedToolsRequestSchema,
   UpdateWorkspaceRequestSchema,
+  WorkspaceProposalRequestSchema,
   type AllowedToolsResponse,
   type ProjectDetailDto,
   type ProjectListResponse,
+  type ProjectStackDto,
   type ResetWorkspaceResponse,
   type SessionListResponse,
   type WorkspaceDto,
+  type WorkspaceProposalResponse,
+  type WorkspaceRefListResponse,
 } from "@onyx/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Container } from "../../container";
@@ -28,6 +35,19 @@ export function registerProjectRoutes(app: FastifyInstance, container: Container
     return project;
   });
 
+  app.post(
+    "/api/projects/workspace-proposal",
+    async (request): Promise<WorkspaceProposalResponse> => ({
+      workspaces: await projects.proposal(
+        WorkspaceProposalRequestSchema.parse(request.body).rootPath,
+      ),
+    }),
+  );
+
+  app.get("/api/projects/:id/stack", async (request): Promise<ProjectStackDto> =>
+    projects.stack(idParam(request.params)),
+  );
+
   app.get("/api/projects/:id", async (request): Promise<ProjectDetailDto> =>
     projects.get(idParam(request.params)),
   );
@@ -43,6 +63,43 @@ export function registerProjectRoutes(app: FastifyInstance, container: Container
       UpdateAllowedToolsRequestSchema.parse(request.body).allowedTools,
       request.user ? `user:${request.user.username}` : "user:unknown",
     ),
+  }));
+
+  app.get("/api/projects/:id/memory", async (request): Promise<ProjectMemoryDto> =>
+    container.memory.project(idParam(request.params)),
+  );
+
+  app.patch(
+    "/api/projects/:id/memory/facts/:factId",
+    async (request): Promise<ProjectMemoryDto> => {
+      const { id, factId } = request.params as { id: string; factId: string };
+      return container.memory.update(
+        id,
+        factId,
+        UpdateMemoryFactRequestSchema.parse(request.body ?? {}),
+      );
+    },
+  );
+
+  app.delete(
+    "/api/projects/:id/memory/facts/:factId",
+    async (request): Promise<ProjectMemoryDto> => {
+      const { id, factId } = request.params as { id: string; factId: string };
+      return container.memory.remove(id, factId);
+    },
+  );
+
+  app.post("/api/projects/:id/memory/notes", async (request, reply): Promise<ProjectMemoryDto> => {
+    const memory = await container.memory.addNote(
+      idParam(request.params),
+      CreateMemoryNoteRequestSchema.parse(request.body ?? {}).text,
+    );
+    reply.status(201);
+    return memory;
+  });
+
+  app.get("/api/workspaces", async (): Promise<WorkspaceRefListResponse> => ({
+    items: await workspaces.all(),
   }));
 
   app.get("/api/projects/:id/workspaces", async (request): Promise<{ items: WorkspaceDto[] }> => ({

@@ -4,12 +4,13 @@ import type {
   SessionListResponse,
   TerminalListResponse,
 } from "@onyx/contracts";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
+import { HelpTip } from "@/components/ui/help-tip";
 import { WorkspaceConsole } from "@/components/workspaces/workspace-console";
 import { serverFetch } from "@/lib/api/server";
 import { DOMAIN_LABELS } from "@/lib/domains";
+import { getT } from "@/lib/i18n/server";
 
 export default async function WorkspacePage({
   params,
@@ -17,6 +18,7 @@ export default async function WorkspacePage({
   params: Promise<{ projectId: string; workspaceId: string }>;
 }) {
   const { projectId, workspaceId } = await params;
+  const t = await getT();
   const [project, sessions, terminals, catalog] = await Promise.all([
     serverFetch<ProjectDetailDto>(`/api/projects/${projectId}`),
     serverFetch<SessionListResponse>(`/api/workspaces/${workspaceId}/sessions`),
@@ -31,16 +33,14 @@ export default async function WorkspacePage({
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href={`/projects/${project.id}`} className="hover:text-foreground">
-            ← {project.name}
-          </Link>
-        }
         title={workspace.name}
         description={
           <>
-            {DOMAIN_LABELS[workspace.domain]} compartment ·{" "}
-            <span className="font-mono text-xs">{workspace.pathGlobs.join(", ")}</span>
+            {t("Workspace for the {domain} area", {
+              domain: t(DOMAIN_LABELS[workspace.domain]),
+            })}{" "}
+            <HelpTip term="workspace" /> ·{" "}
+            <span className="break-all font-mono text-xs">{workspace.pathGlobs.join(", ")}</span>
           </>
         }
       />

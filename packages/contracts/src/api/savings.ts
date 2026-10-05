@@ -1,13 +1,25 @@
 import { z } from "zod";
-import { SAVINGS_CHECK_STATES, SAVINGS_VERDICTS } from "../client";
-import { ContextArmSchema } from "../domain";
+import { MemoryExperimentSchema } from "./memory";
+import {
+  SAVINGS_CHECK_STATES,
+  SAVINGS_EVIDENCE,
+  SAVINGS_SOURCES,
+  SAVINGS_VERDICTS,
+  CONTEXT_VARIANTS,
+  EXPERIMENT_STATES,
+} from "../client";
+import { CacheLossSchema, ContextArmSchema } from "../domain";
 
 export const MIN_CONTROL_SHARE = 0.1;
 export const MAX_CONTROL_SHARE = 0.5;
 
+export const ContextVariantSchema = z.enum(CONTEXT_VARIANTS);
+export type ContextVariant = z.infer<typeof ContextVariantSchema>;
+
 export const ContextExperimentSettingsSchema = z.object({
   enabled: z.boolean(),
   controlShare: z.number().min(MIN_CONTROL_SHARE).max(MAX_CONTROL_SHARE),
+  variant: ContextVariantSchema.nullable().default(null),
 });
 export type ContextExperimentSettings = z.infer<typeof ContextExperimentSettingsSchema>;
 
@@ -25,13 +37,7 @@ export const ArmStatsSchema = z.object({
 });
 export type ArmStats = z.infer<typeof ArmStatsSchema>;
 
-export const ExperimentStateSchema = z.enum([
-  "OFF",
-  "COLLECTING",
-  "SAVING",
-  "NO_DIFFERENCE",
-  "COSTS_MORE",
-]);
+export const ExperimentStateSchema = z.enum(EXPERIMENT_STATES);
 export type ExperimentState = z.infer<typeof ExperimentStateSchema>;
 
 export const ExperimentResultSchema = z.object({
@@ -46,6 +52,10 @@ export const ExperimentResultSchema = z.object({
   costChange: z.number().nullable(),
   pValue: z.number().nullable(),
   successGap: z.number().nullable(),
+  variant: ArmStatsSchema.nullable(),
+  variantState: ExperimentStateSchema,
+  variantTokenChange: z.number().nullable(),
+  variantPValue: z.number().nullable(),
 });
 export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
 
@@ -105,6 +115,39 @@ export const SavingsVerdictSchema = z.object({
 });
 export type SavingsVerdict = z.infer<typeof SavingsVerdictSchema>;
 
+export const SavingsEvidenceSchema = z.enum(SAVINGS_EVIDENCE);
+export type SavingsEvidence = z.infer<typeof SavingsEvidenceSchema>;
+
+export const SavingsSourceSchema = z.enum(SAVINGS_SOURCES);
+export type SavingsSource = z.infer<typeof SavingsSourceSchema>;
+
+export const SavingsLedgerRowSchema = z.object({
+  source: SavingsSourceSchema,
+  evidence: SavingsEvidenceSchema,
+  tokens: z.number().int().nullable(),
+  usd: z.number().nullable(),
+  runs: z.number().int(),
+  detail: z.string(),
+});
+export type SavingsLedgerRow = z.infer<typeof SavingsLedgerRowSchema>;
+
+export const CacheLossRowSchema = z.object({
+  reason: CacheLossSchema,
+  runs: z.number().int(),
+  lostTokens: z.number().int(),
+});
+export type CacheLossRow = z.infer<typeof CacheLossRowSchema>;
+
+export const CacheReportSchema = z.object({
+  windowDays: z.number().int(),
+  resumedRuns: z.number().int(),
+  runsWithLoss: z.number().int(),
+  lostTokens: z.number().int(),
+  readTokens: z.number().int(),
+  byReason: z.array(CacheLossRowSchema),
+});
+export type CacheReport = z.infer<typeof CacheReportSchema>;
+
 export const SavingsReportSchema = z.object({
   generatedAt: z.string(),
   contextEnabled: z.boolean(),
@@ -113,5 +156,22 @@ export const SavingsReportSchema = z.object({
   pack: PackAccountingSchema,
   checks: z.array(SavingsCheckSchema),
   other: OtherSavingsSchema,
+  ledger: z.array(SavingsLedgerRowSchema),
+  cache: CacheReportSchema,
+  memory: MemoryExperimentSchema,
 });
 export type SavingsReport = z.infer<typeof SavingsReportSchema>;
+
+export const SavingsOptionsSchema = z.object({
+  conciseAnswers: z.boolean(),
+  cheapExploration: z.boolean(),
+  batchSmallTasks: z.boolean(),
+});
+export type SavingsOptions = z.infer<typeof SavingsOptionsSchema>;
+
+export const SavingsOptionsDtoSchema = SavingsOptionsSchema.extend({
+  conciseSince: z.string().nullable(),
+  explorationSince: z.string().nullable(),
+  batchingSince: z.string().nullable(),
+});
+export type SavingsOptionsDto = z.infer<typeof SavingsOptionsDtoSchema>;

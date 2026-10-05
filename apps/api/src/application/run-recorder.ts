@@ -11,6 +11,7 @@ import {
   type RunItemOf,
   type TokenUsage,
 } from "@onyx/contracts";
+import { localizeRunItems } from "../domain/run-texts";
 import type { EventWriter } from "../infrastructure/event-writer";
 import type { RunEventPublisher } from "../infrastructure/ws-hub";
 
@@ -51,11 +52,23 @@ function editedPath(toolName: string, input: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+export const WRITING_TOOLS: ReadonlySet<string> = new Set([
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+  "Bash",
+]);
+
 export class RunRecorder {
   private seq = 0;
   private readonly ledger = new TurnUsageLedger();
   private readonly turns = new Map<string, TurnUsageRecord>();
   private lastTurn: TokenUsage | null = null;
+  private firstTurn: TokenUsage | null = null;
+  private compactions = 0;
+  private writes = false;
+  private limited = false;
   private resultItem: RunItemOf<"result"> | null = null;
   private initItem: RunItemOf<"init"> | null = null;
   private guards = 0;
@@ -70,6 +83,7 @@ export class RunRecorder {
     private readonly writer: EventWriter,
     private readonly publisher: RunEventPublisher,
     private readonly onInit: (init: RunItemOf<"init">) => void = () => undefined,
+    private readonly onRateLimit: (item: RunItemOf<"rate_limit">) => void = () => undefined,
   ) {}
 
   get lastSeq(): number {
@@ -86,6 +100,22 @@ export class RunRecorder {
 
   get usage(): TokenUsage {
     return this.resultItem?.usage ?? this.ledger.total();
+  }
+
+  get mayHaveWritten(): boolean {
+    return this.writes;
+  }
+
+  get rateLimited(): boolean {
+    return this.limited;
+  }
+
+  get compacted(): boolean {
+    return this.compactions > 0;
+  }
+
+  get firstMainTurn(): TokenUsage | null {
+    return this.firstTurn;
   }
 
   get lastContextTokens(): number {
@@ -138,13 +168,22 @@ export class RunRecorder {
           model: item.model,
           usage: item.usage,
         });
-        this.lastTurn = item.usage;
+        if (item.parentToolUseId === null) {
+          this.firstTurn ??= item.usage;
+          this.lastTurn = item.usage;
+        }
       } else if (item.kind === "result") {
         this.resultItem = item;
+      } else if (item.kind === "system" && item.subtype === "compact_boundary") {
+        this.compactions += 1;
+      } else if (item.kind === "rate_limit") {
+        if (item.status === "rejected") this.limited = true;
+        this.onRateLimit(item);
       } else if (item.kind === "init") {
         this.initItem = item;
         this.onInit(item);
       } else if (item.kind === "tool_use") {
+        if (WRITING_TOOLS.has(item.name)) this.writes = true;
         const path = editedPath(item.name, item.input);
         if (path !== null) this.pendingEdits.set(item.toolUseId, path);
         const read = readRequest(item.name, item.input);
@@ -171,7 +210,19 @@ export class RunRecorder {
 
   private append(type: string, subtype: string | null, payload: unknown, items: RunItem[]): void {
     this.seq += 1;
-    this.writer.enqueue({ runId: this.runId, seq: this.seq, type, subtype, payload });
-    this.publisher.publishRunEvent(this.runId, this.seq, new Date().toISOString(), items);
+    this.writer.enqueue({
+      runId: this.runId,
+      seq: this.seq,
+      type,
+      subtype,
+      payload,
+      ...(type === ONYX_EVENT_TYPE || type === ONYX_ITEMS_EVENT_TYPE ? {} : { items }),
+    });
+    this.publisher.publishRunEvent(
+      this.runId,
+      this.seq,
+      new Date().toISOString(),
+      localizeRunItems(items),
+    );
   }
 }

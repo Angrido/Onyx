@@ -4,7 +4,9 @@ import {
   StatusLineInputSchema,
   type GuardItem,
 } from "@onyx/contracts";
+import { destructiveReason } from "@onyx/ignore-compiler";
 import type { FastifyInstance } from "fastify";
+import { WRITING_TOOLS } from "../../application/run-recorder";
 import type { Container } from "../../container";
 import { requireGrant } from "../internal-auth";
 
@@ -23,6 +25,16 @@ interface SessionStartOutput {
   };
 }
 
+function denied(reason: string): PreToolUseOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    },
+  };
+}
+
 export function registerHookRoutes(app: FastifyInstance, container: Container): void {
   const { runTokens, executor, indexes, prisma, terminals } = container;
 
@@ -32,18 +44,51 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
     async (request): Promise<PreToolUseOutput> => {
       const { grant } = requireGrant(request, runTokens);
       const parsed = HookInputSchema.safeParse(request.body);
-      if (!parsed.success) return {};
+      if (!parsed.success)
+        return denied("Onyx could not read this tool call, so it could not check it.");
       const input = parsed.data;
       const call = {
         toolName: input.tool_name,
         toolInput: input.tool_input,
         cwd: input.cwd ?? null,
       };
-      const readDecision = grant.guard.evaluate(call);
-      const testDecision = readDecision.allowed && grant.tests ? grant.tests.evaluate(call) : null;
+      let readDecision: ReturnType<typeof grant.guard.evaluate>;
+      let testDecision: ReturnType<NonNullable<typeof grant.tests>["evaluate"]> | null;
+      let fenceDecision: ReturnType<NonNullable<typeof grant.fence>["evaluate"]> | null;
+      const command =
+        input.tool_name === "Bash" &&
+        typeof input.tool_input === "object" &&
+        input.tool_input !== null &&
+        "command" in input.tool_input &&
+        typeof input.tool_input.command === "string"
+          ? input.tool_input.command
+          : null;
+      const destructive = command === null ? null : destructiveReason(command);
+      if (destructive) {
+        const reason = `Onyx never lets agents run this: ${destructive}.`;
+        executor.recordGuard(grant.runId, {
+          kind: "guard",
+          source: "hook",
+          tool: input.tool_name,
+          toolUseId: input.tool_use_id ?? null,
+          target: command,
+          rule: "destructive command",
+          reason,
+        });
+        return denied(reason);
+      }
+      try {
+        readDecision = grant.guard.evaluate(call);
+        testDecision = readDecision.allowed && grant.tests ? grant.tests.evaluate(call) : null;
+        fenceDecision =
+          readDecision.allowed && !(testDecision && !testDecision.allowed) && grant.fence
+            ? grant.fence.evaluate(call)
+            : null;
+      } catch (error) {
+        request.log.error({ err: error, runId: grant.runId }, "Tool call check failed");
+        return denied("Onyx could not check this tool call, so it was blocked. Try a simpler one.");
+      }
       const testDenial = testDecision && !testDecision.allowed ? testDecision : null;
-      const fenceDecision =
-        readDecision.allowed && !testDenial && grant.fence ? grant.fence.evaluate(call) : null;
       const decision = testDenial ?? fenceDecision ?? readDecision;
       if (decision.allowed) return {};
 
@@ -80,13 +125,7 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
         { runId: grant.runId, tool: input.tool_name, target: decision.target, rule },
         "Tool call blocked by the context guard",
       );
-      return {
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: decision.reason ?? "Blocked by the Onyx context profile.",
-        },
-      };
+      return denied(decision.reason ?? "Blocked by the Onyx context profile.");
     },
   );
 
@@ -95,8 +134,9 @@ export function registerHookRoutes(app: FastifyInstance, container: Container): 
     { config: { public: true } },
     async (request): Promise<Record<string, never>> => {
       const { grant } = requireGrant(request, runTokens);
-      indexes.scheduleRefresh(grant.projectId);
       const parsed = HookInputSchema.safeParse(request.body);
+      if (!parsed.success || WRITING_TOOLS.has(parsed.data.tool_name))
+        indexes.scheduleRefresh(grant.projectId);
       if (parsed.success)
         terminals.recordEdit(grant.runId, parsed.data.tool_name, parsed.data.tool_input);
       return {};

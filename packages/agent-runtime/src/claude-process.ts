@@ -3,8 +3,9 @@ import type { Readable, Writable } from "node:stream";
 import { buildUserInputMessage } from "@onyx/contracts";
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from "./environment";
 import { DEFAULT_MAX_LINE_LENGTH, LineSplitter } from "./line-splitter";
-import { isProcessGroupAlive, signalProcessGroup } from "./process-tools";
+import { isProcessGroupAlive, signalProcessGroup, type ProcessTracker } from "./process-tools";
 import { TextTail } from "./ring-buffer";
+import { sandboxCommand, signalSandboxedGroup, type AgentSandbox } from "./sandbox";
 import { buildClaudeArgs, type ClaudeBinary, type RunSpec } from "./run-spec";
 
 export type AbortReason =
@@ -40,6 +41,8 @@ export interface ClaudeProcessOptions {
   closeGraceMs?: number;
   maxLineLength?: number;
   stderrTailChars?: number;
+  sandbox?: AgentSandbox | null;
+  tracker?: ProcessTracker | null;
 }
 
 const ESCALATION_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGKILL"];
@@ -108,13 +111,20 @@ export class ClaudeProcess {
       this.spec.env,
     );
 
+    const launch = sandboxCommand(
+      this.options.sandbox,
+      this.options.binary.command,
+      [...this.options.binary.args, ...buildClaudeArgs(this.spec)],
+      env,
+    );
     let child: StdioChild;
     try {
-      child = spawn(
-        this.options.binary.command,
-        [...this.options.binary.args, ...buildClaudeArgs(this.spec)],
-        { cwd: this.spec.cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true },
-      );
+      child = spawn(launch.command, launch.args, {
+        cwd: this.spec.cwd,
+        env: launch.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
+      });
     } catch (error) {
       this.finish("spawn_error", describeError(error));
       return;
@@ -125,6 +135,8 @@ export class ClaudeProcess {
       if (child.pid === undefined) this.finish("spawn_error", error.message);
     });
     if (child.pid === undefined) return;
+    const pid = child.pid;
+    this.track((tracker) => tracker.started(pid, `run:${this.spec.runId}`));
 
     this.attachStdout(child);
     this.attachStderr(child);
@@ -147,7 +159,8 @@ export class ClaudeProcess {
     const graceMs = this.options.escalationGraceMs ?? 5_000;
     for (const signal of ESCALATION_SIGNALS) {
       if (this.exited) return;
-      signalProcessGroup(pid, signal);
+      if (this.options.sandbox) await signalSandboxedGroup(this.options.sandbox, pid, signal);
+      else signalProcessGroup(pid, signal);
       if (await this.waitForExit(graceMs)) return;
     }
   }
@@ -243,6 +256,16 @@ export class ClaudeProcess {
     this.notify(() => this.handlers.onEvent(parsed));
   }
 
+  private track(update: (tracker: ProcessTracker) => void): void {
+    const tracker = this.options.tracker;
+    if (!tracker) return;
+    try {
+      update(tracker);
+    } catch {
+      return;
+    }
+  }
+
   private notify(callback: () => void): void {
     try {
       callback();
@@ -258,13 +281,18 @@ export class ClaudeProcess {
   private complete(): void {
     if (this.exited) return;
     const pid = this.child?.pid;
-    if (pid !== undefined && isProcessGroupAlive(pid)) signalProcessGroup(pid, "SIGKILL");
+    if (pid !== undefined && isProcessGroupAlive(pid)) {
+      if (this.options.sandbox) void signalSandboxedGroup(this.options.sandbox, pid, "SIGKILL");
+      else signalProcessGroup(pid, "SIGKILL");
+    }
     this.finish("completed", null);
   }
 
   private finish(reason: ExitReason, error: string | null): void {
     if (this.exited) return;
     this.exited = true;
+    const pid = this.child?.pid;
+    if (pid !== undefined) this.track((tracker) => tracker.ended(pid));
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
     this.resolveDone({

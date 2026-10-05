@@ -1,6 +1,6 @@
 "use client";
 
-import type { Domain, WorkspaceDto } from "@onyx/contracts";
+import type { Domain, ResetStrategy, WorkspaceDto } from "@onyx/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { Database, Layers, Monitor, RotateCcw, Server, SquareTerminal, Wrench } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api, errorMessage } from "@/lib/api/client";
 import { shortId } from "@/lib/format";
+import { msg } from "@/lib/i18n/core";
+import { useT } from "@/lib/i18n/client";
+import { RESET_STRATEGY_LABELS } from "@/lib/sessions";
+
+export const FENCE_LABELS: Record<ResetStrategy, string> = {
+  HARD: msg("Rigid fence"),
+  HANDOFF: msg("Exit with handoff"),
+  SOFT: msg("Continuous session"),
+};
 
 const DOMAIN_ICONS: Record<Domain, typeof Monitor> = {
   FRONTEND: Monitor,
@@ -21,12 +30,13 @@ const DOMAIN_ICONS: Record<Domain, typeof Monitor> = {
 };
 
 function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
+  const t = useT();
   const router = useRouter();
   const Icon = DOMAIN_ICONS[workspace.domain];
   const reset = useMutation({
     mutationFn: () => api.post<WorkspaceDto>(`/api/workspaces/${workspace.id}/reset`),
     onSuccess: () => {
-      toast.success(`${workspace.name}: context reset`);
+      toast.success(t("{name}: context reset", { name: workspace.name }));
       router.refresh();
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -34,15 +44,20 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
 
   return (
     <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-1.5">
         <Link
           href={`/projects/${workspace.projectId}/workspaces/${workspace.id}`}
-          className="flex items-center gap-2 hover:text-primary"
+          className="flex min-w-0 max-w-full items-center gap-2 hover:text-primary"
         >
-          <Icon className="size-4 text-muted-foreground" />
-          <span className="text-sm font-medium">{workspace.name}</span>
+          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate text-sm font-medium">{workspace.name}</span>
         </Link>
-        <Badge>{workspace.resetStrategy.toLowerCase()}</Badge>
+        <Badge
+          className="whitespace-nowrap"
+          title={t(RESET_STRATEGY_LABELS[workspace.resetStrategy].hint)}
+        >
+          {t(FENCE_LABELS[workspace.resetStrategy])}
+        </Badge>
       </div>
       <div className="flex flex-wrap gap-1">
         {workspace.pathGlobs.slice(0, 3).map((glob) => (
@@ -61,9 +76,9 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
       </div>
       <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          Session{" "}
+          {t("Session")}{" "}
           <span className="font-mono text-foreground">
-            {workspace.activeSessionId ? shortId(workspace.activeSessionId) : "none"}
+            {workspace.activeSessionId ? shortId(workspace.activeSessionId) : t("none")}
           </span>
         </span>
         <div className="flex items-center gap-1">
@@ -72,15 +87,15 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
             size="sm"
             disabled={!workspace.activeSessionId || reset.isPending}
             onClick={() => reset.mutate()}
-            title="Start the next run in a new session with a handoff note"
+            title={t("Start the next run in a new session with a handoff note")}
           >
             <RotateCcw />
-            Reset
+            {t("Reset")}
           </Button>
           <Button variant="secondary" size="sm" asChild>
             <Link href={`/projects/${workspace.projectId}/workspaces/${workspace.id}`}>
               <SquareTerminal />
-              Open
+              {t("Open")}
             </Link>
           </Button>
         </div>

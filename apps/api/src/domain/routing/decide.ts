@@ -6,6 +6,8 @@ import type {
   RoutingStrategy,
   RunStatus,
 } from "@onyx/contracts";
+import { interpolate } from "../../i18n";
+import { RATIONALE } from "./rationale";
 import { firstMatchingRule, type RuleView } from "./rules";
 import { confidenceOf, describeScore, scoreFeatures, tierForScore, type Score } from "./scoring";
 
@@ -101,7 +103,10 @@ function basePlan(context: RoutingContext): RoutingPlan {
       rule: match.rule,
       score,
       confidence: null,
-      rationale: `Rule ${match.rule.name} matched (${match.reasons.join(", ")})`,
+      rationale: interpolate(RATIONALE.rule, {
+        rule: match.rule.name,
+        reasons: match.reasons.join(", "),
+      }),
       classify: false,
     };
   }
@@ -111,7 +116,10 @@ function basePlan(context: RoutingContext): RoutingPlan {
     tier === "ARCHITECT"
       ? `≥ ${context.thresholds.architect}`
       : tier === "SCOUT"
-        ? `< ${context.thresholds.builder} for a ${context.features.kind.toLowerCase()} task`
+        ? interpolate(RATIONALE.lightBand, {
+            threshold: context.thresholds.builder,
+            kind: context.features.kind.toLowerCase(),
+          })
         : `< ${context.thresholds.architect}`;
   return {
     strategy: "HEURISTIC",
@@ -120,7 +128,11 @@ function basePlan(context: RoutingContext): RoutingPlan {
     rule: null,
     score,
     confidence,
-    rationale: `Score ${score.value.toFixed(2)} ${band}: ${describeScore(context.features)}`,
+    rationale: interpolate(RATIONALE.score, {
+      score: score.value.toFixed(2),
+      band,
+      signals: describeScore(context.features),
+    }),
     classify: confidence < context.classifierConfidence,
   };
 }
@@ -135,9 +147,7 @@ export function planRouting(context: RoutingContext): RoutingPlan {
       score: null,
       confidence: null,
       rationale:
-        context.override.source === "run-request"
-          ? "Model chosen by the operator for this run"
-          : "Model pinned on the task by the operator",
+        context.override.source === "run-request" ? RATIONALE.operatorRun : RATIONALE.pinned,
       classify: false,
     };
   }
@@ -151,7 +161,11 @@ export function planRouting(context: RoutingContext): RoutingPlan {
       tier: escalation.tier,
       modelId: null,
       classify: false,
-      rationale: `Escalated to ${escalation.tier}: ${escalation.reason}. Base routing: ${base.rationale}`,
+      rationale: interpolate(RATIONALE.escalated, {
+        tier: escalation.tier,
+        reason: escalation.reason,
+        base: base.rationale,
+      }),
     };
   }
   if (previous && shouldEscalate(lastRun)) {
@@ -163,7 +177,11 @@ export function planRouting(context: RoutingContext): RoutingPlan {
         tier: escalated,
         modelId: null,
         classify: false,
-        rationale: `Escalated from ${previous.tier} to ${escalated}: the last run hit the turn limit. Base routing: ${base.rationale}`,
+        rationale: interpolate(RATIONALE.turnLimit, {
+          previous: previous.tier,
+          tier: escalated,
+          base: base.rationale,
+        }),
       };
     }
   }
@@ -177,7 +195,11 @@ export function planRouting(context: RoutingContext): RoutingPlan {
         ...base,
         strategy: "DEESCALATION",
         classify: false,
-        rationale: `Back to ${base.tier} after the escalated ${previous.tier} run succeeded. ${base.rationale}`,
+        rationale: interpolate(RATIONALE.back, {
+          tier: base.tier,
+          previous: previous.tier,
+          base: base.rationale,
+        }),
       };
     }
     if (
@@ -191,7 +213,7 @@ export function planRouting(context: RoutingContext): RoutingPlan {
         tier: previous.tier,
         modelId: null,
         classify: false,
-        rationale: `Keeping the escalated tier ${previous.tier} until a run succeeds. Base routing: ${base.rationale}`,
+        rationale: interpolate(RATIONALE.keeping, { tier: previous.tier, base: base.rationale }),
       };
     }
   }

@@ -20,10 +20,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
+import { HelpTip } from "@/components/ui/help-tip";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { DOMAIN_LABELS } from "@/lib/domains";
 import { formatTokens } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import type { Translate } from "@/lib/i18n/core";
 import {
   KIND_LABELS,
   WEIGHT_KEYS,
@@ -35,22 +38,25 @@ import {
 import { ROUTING_STRATEGY_LABELS } from "@/lib/sessions";
 import { TIER_STYLES } from "@/lib/tiers";
 
-function featureRows(features: RoutingFeatures): Array<[string, string]> {
+const TARGETS_PLACEHOLDER = "apps/web/src/button.tsx";
+
+function featureRows(features: RoutingFeatures, t: Translate): Array<[string, string]> {
+  const yesNo = (value: boolean) => (value ? t("yes") : t("no"));
   return [
-    ["Kind", KIND_LABELS[features.kind]],
+    [t("Kind"), t(KIND_LABELS[features.kind])],
     [
-      "Domains",
+      t("Domains"),
       features.domains.length > 0
-        ? features.domains.map((domain) => DOMAIN_LABELS[domain]).join(", ")
+        ? features.domains.map((domain) => t(DOMAIN_LABELS[domain])).join(", ")
         : "—",
     ],
-    ["Cross-domain", features.crossDomain ? "yes" : "no"],
-    ["Files touched", String(features.filesTouched)],
-    ["Blast radius", String(features.blastRadius)],
-    ["Context", formatTokens(features.contextTokens)],
-    ["Arch keywords", features.archKeywords.length > 0 ? features.archKeywords.join(", ") : "—"],
-    ["Style only", features.styleOnly ? "yes" : "no"],
-    ["Prior failures", String(features.priorFailures)],
+    [t("Cross-domain"), yesNo(features.crossDomain)],
+    [t("Files touched"), String(features.filesTouched)],
+    [t("Blast radius"), String(features.blastRadius)],
+    [t("Context"), formatTokens(features.contextTokens)],
+    [t("Arch keywords"), features.archKeywords.length > 0 ? features.archKeywords.join(", ") : "—"],
+    [t("Style only"), yesNo(features.styleOnly)],
+    [t("Prior failures"), String(features.priorFailures)],
   ];
 }
 
@@ -61,6 +67,7 @@ function PreviewResult({
   preview: RouterPreviewResponse;
   settings: RouterSettingsDto;
 }) {
+  const t = useT();
   const { decision } = preview;
   const style = TIER_STYLES[decision.tier];
   const max = weightSum(settings.weights);
@@ -77,21 +84,24 @@ function PreviewResult({
           <TierBadge tier={decision.tier} />
           <ModelBadge modelId={decision.modelId} />
           <Badge>
-            {ROUTING_STRATEGY_LABELS[decision.strategy]}
+            {t(ROUTING_STRATEGY_LABELS[decision.strategy])}
             {decision.ruleName ? ` · ${decision.ruleName}` : ""}
           </Badge>
           {preview.classifierUsed ? (
             <Badge tone="primary">
               <Bot className="size-3" />
-              classifier
+              {t("classifier")}
             </Badge>
           ) : null}
         </div>
         <p className="mt-2 text-sm leading-relaxed">{decision.rationale}</p>
         <p className="mt-2 text-xs text-muted-foreground">
-          Workspace{" "}
-          <span className="font-medium text-foreground">{preview.workspaceName ?? "none"}</span>
-          {preview.workspaceSource ? ` · ${WORKSPACE_SOURCE_LABELS[preview.workspaceSource]}` : ""}
+          {t("Workspace")}
+          <HelpTip term="workspace" />{" "}
+          <span className="font-medium text-foreground">{preview.workspaceName ?? "—"}</span>
+          {preview.workspaceSource
+            ? ` · ${t(WORKSPACE_SOURCE_LABELS[preview.workspaceSource])}`
+            : ""}
         </p>
       </div>
       {decision.components ? (
@@ -111,7 +121,7 @@ function PreviewResult({
                   key={key}
                   className="grid grid-cols-[9rem_1fr_3rem] items-center gap-2 text-xs"
                 >
-                  <span className="text-muted-foreground">{WEIGHT_LABELS[key].label}</span>
+                  <span className="text-muted-foreground">{t(WEIGHT_LABELS[key].label)}</span>
                   <div className="h-1.5 rounded-full bg-surface-2">
                     <div
                       className="h-full rounded-full bg-primary"
@@ -127,7 +137,7 @@ function PreviewResult({
       ) : null}
       {decision.features ? (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-border bg-surface-0/60 p-3 text-xs sm:grid-cols-3">
-          {featureRows(decision.features).map(([label, value]) => (
+          {featureRows(decision.features, t).map(([label, value]) => (
             <div key={label} className="min-w-0">
               <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 {label}
@@ -150,6 +160,7 @@ export function RouterSimulator({
   projects: ProjectDto[];
   settings: RouterSettingsDto;
 }) {
+  const t = useT();
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
   const [workspaceId, setWorkspaceId] = useState("");
   const [kind, setKind] = useState<TaskKind>("FEATURE");
@@ -186,19 +197,23 @@ export function RouterSimulator({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FlaskConical className="size-4 text-primary" />
-          Simulator
+          {t("Simulator")}
         </CardTitle>
         <CardDescription>
-          Dry-run a task through the rules, the heuristic and the classifier. Nothing is recorded.
+          {t(
+            "Dry-run a task through the rules, the heuristic and the classifier. Nothing is recorded.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         {projects.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Register a project to simulate routing.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("Register a project to simulate routing.")}
+          </p>
         ) : (
           <form className="space-y-3" onSubmit={submit}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Field label="Project" htmlFor="sim-project">
+              <Field label={t("Project")} htmlFor="sim-project">
                 <Select
                   id="sim-project"
                   value={projectId}
@@ -214,13 +229,13 @@ export function RouterSimulator({
                   ))}
                 </Select>
               </Field>
-              <Field label="Workspace" htmlFor="sim-workspace">
+              <Field label={t("Workspace")} htmlFor="sim-workspace">
                 <Select
                   id="sim-workspace"
                   value={workspaceId}
                   onChange={(event) => setWorkspaceId(event.target.value)}
                 >
-                  <option value="">Auto</option>
+                  <option value="">{t("Auto")}</option>
                   {(project.data?.workspaces ?? []).map((workspace) => (
                     <option key={workspace.id} value={workspace.id}>
                       {workspace.name}
@@ -228,7 +243,7 @@ export function RouterSimulator({
                   ))}
                 </Select>
               </Field>
-              <Field label="Kind" htmlFor="sim-kind">
+              <Field label={t("Kind")} htmlFor="sim-kind">
                 <Select
                   id="sim-kind"
                   value={kind}
@@ -236,45 +251,47 @@ export function RouterSimulator({
                 >
                   {TASK_KINDS.map((option) => (
                     <option key={option} value={option}>
-                      {KIND_LABELS[option]}
+                      {t(KIND_LABELS[option])}
                     </option>
                   ))}
                 </Select>
               </Field>
             </div>
-            <Field label="Title" htmlFor="sim-title">
+            <Field label={t("Title")} htmlFor="sim-title">
               <Input
                 id="sim-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
               />
             </Field>
-            <Field label="Prompt" htmlFor="sim-prompt">
+            <Field label={t("Prompt")} htmlFor="sim-prompt">
               <Textarea
                 id="sim-prompt"
                 className="min-h-24 font-mono text-xs"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                placeholder="Redesign the session schema and migrate the existing rows"
+                placeholder={t("Redesign the session schema and migrate the existing rows")}
                 required
               />
             </Field>
             <Field
-              label="Target paths"
+              label={t("Target paths")}
               htmlFor="sim-targets"
-              hint="Comma or newline separated; they drive blast radius and workspace inference."
+              hint={t(
+                "Comma or newline separated; they drive blast radius and workspace inference.",
+              )}
             >
               <Input
                 id="sim-targets"
                 className="font-mono text-xs"
                 value={targets}
                 onChange={(event) => setTargets(event.target.value)}
-                placeholder="apps/web/src/button.tsx"
+                placeholder={TARGETS_PLACEHOLDER}
               />
             </Field>
             <Button type="submit" disabled={preview.isPending || prompt.trim().length === 0}>
               {preview.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              Simulate
+              {t("Simulate")}
             </Button>
           </form>
         )}

@@ -5,6 +5,8 @@ import type {
   RoutingFeatures,
   ScoreComponents,
 } from "@onyx/contracts";
+import { interpolate } from "../../i18n";
+import { SIGNAL } from "./rationale";
 
 export const DEFAULT_WEIGHTS: RouterWeights = {
   blastRadius: 0.3,
@@ -86,19 +88,29 @@ export function confidenceOf(
 
 export function describeScore(features: RoutingFeatures): string {
   const parts: string[] = [];
-  if (features.blastRadius > 0) parts.push(`blast radius ${features.blastRadius}`);
-  if (features.crossDomain) parts.push(`cross-domain (${features.domains.join(", ")})`);
+  if (features.blastRadius > 0)
+    parts.push(interpolate(SIGNAL.blastRadius, { count: features.blastRadius }));
+  if (features.crossDomain)
+    parts.push(interpolate(SIGNAL.crossDomain, { domains: features.domains.join(", ") }));
   if (features.filesTouched > 0)
-    parts.push(`${features.filesTouched} target file${features.filesTouched === 1 ? "" : "s"}`);
+    parts.push(
+      interpolate(features.filesTouched === 1 ? SIGNAL.file : SIGNAL.files, {
+        count: features.filesTouched,
+      }),
+    );
   if (features.archKeywords.length > 0)
-    parts.push(`architecture keywords: ${features.archKeywords.join(", ")}`);
+    parts.push(interpolate(SIGNAL.keywords, { keywords: features.archKeywords.join(", ") }));
   if (features.contextTokens > 0)
     parts.push(
       features.contextTokens >= 1_000
-        ? `~${Math.round(features.contextTokens / 1_000)}k tokens of targets`
-        : `~${features.contextTokens} tokens of targets`,
+        ? interpolate(SIGNAL.kiloTokens, { count: Math.round(features.contextTokens / 1_000) })
+        : interpolate(SIGNAL.tokens, { count: features.contextTokens }),
     );
   if (features.priorFailures > 0)
-    parts.push(`${features.priorFailures} failed run${features.priorFailures === 1 ? "" : "s"}`);
-  return parts.length > 0 ? parts.join(", ") : "no complexity signals";
+    parts.push(
+      interpolate(features.priorFailures === 1 ? SIGNAL.failedRun : SIGNAL.failedRuns, {
+        count: features.priorFailures,
+      }),
+    );
+  return parts.length > 0 ? parts.join(", ") : SIGNAL.none;
 }

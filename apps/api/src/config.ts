@@ -44,11 +44,24 @@ const EnvSchema = z.object({
   ONYX_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().min(1_000).max(200_000).default(24_000),
   ONYX_MAP_BUDGET_TOKENS: z.coerce.number().int().min(200).max(50_000).default(4_000),
   ONYX_INDEX_WAIT_MS: z.coerce.number().int().min(0).max(600_000).default(30_000),
+  ONYX_PROMPT_CACHE_TTL_MINUTES: z.coerce.number().int().min(1).max(120).default(5),
   ONYX_MCP_SERVER: z.string().optional(),
   ONYX_STATUSLINE: z.string().optional(),
   ONYX_TERMINAL_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   ONYX_INTERNAL_API_URL: z.string().url().optional(),
   ONYX_GITHUB_TOKEN: z.string().optional(),
+  ONYX_AGENT_USER: z
+    .string()
+    .trim()
+    .regex(/^([a-z_][a-z0-9_-]{0,31})?$/, "must be a system user name")
+    .optional(),
+  ONYX_AGENT_HOME: z.string().optional(),
+  ONYX_AGENT_GROUP: z
+    .string()
+    .trim()
+    .regex(/^[a-z_][a-z0-9_-]{0,31}$/, "must be a system group name")
+    .default("onyx-work"),
+  ONYX_SUDO: z.string().default("sudo"),
   ONYX_GITHUB_API_URL: z.string().url().optional(),
   ONYX_SECRET_KEY_FILE: z.string().optional(),
   ONYX_SECRET_KEY: z.string().optional(),
@@ -73,6 +86,7 @@ export interface ContextConfig {
   mapBudgetTokens: number;
   indexWaitMs: number;
   mcpServerPath: string | null;
+  promptCacheTtlMs: number;
 }
 
 export interface GitHubConfig {
@@ -85,6 +99,13 @@ export interface TerminalConfig {
   idleMs: number;
 }
 
+export interface AgentSandboxConfig {
+  user: string;
+  home: string;
+  group: string;
+  sudo: string;
+}
+
 export interface AppConfig {
   env: "development" | "production" | "test";
   logLevel: string;
@@ -93,9 +114,12 @@ export interface AppConfig {
   databaseUrl: string;
   dataDir: string;
   runtimeDir: string;
+  worktreesDir: string;
   projectsDir: string;
+  agentSandbox: AgentSandboxConfig | null;
   allowedProjectRoots: string[];
   allowedOrigins: string[];
+  publicOrigin: string | null;
   childEnvPassthrough: string[];
   cookieSecure: boolean;
   sessionTtlMs: number;
@@ -110,6 +134,7 @@ export interface AppConfig {
   internalApiUrl: string;
   secrets: SecretsConfig;
   backup: BackupConfig;
+  agentProtectedPaths: string[];
 }
 
 export interface SecretsConfig {
@@ -143,6 +168,14 @@ function resolveCredentials(apiKey?: string, oauthToken?: string): ClaudeCredent
   return { kind: "none" };
 }
 
+const SERVICE_CONFIG_DIR = "/etc/onyx";
+
+function databaseFiles(databaseUrl: string): string[] {
+  if (!databaseUrl.startsWith("file:")) return [];
+  const file = resolve(databaseUrl.slice("file:".length).split("?")[0] ?? "");
+  return [file, `${file}-wal`, `${file}-shm`, `${file}-journal`];
+}
+
 function loopbackHost(apiHost: string): string {
   if (apiHost === "0.0.0.0" || apiHost === "127.0.0.1" || apiHost === "localhost")
     return "127.0.0.1";
@@ -171,6 +204,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       : mcpServerPath
         ? join(dirname(mcpServerPath), "onyx-statusline.js")
         : null;
+  const keyFile = resolve(env.ONYX_SECRET_KEY_FILE ?? join(dataDir, "secret.key"));
+  const backupDir = resolve(env.ONYX_BACKUP_DIR ?? join(dataDir, "backups"));
+  const runtimeDir = resolve(dataDir, "runtime");
   const allowedOrigins = [
     ...env.ONYX_ALLOWED_ORIGINS,
     ...(env.ONYX_PUBLIC_ORIGIN ? [env.ONYX_PUBLIC_ORIGIN] : []),
@@ -183,13 +219,27 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     port: env.API_PORT,
     databaseUrl: env.DATABASE_URL,
     dataDir,
-    runtimeDir: resolve(dataDir, "runtime"),
+    runtimeDir,
+    worktreesDir: join(dataDir, "worktrees"),
     projectsDir,
+    agentSandbox:
+      env.ONYX_AGENT_USER && env.ONYX_AGENT_USER.length > 0
+        ? {
+            user: env.ONYX_AGENT_USER,
+            home:
+              env.ONYX_AGENT_HOME && env.ONYX_AGENT_HOME.trim().length > 0
+                ? resolve(env.ONYX_AGENT_HOME)
+                : `/home/${env.ONYX_AGENT_USER}`,
+            group: env.ONYX_AGENT_GROUP,
+            sudo: env.ONYX_SUDO,
+          }
+        : null,
     allowedProjectRoots:
       env.ONYX_ALLOWED_PROJECT_ROOTS.length > 0
         ? env.ONYX_ALLOWED_PROJECT_ROOTS.map((root) => resolve(root))
         : [projectsDir],
     allowedOrigins,
+    publicOrigin: env.ONYX_PUBLIC_ORIGIN ?? env.ONYX_ALLOWED_ORIGINS[0] ?? null,
     childEnvPassthrough: env.ONYX_CHILD_ENV_PASSTHROUGH,
     cookieSecure: env.COOKIE_SECURE,
     sessionTtlMs: env.SESSION_TTL_HOURS * 3_600_000,
@@ -204,6 +254,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       mapBudgetTokens: env.ONYX_MAP_BUDGET_TOKENS,
       indexWaitMs: env.ONYX_INDEX_WAIT_MS,
       mcpServerPath,
+      promptCacheTtlMs: env.ONYX_PROMPT_CACHE_TTL_MINUTES * 60_000,
     },
     terminal: { statusLinePath, idleMs: env.ONYX_TERMINAL_IDLE_MS },
     github: {
@@ -217,17 +268,25 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       env.ONYX_INTERNAL_API_URL ?? `http://${loopbackHost(env.API_HOST)}:${env.API_PORT}`
     ).replace(/\/+$/, ""),
     secrets: {
-      keyFile: resolve(env.ONYX_SECRET_KEY_FILE ?? join(dataDir, "secret.key")),
+      keyFile,
       key:
         env.ONYX_SECRET_KEY && env.ONYX_SECRET_KEY.trim().length > 0
           ? env.ONYX_SECRET_KEY.trim()
           : null,
     },
     backup: {
-      dir: resolve(env.ONYX_BACKUP_DIR ?? join(dataDir, "backups")),
+      dir: backupDir,
       keep: env.ONYX_BACKUP_KEEP,
       intervalHours: env.ONYX_BACKUP_INTERVAL_HOURS,
     },
+    agentProtectedPaths: [
+      keyFile,
+      ...databaseFiles(env.DATABASE_URL),
+      backupDir,
+      runtimeDir,
+      join(dataDir, "logs"),
+      SERVICE_CONFIG_DIR,
+    ],
   };
 }
 

@@ -29,7 +29,103 @@ export const TASK_KINDS = [
   "CHORE",
 ] as const;
 export const TEST_RUNNERS = ["VITEST", "JEST"] as const;
-export const CONTEXT_ARMS = ["PACK", "CONTROL"] as const;
+export const CONTEXT_ARMS = ["PACK", "CONTROL", "TARGET_L2"] as const;
+export const CONTEXT_VARIANTS = ["TARGET_L2"] as const;
+export const SAVINGS_EVIDENCE = ["MEASURED", "ESTIMATED"] as const;
+export const QUOTA_LEVELS = ["UNKNOWN", "OK", "WARNING", "HOLDING", "LIMITED"] as const;
+export const RULE_SAFETY = ["SAFE", "REVIEW"] as const;
+export const GRANT_SCOPES = ["TASK", "AGENT", "PROJECT"] as const;
+export const QUEUE_WAIT_REASONS = ["SLOTS", "PROJECT", "WORKSPACE", "QUOTA"] as const;
+export const QUEUE_ITEM_KINDS = ["TASK", "TDD", "PLAN"] as const;
+export const QUEUE_MOVES = ["top", "up", "down", "bottom"] as const;
+export const PROJECT_HEALTH = ["OK", "ATTENTION", "ERROR"] as const;
+export const HEALTH_CHECK_IDS = ["index", "git", "tests", "disk", "claude", "github"] as const;
+export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
+export const PULL_REQUEST_STATES = ["OPEN", "CLOSED", "MERGED"] as const;
+export const CHECKS_STATES = ["NONE", "PENDING", "SUCCESS", "FAILURE"] as const;
+export const CHECK_RESULTS = ["PENDING", "SUCCESS", "FAILURE", "NEUTRAL"] as const;
+export const CHANGELOG_SECTIONS = [
+  "BREAKING",
+  "FEATURES",
+  "FIXES",
+  "PERFORMANCE",
+  "REFACTORING",
+  "DOCS",
+  "OTHER",
+] as const;
+export const CHANGELOG_SOURCES = ["COMMIT", "TASK"] as const;
+export const QA_VERDICTS = ["PASS", "FAIL", "ERROR"] as const;
+export const RESOLUTION_STATES = ["PROPOSED", "APPLIED", "DISCARDED", "FAILED"] as const;
+export const INSIGHT_MODES = ["INDEX", "MODEL"] as const;
+export const INSIGHT_INTENTS = [
+  "DEFINITION",
+  "USAGES",
+  "IMPORTERS",
+  "IMPORTS",
+  "CENTRAL",
+  "LARGEST",
+  "CYCLES",
+  "OPEN",
+] as const;
+export const IDEATION_STATUSES = ["RUNNING", "DONE", "FAILED"] as const;
+export const FINDING_CATEGORIES = [
+  "SECURITY",
+  "PERFORMANCE",
+  "MAINTAINABILITY",
+  "DEPENDENCY",
+] as const;
+export const FINDING_SEVERITIES = ["LOW", "MEDIUM", "HIGH"] as const;
+export const FINDING_STATES = ["OPEN", "DISMISSED", "TASKED"] as const;
+export const FINDING_VERDICTS = ["REAL", "FALSE_POSITIVE", "UNSURE"] as const;
+export const NOTIFICATION_EVENTS = [
+  "RUN_FINISHED",
+  "RUN_FAILED",
+  "RUN_BLOCKED",
+  "APPROVAL",
+  "BUDGET",
+  "QUOTA",
+  "CHECKS",
+] as const;
+export const NOTIFICATION_CHANNELS = ["webpush", "ntfy", "telegram"] as const;
+export const SEARCH_KINDS = ["TASK", "RUN", "FILE"] as const;
+export const MEMORY_FACT_KINDS = ["TEST", "COMMAND", "FILE", "PITFALL", "NOTE"] as const;
+export const MEMORY_FACT_STATUSES = ["CANDIDATE", "ACTIVE", "SUGGESTED", "DISMISSED"] as const;
+export const MEMORY_ARMS = ["MEMORY", "NO_MEMORY"] as const;
+export const EXPERIMENT_STATES = [
+  "OFF",
+  "COLLECTING",
+  "SAVING",
+  "NO_DIFFERENCE",
+  "COSTS_MORE",
+] as const;
+export const SEARCH_MARK_START = "\u0001";
+export const SEARCH_MARK_END = "\u0002";
+export const SAVINGS_SOURCES = [
+  "context-pack",
+  "stable-prefix",
+  "pack-reuse",
+  "prompt-cache",
+  "routing",
+  "stack-commands",
+  "quota",
+  "project-memory",
+  "target-signatures",
+  "concise-answers",
+  "exploration-models",
+  "small-task-batching",
+  "qa-review",
+  "conflict-resolution",
+  "insights",
+  "ideation",
+] as const;
+export const CACHE_LOSSES = [
+  "NEW_SESSION",
+  "NONE",
+  "PREFIX_CHANGED",
+  "MODEL_CHANGED",
+  "EXPIRED",
+  "UNKNOWN",
+] as const;
 export const SAVINGS_VERDICTS = [
   "CONFIRMED",
   "NOT_PAYING",

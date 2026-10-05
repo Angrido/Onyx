@@ -93,9 +93,25 @@ enum RoutingStrategy {
   DEESCALATION
 }
 
+enum GrantScope {
+  TASK
+  AGENT
+  PROJECT
+}
+
+enum CacheLoss {
+  NEW_SESSION
+  NONE
+  PREFIX_CHANGED
+  MODEL_CHANGED
+  EXPIRED
+  UNKNOWN
+}
+
 enum ContextArm {
   PACK
   CONTROL
+  TARGET_L2
 }
 
 enum TokenScope {
@@ -129,6 +145,26 @@ enum TestRunner {
   JEST
 }
 
+enum MemoryArm {
+  MEMORY
+  NO_MEMORY
+}
+
+enum FactKind {
+  TEST
+  COMMAND
+  FILE
+  PITFALL
+  NOTE
+}
+
+enum FactStatus {
+  CANDIDATE
+  ACTIVE
+  SUGGESTED
+  DISMISSED
+}
+
 enum TddStatus {
   PENDING
   RUNNING
@@ -156,6 +192,7 @@ enum ApprovalKind {
   BUDGET
   ESCALATION
   PERMISSION
+  QA
 }
 
 enum ApprovalStatus {
@@ -208,6 +245,7 @@ model Project {
   indexStats    Json?
   indexError    String?
   allowedTools  Json?
+  runLimit      Int?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -218,10 +256,16 @@ model Project {
   edges          DependencyEdge[]
   routingRules   RoutingRule[]
   budgets        Budget[]
+  commandGrants  CommandGrant[]
+  facts          ProjectFact[]
   roadmapRuns    RoadmapGeneration[]
   roadmapItems   RoadmapItem[]
   orchestrations Orchestration[]
   approvals      Approval[]
+  pullRequests   PullRequest[]
+  releases       ChangelogRelease[]
+  insights       Insight[]
+  ideationRuns   IdeationRun[]
 }
 
 model Workspace {
@@ -290,8 +334,9 @@ model AgentConfig {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  workspaces Workspace[]
-  runs       AgentRun[]
+  workspaces    Workspace[]
+  runs          AgentRun[]
+  commandGrants CommandGrant[]
 }
 
 model RoutingRule {
@@ -333,6 +378,7 @@ model RoutingDecision {
   runs     AgentRun[]
 
   @@index([taskId, createdAt])
+  @@index([createdAt])
 }
 
 model Task {
@@ -356,10 +402,17 @@ model Task {
   mergeState    String?
   mergeCommit   String?
   mergedAt      DateTime?
+  canWait       Boolean    @default(false)
+  batchRunId    String?
+  pendingRun    Json?
   createdAt     DateTime   @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
   updatedAt     DateTime   @updatedAt
+  issueRepo     String?
+  issueNumber   Int?
+  issueUrl      String?
+  issueLabels   Json?
 
   project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workspace     Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
@@ -373,9 +426,14 @@ model Task {
   approvals     Approval[]
   roadmapItem   RoadmapItem?
   orchestration Orchestration?    @relation("OrchestrationRoot")
+  commandGrants CommandGrant[]
 
   @@index([projectId, status])
   @@index([parentTaskId])
+  @@index([projectId, updatedAt])
+  @@index([updatedAt])
+  @@index([workspaceId])
+  @@index([projectId, issueNumber])
 }
 
 model TaskDependency {
@@ -399,6 +457,11 @@ model Session {
   handoffNote     String?
   handoffTokens   Int?
   primerHash      String?
+  contextMap      Json?
+  deliveredPack   Json?
+  memory          Json?
+  memoryArm       MemoryArm?
+  concise         Boolean?
   turns           Int               @default(0)
   contextTokens   Int               @default(0)
   startedAt       DateTime          @default(now())
@@ -441,11 +504,23 @@ model AgentRun {
   ctxDeliveredTokens Int?
   ctxExpansions      Int         @default(0)
   contextArm         ContextArm?
+  memoryArm          MemoryArm?
   ctxReadFiles       Int?
   ctxRereadFiles     Int?
   ctxRereadTokens    Int?
   ctxMissedFiles     Int?
   ctxRereadPaths     Json?
+  ctxReusedTokens    Int?
+  ctxSignatureTokens Int?
+  batchSize          Int?
+  cachePrefixHash    String?
+  cacheReadTokens    Int?
+  cacheWriteTokens   Int?
+  cacheLostTokens    Int?
+  cacheLoss          CacheLoss?
+  ctxMapDrift        Boolean     @default(false)
+  quotaDeferred      Boolean     @default(false)
+  quotaLimited       Boolean     @default(false)
   guardDenials       Int         @default(0)
   changedFiles       Json?
   errorMessage       String?
@@ -464,6 +539,11 @@ model AgentRun {
   @@index([sessionId])
   @@index([status])
   @@index([contextArm, startedAt])
+  @@index([sessionId, endedAt])
+  @@index([cacheLoss, startedAt])
+  @@index([endedAt])
+  @@index([status, startedAt])
+  @@index([startedAt])
 }
 
 model AgentEvent {
@@ -473,6 +553,7 @@ model AgentEvent {
   type      String
   subtype   String?
   payload   Json
+  items     Json?
   createdAt DateTime @default(now())
 
   run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -505,6 +586,8 @@ model TokenLog {
   @@index([sessionId])
   @@index([modelId, createdAt])
   @@index([scope, createdAt])
+  @@index([createdAt])
+  @@index([runId, scope])
 }
 
 model IgnoreProfile {
@@ -716,34 +799,42 @@ model Approval {
 
   @@index([status, createdAt])
   @@index([projectId, status])
+  @@index([taskId])
+  @@index([createdAt])
 }
 
 model Orchestration {
-  id              String              @id @default(cuid())
-  projectId       String
-  rootTaskId      String              @unique
-  status          OrchestrationStatus @default(PLANNING)
-  goal            String
-  summary         String?
-  plan            Json?
-  baseBranch      String?
-  baseCommit      String?
-  workBranch      String?
-  integrationPath String?
-  parallelism     Int                 @default(2)
-  verify          Boolean             @default(true)
-  plannerModelId  String?
-  plannerCostUsd  Float?
-  plannerTurns    Int?
-  message         String?
-  createdAt       DateTime            @default(now())
-  approvedAt      DateTime?
-  startedAt       DateTime?
-  endedAt         DateTime?
-  updatedAt       DateTime            @updatedAt
+  id                  String              @id @default(cuid())
+  projectId           String
+  rootTaskId          String              @unique
+  status              OrchestrationStatus @default(PLANNING)
+  goal                String
+  summary             String?
+  plan                Json?
+  baseBranch          String?
+  baseCommit          String?
+  workBranch          String?
+  integrationPath     String?
+  parallelism         Int                 @default(2)
+  verify              Boolean             @default(true)
+  plannerModelId      String?
+  plannerCostUsd      Float?
+  plannerTurns        Int?
+  message             String?
+  createdAt           DateTime            @default(now())
+  approvedAt          DateTime?
+  startedAt           DateTime?
+  endedAt             DateTime?
+  updatedAt           DateTime            @updatedAt
+  plannerModelCostUsd Float?
+  plannerExplorer     Boolean?
+  qa                  Boolean?
+  resolveConflicts    Boolean?
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  rootTask Task    @relation("OrchestrationRoot", fields: [rootTaskId], references: [id], onDelete: Cascade)
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rootTask    Task              @relation("OrchestrationRoot", fields: [rootTaskId], references: [id], onDelete: Cascade)
+  reviews     QaReview[]
+  resolutions MergeResolution[]
 
   @@index([projectId, createdAt])
 }
@@ -827,4 +918,267 @@ model RoadmapItem {
   task       Task?              @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([projectId, status])
+}
+
+model CommandGrant {
+  id            String     @id @default(cuid())
+  projectId     String
+  rule          String
+  scope         GrantScope
+  taskId        String?
+  agentConfigId String?
+  command       String?
+  expiresAt     DateTime?
+  createdBy     String
+  createdAt     DateTime   @default(now())
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agentConfig AgentConfig? @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([taskId])
+}
+
+model PushSubscription {
+  id         String    @id @default(cuid())
+  endpoint   String    @unique
+  keys       String
+  userAgent  String?
+  failures   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  lastSentAt DateTime?
+}
+
+model ProjectFact {
+  id          String     @id @default(cuid())
+  projectId   String
+  kind        FactKind
+  key         String
+  subject     String
+  detail      String?
+  text        String?
+  status      FactStatus @default(CANDIDATE)
+  pinned      Boolean    @default(false)
+  evidence    Int        @default(1)
+  sourceRunId String?
+  sourcePath  String?
+  firstSeenAt DateTime   @default(now())
+  lastSeenAt  DateTime   @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, kind, key])
+  @@index([projectId, status])
+}
+
+enum PullRequestState {
+  OPEN
+  CLOSED
+  MERGED
+}
+
+enum ChecksState {
+  NONE
+  PENDING
+  SUCCESS
+  FAILURE
+}
+
+model PullRequest {
+  id          String           @id @default(cuid())
+  projectId   String
+  repo        String
+  number      Int
+  url         String
+  title       String
+  branch      String
+  baseBranch  String
+  state       PullRequestState @default(OPEN)
+  draft       Boolean          @default(false)
+  headSha     String?
+  checksState ChecksState      @default(NONE)
+  checks      Json?
+  etags       Json?
+  intervalSec Int              @default(60)
+  checkedAt   DateTime?
+  nextCheckAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([repo, number])
+  @@index([projectId, branch])
+  @@index([state, nextCheckAt])
+}
+
+model ChangelogRelease {
+  id        String   @id @default(cuid())
+  projectId String
+  version   String
+  fromRef   String?
+  toRef     String
+  markdown  String
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}
+
+enum QaVerdict {
+  PASS
+  FAIL
+  ERROR
+}
+
+enum ResolutionState {
+  PROPOSED
+  APPLIED
+  DISCARDED
+  FAILED
+}
+
+model QaReview {
+  id              String    @id @default(cuid())
+  orchestrationId String
+  taskId          String
+  attempt         Int
+  verdict         QaVerdict
+  summary         String
+  criteria        Json
+  issues          Json
+  diffTokens      Int
+  diffTruncated   Boolean   @default(false)
+  modelId         String
+  costUsd         Float?
+  inputTokens     Int?
+  outputTokens    Int?
+  createdAt       DateTime  @default(now())
+
+  orchestration Orchestration @relation(fields: [orchestrationId], references: [id], onDelete: Cascade)
+
+  @@index([orchestrationId, taskId])
+  @@index([createdAt])
+}
+
+model MergeResolution {
+  id              String          @id @default(cuid())
+  orchestrationId String
+  taskId          String
+  state           ResolutionState @default(PROPOSED)
+  files           Json
+  diff            String
+  checks          String?
+  checksPassed    Boolean?
+  baseCommit      String
+  commit          String?
+  modelId         String
+  costUsd         Float?
+  message         String?
+  createdAt       DateTime        @default(now())
+  decidedAt       DateTime?
+
+  orchestration Orchestration @relation(fields: [orchestrationId], references: [id], onDelete: Cascade)
+
+  @@index([orchestrationId, taskId])
+  @@index([createdAt])
+}
+
+enum InsightMode {
+  INDEX
+  MODEL
+}
+
+enum IdeationStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum FindingCategory {
+  SECURITY
+  PERFORMANCE
+  MAINTAINABILITY
+  DEPENDENCY
+}
+
+enum FindingSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum FindingState {
+  OPEN
+  DISMISSED
+  TASKED
+}
+
+model Insight {
+  id        String      @id @default(cuid())
+  projectId String
+  question  String
+  intent    String
+  mode      InsightMode
+  answer    String
+  sources   Json
+  modelId   String?
+  costUsd   Float?
+  tokens    Int?
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([createdAt])
+}
+
+model IdeationRun {
+  id            String         @id @default(cuid())
+  projectId     String
+  status        IdeationStatus @default(RUNNING)
+  files         Int            @default(0)
+  audit         String?
+  projectTokens Int?
+  snippetTokens Int?
+  modelTokens   Int?
+  modelCostUsd  Float?
+  reviewedAt    DateTime?
+  message       String?
+  createdAt     DateTime       @default(now())
+  endedAt       DateTime?
+
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  findings IdeationFinding[]
+
+  @@index([projectId, createdAt])
+}
+
+model IdeationFinding {
+  id          String          @id @default(cuid())
+  runId       String
+  projectId   String
+  fingerprint String
+  category    FindingCategory
+  severity    FindingSeverity
+  rule        String
+  title       String
+  file        String?
+  line        Int?
+  excerpt     String?
+  explanation String
+  confidence  Float
+  source      String
+  verdict     String?
+  fix         String?
+  state       FindingState    @default(OPEN)
+  taskId      String?
+  createdAt   DateTime        @default(now())
+
+  run IdeationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([projectId, fingerprint])
 }

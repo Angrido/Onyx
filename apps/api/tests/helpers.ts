@@ -8,7 +8,9 @@ import { pino } from "pino";
 import { buildApp } from "../src/app";
 import { loadConfig } from "../src/config";
 import { createContainer, type Container } from "../src/container";
+import type { FolderSpace } from "../src/application/health-service";
 import type { HandoffSummarizer, TaskClassifier } from "../src/infrastructure/aux-model";
+import type { LogBuffer } from "../src/infrastructure/log-buffer";
 
 export const ORIGIN = "http://localhost:3000";
 export const PASSWORD = "correct-horse-battery";
@@ -35,6 +37,10 @@ export interface TestContextOptions {
   sourceEnv?: Record<string, string>;
   checkCli?: boolean;
   armRandom?: () => number;
+  fetcher?: typeof fetch;
+  telegramApiUrl?: string;
+  diskSpace?: (path: string) => Promise<FolderSpace>;
+  logs?: LogBuffer;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -77,6 +83,11 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     summarizer: options.summarizer ?? null,
     checkCli: options.checkCli ?? false,
     ...(options.armRandom ? { armRandom: options.armRandom } : {}),
+    ...(options.fetcher ? { fetcher: options.fetcher } : {}),
+    pullRequestPollMs: 0,
+    ...(options.telegramApiUrl ? { telegramApiUrl: options.telegramApiUrl } : {}),
+    ...(options.diskSpace ? { diskSpace: options.diskSpace } : {}),
+    ...(options.logs ? { logs: options.logs } : {}),
   });
   await container.start();
   const app = await buildApp(container);

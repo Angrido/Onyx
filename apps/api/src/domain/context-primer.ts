@@ -3,8 +3,15 @@ export interface PrimerInput {
   agentPrompt: string | null;
   projectName: string;
   map: { text: string; includedFiles: number; omittedFiles: number } | null;
+  memory?: string | null;
+  concise?: boolean;
   mcpEnabled: boolean;
 }
+
+export const CONCISE_GUIDE = [
+  "## Final message",
+  "End the run with a short summary of at most 6 lines: what you changed, how you checked it and anything left open. Do not repeat code, diffs or file contents: Onyx shows the diff.",
+].join("\n");
 
 const TOOL_GUIDE = [
   "## Onyx context tools",
@@ -34,7 +41,9 @@ export function composePrimer(input: PrimerInput): string {
       ].join("\n"),
     );
   }
+  if (input.memory && present(input.memory)) sections.push(input.memory.trim());
   if (input.mcpEnabled) sections.push(TOOL_GUIDE);
+  if (input.concise) sections.push(CONCISE_GUIDE);
   return sections.join("\n\n");
 }
 

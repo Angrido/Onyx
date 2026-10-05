@@ -166,6 +166,7 @@ function normalizeAssistant(raw: unknown): RunItem[] {
       messageId,
       model: message.model ?? null,
       usage: toTokenUsage(message.usage),
+      parentToolUseId,
     });
   }
   return items;
@@ -249,6 +250,45 @@ function normalizeResult(raw: unknown): RunItem[] {
   ];
 }
 
+function field(record: Record<string, unknown>, ...names: string[]): unknown {
+  for (const name of names) if (record[name] !== undefined) return record[name];
+  return undefined;
+}
+
+function epochIso(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0)
+    return new Date(value < 1e12 ? value * 1_000 : value).toISOString();
+  if (typeof value === "string" && !Number.isNaN(Date.parse(value)))
+    return new Date(value).toISOString();
+  return null;
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeRateLimit(raw: Record<string, unknown>): RunItem[] {
+  const nested = field(raw, "rate_limit_info", "rateLimitInfo");
+  const info = isRecord(nested) ? nested : raw;
+  const status = textOrNull(field(info, "status"));
+  if (status === null) return [{ kind: "unknown", type: "rate_limit_event" }];
+  const utilization = field(info, "utilization");
+  return [
+    {
+      kind: "rate_limit",
+      status,
+      limitType: textOrNull(field(info, "rateLimitType", "rate_limit_type")),
+      resetsAt: epochIso(field(info, "resetsAt", "resets_at")),
+      utilization:
+        typeof utilization === "number" && Number.isFinite(utilization)
+          ? Math.max(0, utilization > 1.5 ? utilization / 100 : utilization)
+          : null,
+      overageStatus: textOrNull(field(info, "overageStatus", "overage_status")),
+      usingOverage: field(info, "isUsingOverage", "is_using_overage") === true,
+    },
+  ];
+}
+
 export function normalizeClaudeEvent(raw: unknown): RunItem[] {
   if (!isRecord(raw) || typeof raw.type !== "string") return [{ kind: "unknown", type: "invalid" }];
   switch (raw.type) {
@@ -262,6 +302,8 @@ export function normalizeClaudeEvent(raw: unknown): RunItem[] {
       return normalizeResult(raw);
     case "stream_event":
       return [];
+    case "rate_limit_event":
+      return normalizeRateLimit(raw);
     default:
       return [{ kind: "unknown", type: raw.type }];
   }

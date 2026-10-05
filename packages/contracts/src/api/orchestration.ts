@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { QA_VERDICTS, RESOLUTION_STATES } from "../client";
 import { ModelTierSchema, TaskKindSchema, TaskStatusSchema } from "../domain";
 
 export const OrchestrationStatusSchema = z.enum([
@@ -16,6 +17,8 @@ export const NodeStateSchema = z.enum([
   "pending",
   "running",
   "verifying",
+  "reviewing",
+  "review",
   "merging",
   "merged",
   "conflict",
@@ -31,6 +34,55 @@ export const PlanActivitySchema = z.object({
   lastAction: z.string(),
 });
 export type PlanActivity = z.infer<typeof PlanActivitySchema>;
+
+export const QaVerdictSchema = z.enum(QA_VERDICTS);
+export type QaVerdict = z.infer<typeof QaVerdictSchema>;
+export const ResolutionStateSchema = z.enum(RESOLUTION_STATES);
+export type ResolutionState = z.infer<typeof ResolutionStateSchema>;
+
+export const QaCriterionSchema = z.object({
+  index: z.number().int(),
+  text: z.string(),
+  met: z.boolean(),
+  evidence: z.string(),
+});
+export type QaCriterion = z.infer<typeof QaCriterionSchema>;
+
+export const QaIssueSchema = z.object({
+  file: z.string().nullable(),
+  problem: z.string(),
+});
+export type QaIssue = z.infer<typeof QaIssueSchema>;
+
+export const QaReviewDtoSchema = z.object({
+  id: z.string(),
+  attempt: z.number().int(),
+  verdict: QaVerdictSchema,
+  summary: z.string(),
+  criteria: z.array(QaCriterionSchema),
+  issues: z.array(QaIssueSchema),
+  diffTokens: z.number().int(),
+  diffTruncated: z.boolean(),
+  modelId: z.string(),
+  costUsd: z.number().nullable(),
+  createdAt: z.string(),
+});
+export type QaReviewDto = z.infer<typeof QaReviewDtoSchema>;
+
+export const MergeResolutionDtoSchema = z.object({
+  id: z.string(),
+  state: ResolutionStateSchema,
+  files: z.array(z.string()),
+  diff: z.string(),
+  checks: z.string().nullable(),
+  checksPassed: z.boolean().nullable(),
+  modelId: z.string(),
+  costUsd: z.number().nullable(),
+  message: z.string().nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export type MergeResolutionDto = z.infer<typeof MergeResolutionDtoSchema>;
 
 export const OrchestrationNodeSchema = z.object({
   taskId: z.string(),
@@ -58,6 +110,9 @@ export const OrchestrationNodeSchema = z.object({
   lastModelId: z.string().nullable(),
   tddLoopId: z.string().nullable(),
   message: z.string().nullable(),
+  review: QaReviewDtoSchema.nullable(),
+  reviews: z.number().int(),
+  resolution: MergeResolutionDtoSchema.nullable(),
 });
 export type OrchestrationNode = z.infer<typeof OrchestrationNodeSchema>;
 
@@ -74,6 +129,9 @@ export const OrchestrationDtoSchema = z.object({
   workBranch: z.string().nullable(),
   parallelism: z.number().int(),
   verify: z.boolean(),
+  qa: z.boolean(),
+  resolveConflicts: z.boolean(),
+  qaCostUsd: z.number(),
   plannerModelId: z.string().nullable(),
   plannerCostUsd: z.number().nullable(),
   costUsd: z.number(),
@@ -106,11 +164,20 @@ export const CreateOrchestrationRequestSchema = z.object({
   goal: z.string().trim().min(10).max(8_000),
   parallelism: z.number().int().min(1).max(4).default(2),
   verify: z.boolean().default(true),
+  qa: z.boolean().default(false),
+  resolveConflicts: z.boolean().default(false),
   modelId: z.string().min(1).max(128).optional(),
 });
 export type CreateOrchestrationRequest = z.input<typeof CreateOrchestrationRequestSchema>;
 
-export const ApprovalKindSchema = z.enum(["PLAN", "MERGE", "BUDGET", "ESCALATION", "PERMISSION"]);
+export const ApprovalKindSchema = z.enum([
+  "PLAN",
+  "MERGE",
+  "BUDGET",
+  "ESCALATION",
+  "PERMISSION",
+  "QA",
+]);
 export type ApprovalKind = z.infer<typeof ApprovalKindSchema>;
 
 export const ApprovalStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED", "EXPIRED"]);

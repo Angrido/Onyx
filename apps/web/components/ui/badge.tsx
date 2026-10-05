@@ -22,7 +22,10 @@ export const badgeVariants = cva(
   },
 );
 
-export interface BadgeProps extends ComponentProps<"span">, VariantProps<typeof badgeVariants> {}
+type SpanProps = ComponentProps<"span">;
+type BadgeVariantProps = VariantProps<typeof badgeVariants>;
+
+export interface BadgeProps extends SpanProps, BadgeVariantProps {}
 
 export function Badge({ className, tone, ...props }: BadgeProps) {
   return <span className={cn(badgeVariants({ tone }), className)} {...props} />;

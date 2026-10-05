@@ -1,9 +1,19 @@
-import { pino, type Logger } from "pino";
+import { pino, type DestinationStream, type Logger, type LoggerOptions } from "pino";
 import type { AppConfig } from "./config";
+import type { LogBuffer } from "./infrastructure/log-buffer";
 
-export function createLogger(config: Pick<AppConfig, "env" | "logLevel">): Logger {
-  const pretty = config.env === "development" && process.stdout.isTTY;
-  return pino({
+export interface LoggerSinks {
+  buffer?: LogBuffer;
+  destination?: DestinationStream;
+}
+
+export function createLogger(
+  config: Pick<AppConfig, "env" | "logLevel">,
+  sinks: LoggerSinks = {},
+): Logger {
+  const pretty = config.env === "development" && process.stdout.isTTY && !sinks.destination;
+  const buffer = sinks.buffer;
+  const options: LoggerOptions = {
     level: config.logLevel,
     redact: {
       paths: [
@@ -16,8 +26,10 @@ export function createLogger(config: Pick<AppConfig, "env" | "logLevel">): Logge
       ],
       censor: "[redacted]",
     },
+    ...(buffer ? { hooks: { streamWrite: (line: string) => buffer.ingest(line) } } : {}),
     ...(pretty
       ? { transport: { target: "pino-pretty", options: { translateTime: "HH:MM:ss" } } }
       : {}),
-  });
+  };
+  return sinks.destination ? pino(options, sinks.destination) : pino(options);
 }

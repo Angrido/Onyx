@@ -13,6 +13,7 @@ import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import { useLiveProject, useLiveSystem } from "@/lib/live";
 import { tierOfModel } from "@/lib/tiers";
 
@@ -39,6 +40,7 @@ export function TaskList({
   projectId?: string;
   emptyAction?: ReactNode;
 }) {
+  const t = useT();
   const filter = projectId ? { projectId } : {};
   const { data } = useQuery({
     queryKey: queryKeys.tasks(filter),
@@ -55,8 +57,8 @@ export function TaskList({
       {data.length === 0 ? (
         <EmptyState
           icon={<ListTodo className="size-5" />}
-          title="No tasks yet"
-          description="Create a task to hand work to a Claude Code agent."
+          title={t("No tasks yet")}
+          description={t("Create a task to hand work to a Claude Code agent.")}
           action={emptyAction}
         />
       ) : (

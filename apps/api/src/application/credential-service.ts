@@ -30,6 +30,7 @@ import { conflict, notFound } from "../errors";
 import { ScreenBuffer, findLoginError, findSignInUrl } from "../infrastructure/screen-buffer";
 import { isSealed, type SecretVault } from "../infrastructure/secret-vault";
 import { ptyOutputMessage, type WsHub } from "../infrastructure/ws-hub";
+import { msg, tx } from "../i18n";
 
 export interface CredentialServiceDeps {
   prisma: PrismaClient;
@@ -79,6 +80,7 @@ const SCREEN_LINES = 40;
 const LOGIN_OUTPUT_CHARS = 64 * 1024;
 const DEFAULT_TEST_TIMEOUT_MS = 90_000;
 const TEST_PROMPT = "Reply with the single word OK.";
+const NO_CREDENTIAL = msg("No Claude credential: sign in or paste a token first");
 
 const StoredCredentialSchema = z.object({
   kind: ClaudeCredentialKindSchema,
@@ -88,6 +90,10 @@ const StoredCredentialSchema = z.object({
 
 export function kindOfToken(token: string): ClaudeCredentialKind {
   return token.startsWith("sk-ant-oat") ? "oauth-token" : "api-key";
+}
+
+function localizedTest(result: ClaudeTestResult): ClaudeTestResult {
+  return result.message === NO_CREDENTIAL ? { ...result, message: tx(NO_CREDENTIAL) } : result;
 }
 
 export function maskToken(token: string): string {
@@ -161,7 +167,7 @@ export class CredentialService {
       claudeBin: this.deps.config.claudeBin,
       simulator: this.isSimulator(),
       login: this.login ? this.toLoginDto(this.login) : null,
-      lastTest: lastTest.success ? lastTest.data : null,
+      lastTest: lastTest.success ? localizedTest(lastTest.data) : null,
       compatibility: this.deps.cliCompatibility?.() ?? null,
     };
   }
@@ -200,7 +206,7 @@ export class CredentialService {
     if (resolved.credentials.kind === "none") {
       result = {
         ok: false,
-        message: "No Claude credential: sign in or paste a token first",
+        message: NO_CREDENTIAL,
         model: null,
         durationMs: 0,
         at: new Date().toISOString(),
@@ -221,7 +227,7 @@ export class CredentialService {
       update: { value: result },
     });
     await this.audit(actor, "claude.credential.tested", { ok: result.ok });
-    return result;
+    return localizedTest(result);
   }
 
   startLogin(actor: string): ClaudeLoginDto {

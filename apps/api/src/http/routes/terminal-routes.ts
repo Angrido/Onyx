@@ -2,6 +2,7 @@ import {
   InjectTerminalRequestSchema,
   OpenTerminalRequestSchema,
   TerminalListQuerySchema,
+  TerminalTaskContextRequestSchema,
   type TerminalDto,
   type TerminalListResponse,
 } from "@onyx/contracts";
@@ -41,6 +42,14 @@ export function registerTerminalRoutes(app: FastifyInstance, container: Containe
     const input = InjectTerminalRequestSchema.parse(request.body ?? {});
     return terminals.inject(idParam(request.params), input.action, input.handoff, actorOf(request));
   });
+
+  app.post("/api/terminals/:id/task-context", async (request): Promise<TerminalDto> =>
+    terminals.injectTaskContext(
+      idParam(request.params),
+      TerminalTaskContextRequestSchema.parse(request.body ?? {}).taskId,
+      actorOf(request),
+    ),
+  );
 
   app.delete("/api/terminals/:id", async (request): Promise<TerminalDto> =>
     terminals.close(idParam(request.params), actorOf(request)),

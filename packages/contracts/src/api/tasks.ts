@@ -1,6 +1,18 @@
 import { z } from "zod";
-import { TaskKindSchema, TaskStatusSchema } from "../domain";
+import { RunStatusSchema, TaskKindSchema, TaskStatusSchema } from "../domain";
+import { PullRequestDtoSchema } from "./pulls";
 import { RunDtoSchema } from "./runs";
+
+export const RunSummaryDtoSchema = z.object({
+  id: z.string(),
+  status: RunStatusSchema,
+  modelId: z.string(),
+  costUsd: z.number().nullable(),
+  changedFileCount: z.number().int(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+});
+export type RunSummaryDto = z.infer<typeof RunSummaryDtoSchema>;
 
 export const CreateTaskRequestSchema = z.object({
   projectId: z.string().min(1),
@@ -11,8 +23,19 @@ export const CreateTaskRequestSchema = z.object({
   priority: z.number().int().min(-100).max(100).default(0),
   modelOverride: z.string().min(1).max(128).optional(),
   targetPaths: z.array(z.string().trim().min(1).max(1024)).max(32).default([]),
+  canWait: z.boolean().default(false),
 });
 export type CreateTaskRequest = z.input<typeof CreateTaskRequestSchema>;
+
+export const UpdateTaskRequestSchema = z
+  .object({
+    canWait: z.boolean().optional(),
+    priority: z.number().int().min(-100).max(100).optional(),
+  })
+  .refine((input) => input.canWait !== undefined || input.priority !== undefined, {
+    message: "Nothing to change",
+  });
+export type UpdateTaskRequest = z.input<typeof UpdateTaskRequestSchema>;
 
 export const RunTaskRequestSchema = z.object({
   modelId: z.string().min(1).max(128).optional(),
@@ -21,6 +44,14 @@ export const RunTaskRequestSchema = z.object({
   newSession: z.boolean().default(false),
 });
 export type RunTaskRequest = z.input<typeof RunTaskRequestSchema>;
+
+export const TaskIssueSchema = z.object({
+  repo: z.string(),
+  number: z.number().int(),
+  url: z.string(),
+  labels: z.array(z.string()),
+});
+export type TaskIssue = z.infer<typeof TaskIssueSchema>;
 
 export const TaskDtoSchema = z.object({
   id: z.string(),
@@ -35,16 +66,19 @@ export const TaskDtoSchema = z.object({
   modelOverride: z.string().nullable(),
   targetPaths: z.array(z.string()),
   branchName: z.string().nullable(),
+  canWait: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
   startedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
-  lastRun: RunDtoSchema.nullable(),
+  lastRun: RunSummaryDtoSchema.nullable(),
+  issue: TaskIssueSchema.nullable(),
 });
 export type TaskDto = z.infer<typeof TaskDtoSchema>;
 
 export const TaskDetailDtoSchema = TaskDtoSchema.extend({
   runs: z.array(RunDtoSchema),
+  pullRequest: PullRequestDtoSchema.nullable(),
 });
 export type TaskDetailDto = z.infer<typeof TaskDetailDtoSchema>;
 

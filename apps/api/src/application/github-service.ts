@@ -17,8 +17,10 @@ import type { z } from "zod";
 import type { AppConfig } from "../config";
 import { AppError, badRequest, conflict, notFound } from "../errors";
 import { cloneRepository, redact } from "../infrastructure/git-clone";
+import { GitRepo } from "../infrastructure/git-worktree";
 import { isSealed, type SecretVault } from "../infrastructure/secret-vault";
 import {
+  GITHUB_FAILURE_KEYS,
   GitHubError,
   type GitHubClient,
   type GitHubRepo,
@@ -26,6 +28,7 @@ import {
   type RepoPage,
 } from "../infrastructure/github-client";
 import { isWithinRoot, type ProjectService } from "./project-service";
+import { msg, tx, txKnown } from "../i18n";
 
 type ImportRepoInput = z.output<typeof ImportRepoRequestSchema>;
 
@@ -63,6 +66,7 @@ interface CloneJob {
 
 const TOKEN_KEY = "github.token";
 const TEMP_PREFIX = ".onyx-clone-";
+const REGISTERING = msg("Registering");
 const MAX_PAGES = 10;
 const REPO_CACHE_MS = 60_000;
 const ACCOUNT_CACHE_MS = 5 * 60_000;
@@ -147,7 +151,7 @@ export class GitHubService {
         login: null,
         name: null,
         avatarUrl: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: txKnown(error instanceof Error ? error.message : String(error), GITHUB_FAILURE_KEYS),
       };
     }
   }
@@ -323,8 +327,9 @@ export class GitHubService {
           job.percent = progress.percent;
         },
       });
+      await new GitRepo(temp, this.deps.sourceEnv ?? process.env).populate(temp);
       job.state = "registering";
-      job.phase = "Registering";
+      job.phase = REGISTERING;
       job.percent = null;
       if (await exists(job.targetPath))
         throw new Error(`${job.targetPath} appeared during the clone`);
@@ -336,6 +341,7 @@ export class GitHubService {
         gitRemote: repo.html_url,
         defaultBranch: job.branch ?? repo.default_branch,
         createDefaultWorkspaces: input.createDefaultWorkspaces,
+        proposeWorkspaces: input.proposeWorkspaces,
       });
       job.projectId = project.id;
       job.state = "done";
@@ -452,7 +458,7 @@ export class GitHubService {
       branch: job.branch,
       targetPath: job.targetPath,
       state: job.state,
-      phase: job.phase,
+      phase: job.phase === REGISTERING ? tx(REGISTERING) : job.phase,
       percent: job.percent,
       projectId: job.projectId,
       error: job.error,

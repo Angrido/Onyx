@@ -10,8 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { api, errorMessage } from "@/lib/api/client";
+import { useT } from "@/lib/i18n/client";
 import { splitList } from "@/lib/router";
+import { FENCE_LABELS } from "@/components/projects/workspace-grid";
 import { RESET_STRATEGY_LABELS } from "@/lib/sessions";
+
+const RUNNER_EXAMPLE = "pnpm --filter web exec vitest";
 
 export function WorkspaceSettings({
   workspace,
@@ -20,6 +24,7 @@ export function WorkspaceSettings({
   workspace: WorkspaceDto;
   onSaved: (workspace: WorkspaceDto) => void;
 }) {
+  const t = useT();
   const [strategy, setStrategy] = useState<ResetStrategy>(workspace.resetStrategy);
   const [maxTokens, setMaxTokens] = useState(String(workspace.maxSessionTokens));
   const [fence, setFence] = useState(workspace.writeFenceGlobs.join("\n"));
@@ -36,7 +41,7 @@ export function WorkspaceSettings({
         testCommand: testCommand.trim().length > 0 ? testCommand.trim() : null,
       }),
     onSuccess: (updated) => {
-      toast.success(`${updated.name} saved`);
+      toast.success(t("{name} saved", { name: updated.name }));
       onSaved(updated);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -52,16 +57,16 @@ export function WorkspaceSettings({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Settings2 className="size-4 text-primary" />
-          Compartment
+          {t("Compartment")}
         </CardTitle>
       </CardHeader>
       <CardContent>
         <form className="space-y-3" onSubmit={submit}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
-              label="Reset strategy"
+              label={t("Reset strategy")}
               htmlFor="ws-strategy"
-              hint={RESET_STRATEGY_LABELS[strategy].hint}
+              hint={t(RESET_STRATEGY_LABELS[strategy].hint)}
             >
               <Select
                 id="ws-strategy"
@@ -72,15 +77,15 @@ export function WorkspaceSettings({
               >
                 {RESET_STRATEGIES.map((option) => (
                   <option key={option} value={option}>
-                    {RESET_STRATEGY_LABELS[option].label}
+                    {t(FENCE_LABELS[option])}
                   </option>
                 ))}
               </Select>
             </Field>
             <Field
-              label="Max session tokens"
+              label={t("Max session tokens")}
               htmlFor="ws-max-tokens"
-              hint="Above it, runs rotate and terminals compact."
+              hint={t("Above it, runs rotate and terminals compact.")}
             >
               <Input
                 id="ws-max-tokens"
@@ -94,9 +99,11 @@ export function WorkspaceSettings({
             </Field>
           </div>
           <Field
-            label="Write fence"
+            label={t("Write fence")}
             htmlFor="ws-fence"
-            hint="Globs this workspace may edit. Files claimed by another workspace stay read-only; unclaimed files stay editable."
+            hint={t(
+              "Globs this workspace may edit. Files claimed by another workspace stay read-only; unclaimed files stay editable.",
+            )}
           >
             <Textarea
               id="ws-fence"
@@ -106,7 +113,7 @@ export function WorkspaceSettings({
             />
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
-            <Field label="Test runner" htmlFor="ws-runner" hint="Used by the TDD loop.">
+            <Field label={t("Test runner")} htmlFor="ws-runner" hint={t("Used by the TDD loop.")}>
               <Select
                 id="ws-runner"
                 value={runner}
@@ -118,7 +125,7 @@ export function WorkspaceSettings({
                   )
                 }
               >
-                <option value="">Detect</option>
+                <option value="">{t("Detect")}</option>
                 {TEST_RUNNERS.map((option) => (
                   <option key={option} value={option}>
                     {option === "VITEST" ? "Vitest" : "Jest"}
@@ -127,14 +134,14 @@ export function WorkspaceSettings({
               </Select>
             </Field>
             <Field
-              label="Runner command"
+              label={t("Runner command")}
               htmlFor="ws-test-command"
-              hint="How to call the runner, without arguments. Empty uses node_modules/.bin."
+              hint={t("How to call the runner, without arguments. Empty uses node_modules/.bin.")}
             >
               <Input
                 id="ws-test-command"
                 className="font-mono text-xs"
-                placeholder="pnpm --filter web exec vitest"
+                placeholder={RUNNER_EXAMPLE}
                 value={testCommand}
                 onChange={(event) => setTestCommand(event.target.value)}
               />
@@ -142,7 +149,7 @@ export function WorkspaceSettings({
           </div>
           <Button type="submit" size="sm" disabled={save.isPending}>
             {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
-            Save
+            {t("Save")}
           </Button>
         </form>
       </CardContent>

@@ -26,6 +26,7 @@ import { TerminalView } from "@/components/workspaces/terminal-view";
 import { api, errorMessage } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/keys";
 import { formatDuration, formatUsd } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
 import {
   attemptsLabel,
   isLoopActive,
@@ -55,6 +56,7 @@ function IterationChip({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const t = useT();
   const outcome = iterationOutcome(iteration);
   const style = OUTCOME_STYLES[outcome];
   const Icon = style.icon;
@@ -74,7 +76,7 @@ function IterationChip({
       )}
     >
       <Icon className="size-3.5" />
-      <span>{TDD_SCOPE_LABELS[iteration.scope]}</span>
+      <span>{t(TDD_SCOPE_LABELS[iteration.scope])}</span>
       {outcome === "red" ? <span className="tabular">{iteration.failed}</span> : null}
       {iteration.escalated ? <ChevronsUp className="size-3.5" /> : null}
     </motion.button>
@@ -82,23 +84,32 @@ function IterationChip({
 }
 
 function IterationDetail({ iteration }: { iteration: TddIterationDto }) {
+  const t = useT();
   return (
     <div className="space-y-2 rounded-lg border border-border bg-surface-0/60 p-3 text-xs">
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
         <span className="font-medium text-foreground">
-          #{iteration.index + 1} · {TDD_SCOPE_LABELS[iteration.scope]}
+          #{iteration.index + 1} · {t(TDD_SCOPE_LABELS[iteration.scope])}
         </span>
         {iteration.scope !== "guard" ? (
           <span className="tabular">
-            {iteration.passed} passed · {iteration.failed} failing · {iteration.skipped} skipped ·{" "}
-            {formatDuration(iteration.durationMs)}
+            {t("{passed} passed · {failed} failing · {skipped} skipped", {
+              passed: iteration.passed,
+              failed: iteration.failed,
+              skipped: iteration.skipped,
+            })}{" "}
+            · {formatDuration(iteration.durationMs)}
           </span>
         ) : null}
         {iteration.regressions > 0 ? (
-          <Badge tone="danger">{iteration.regressions} regressions</Badge>
+          <Badge tone="danger">
+            {iteration.regressions === 1
+              ? t("1 regression")
+              : t("{count} regressions", { count: iteration.regressions })}
+          </Badge>
         ) : null}
-        {iteration.timedOut ? <Badge tone="warning">timed out</Badge> : null}
-        {iteration.escalated ? <Badge tone="architect">escalated after this</Badge> : null}
+        {iteration.timedOut ? <Badge tone="warning">{t("timed out")}</Badge> : null}
+        {iteration.escalated ? <Badge tone="architect">{t("escalated after this")}</Badge> : null}
         {iteration.agentModelId ? <ModelBadge modelId={iteration.agentModelId} /> : null}
         {iteration.agentCostUsd !== null ? (
           <span className="tabular">{formatUsd(iteration.agentCostUsd)}</span>
@@ -107,15 +118,19 @@ function IterationDetail({ iteration }: { iteration: TddIterationDto }) {
       {iteration.revertedFiles.length > 0 ? (
         <p className="flex items-start gap-1.5 text-warning">
           <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
-          The agent changed {iteration.revertedFiles.join(", ")}: Onyx restored the tests and asked
-          for an implementation fix.
+          {t(
+            "The agent changed {files}: Onyx restored the tests and asked for an implementation fix.",
+            { files: iteration.revertedFiles.join(", ") },
+          )}
         </p>
       ) : null}
       {iteration.digest ? (
         <details open={iteration.scope !== "guard"}>
           <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-            {iteration.agentRunId ? "Digest sent to the agent" : "Failure digest"}
-            {iteration.digestTokens !== null ? ` · ${iteration.digestTokens} tokens` : ""}
+            {iteration.agentRunId ? t("Digest sent to the agent") : t("Failure digest")}
+            {iteration.digestTokens !== null
+              ? ` · ${t("{count} tokens", { count: iteration.digestTokens })}`
+              : ""}
           </summary>
           <pre
             className="scrollbar-thin mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#0c0c11] p-3 font-mono text-[11px] leading-relaxed text-foreground/90"
@@ -125,7 +140,7 @@ function IterationDetail({ iteration }: { iteration: TddIterationDto }) {
           </pre>
         </details>
       ) : (
-        <p className="text-success">Everything passed.</p>
+        <p className="text-success">{t("Everything passed.")}</p>
       )}
     </div>
   );
@@ -163,6 +178,7 @@ function LoopSignal({ loop }: { loop: TddLoopDto }) {
 }
 
 export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoopDto[] }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [pinnedLoop, setPinnedLoop] = useState<string | null>(null);
   const [pinnedIteration, setPinnedIteration] = useState<string | null>(null);
@@ -203,20 +219,20 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
       <CardContent className="relative space-y-4 pt-5">
         <div className="flex flex-wrap items-center gap-2">
           <FlaskConical className="size-4 text-primary" />
-          <span className="text-sm font-semibold">TDD loop</span>
+          <span className="text-sm font-semibold">{t("TDD loop")}</span>
           <Badge tone={TDD_STATUS_TONES[loop.status]} data-testid="tdd-status">
-            {TDD_STATUS_LABELS[loop.status]}
+            {t(TDD_STATUS_LABELS[loop.status])}
           </Badge>
           {loop.phase ? (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
-              {TDD_PHASE_LABELS[loop.phase]}
+              {t(TDD_PHASE_LABELS[loop.phase])}
             </span>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
             {loops.length > 1 ? (
               <Select
-                aria-label="Loop"
+                aria-label={t("Loop")}
                 className="h-8 w-auto text-xs"
                 value={loop.id}
                 onChange={(event) => {
@@ -226,8 +242,10 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
               >
                 {loops.map((entry, index) => (
                   <option key={entry.id} value={entry.id}>
-                    {index === 0 ? "Latest" : `Loop ${loops.length - index}`} ·{" "}
-                    {TDD_STATUS_LABELS[entry.status]}
+                    {index === 0
+                      ? t("Latest")
+                      : t("Loop {number}", { number: loops.length - index })}{" "}
+                    · {t(TDD_STATUS_LABELS[entry.status])}
                   </option>
                 ))}
               </Select>
@@ -240,7 +258,7 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
                 onClick={() => abort.mutate(loop.id)}
               >
                 {abort.isPending ? <Loader2 className="animate-spin" /> : <Square />}
-                Stop
+                {t("Stop")}
               </Button>
             ) : null}
           </div>
@@ -248,7 +266,9 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
 
         <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
           <div className="rounded-lg bg-surface-2/60 px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Attempts</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {t("Attempts")}
+            </p>
             <p className="tabular relative h-5 overflow-hidden text-sm font-semibold">
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.span
@@ -266,7 +286,9 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
             </p>
           </div>
           <div className="rounded-lg bg-surface-2/60 px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Cost</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {t("Cost")}
+            </p>
             <p className="tabular text-sm font-semibold">
               {formatUsd(loop.costUsd)}
               {loop.budgetUsd !== null ? (
@@ -279,7 +301,7 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
           </div>
           <div className="rounded-lg bg-surface-2/60 px-3 py-2">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Protected tests
+              {t("Protected tests")}
             </p>
             <p className="tabular text-sm font-semibold">{loop.protectedFiles}</p>
           </div>
@@ -289,7 +311,9 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
               loop.violations > 0 ? "bg-warning/10 text-warning" : "bg-surface-2/60",
             )}
           >
-            <p className="text-[10px] uppercase tracking-wider opacity-80">Test edits reverted</p>
+            <p className="text-[10px] uppercase tracking-wider opacity-80">
+              {t("Test edits reverted")}
+            </p>
             <p className="tabular text-sm font-semibold" data-testid="tdd-violations">
               {loop.violations}
             </p>
@@ -331,13 +355,13 @@ export function TddLoopPanel({ taskId, loops }: { taskId: string; loops: TddLoop
         {iteration ? <IterationDetail iteration={iteration} /> : null}
 
         <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-          <span>{runnerLabel(loop.runner)}</span>
+          <span>{runnerLabel(loop.runner, t)}</span>
           <span>{loop.workspaceName}</span>
-          {loop.gates.typecheck ? <span>tsc gate</span> : null}
-          {loop.gates.lint ? <span>lint gate</span> : null}
-          {loop.escalatedAt ? <span className="text-architect">model escalated</span> : null}
+          {loop.gates.typecheck ? <span>{t("tsc gate")}</span> : null}
+          {loop.gates.lint ? <span>{t("lint gate")}</span> : null}
+          {loop.escalatedAt ? <span className="text-architect">{t("model escalated")}</span> : null}
           <span>
-            started <RelativeTime iso={loop.createdAt} />
+            {t("loop started")} <RelativeTime iso={loop.createdAt} />
           </span>
         </p>
       </CardContent>

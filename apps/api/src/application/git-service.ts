@@ -5,6 +5,7 @@ import {
   type GitChangeKind,
   type GitIdentityDto,
   type GitStatusDto,
+  type GitSummary,
   type PublishChangesRequestSchema,
   type PublishResultDto,
   type UpdateGitIdentityRequestSchema,
@@ -15,6 +16,14 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { credentialEnv as gitCredentialEnv, redact } from "../infrastructure/git-clone";
 import type { GitHubService } from "./github-service";
+import {
+  gitEnvironment,
+  lockGitMetadata,
+  safeGitArgs,
+  sharesWorkTrees,
+  withSharedUmask,
+  writesWorkTree,
+} from "../infrastructure/git-env";
 
 type PublishInput = z.output<typeof PublishChangesRequestSchema>;
 type IdentityInput = z.output<typeof UpdateGitIdentityRequestSchema>;
@@ -37,6 +46,7 @@ const execFileAsync = promisify(execFile);
 const IDENTITY_KEY = "git.identity";
 const MAX_CHANGES = 200;
 const GIT_TIMEOUT_MS = 120_000;
+const SUMMARY_TIMEOUT_MS = 10_000;
 const FALLBACK_IDENTITY: GitIdentity = { name: "Onyx", email: "onyx@localhost" };
 
 const StoredIdentitySchema = z.object({
@@ -162,6 +172,41 @@ export class GitService {
     return this.identity();
   }
 
+  async summary(rootPath: string, now = new Date()): Promise<GitSummary> {
+    const checkedAt = now.toISOString();
+    try {
+      const output = await this.git(
+        rootPath,
+        ["status", "--porcelain=v1", "-b", "--untracked-files=normal"],
+        { env: { GIT_OPTIONAL_LOCKS: "0" }, timeoutMs: SUMMARY_TIMEOUT_MS },
+      );
+      const parsed = parsePorcelain(output);
+      const branch = parsed.branchLine
+        ? parseBranchLine(parsed.branchLine)
+        : { branch: null, upstream: null, ahead: 0, behind: 0 };
+      return {
+        isRepo: true,
+        ...branch,
+        changeCount: parsed.changes.length,
+        checkedAt,
+        error: null,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const notRepo = /not a git repository/i.test(message);
+      return {
+        isRepo: false,
+        branch: null,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        changeCount: 0,
+        checkedAt,
+        error: notRepo ? null : message.slice(0, 200),
+      };
+    }
+  }
+
   async status(projectId: string): Promise<GitStatusDto> {
     const project = await this.project(projectId);
     return this.statusOf(project);
@@ -279,6 +324,119 @@ export class GitService {
     };
   }
 
+  async githubRepo(projectId: string): Promise<{ project: Project; repo: string | null }> {
+    const project = await this.project(projectId);
+    const remote = await this.git(project.rootPath, ["remote", "get-url", "origin"]).catch(
+      () => "",
+    );
+    const remoteUrl = remote.trim().length > 0 ? sanitizeRemote(remote.trim()) : null;
+    return { project, repo: githubRepoOf(remoteUrl) ?? githubRepoOf(project.gitRemote) };
+  }
+
+  async busy(projectId: string): Promise<boolean> {
+    return this.isBusy(projectId);
+  }
+
+  async branchExists(projectId: string, branch: string): Promise<boolean> {
+    const project = await this.project(projectId);
+    return this.git(project.rootPath, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branch}`,
+    ]).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  async diffFiles(
+    projectId: string,
+    base: string,
+    branch: string,
+  ): Promise<{ path: string; added: number | null; removed: number | null }[]> {
+    const project = await this.project(projectId);
+    const output = await this.git(project.rootPath, [
+      "diff",
+      "--numstat",
+      "--no-renames",
+      `${base}...${branch}`,
+      "--",
+    ]).catch(() => "");
+    return output
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        const [added, removed, ...path] = line.split("\t");
+        return {
+          path: path.join("\t"),
+          added: added === "-" ? null : Number(added),
+          removed: removed === "-" ? null : Number(removed),
+        };
+      });
+  }
+
+  async commits(
+    projectId: string,
+    from: string | null,
+    max: number,
+  ): Promise<{ sha: string; subject: string; body: string; date: string }[]> {
+    const project = await this.project(projectId);
+    const output = await this.git(project.rootPath, [
+      "log",
+      "--no-merges",
+      `-n${max}`,
+      "--format=%H%x1f%s%x1f%b%x1f%cI%x1e",
+      ...(from ? [`${from}..HEAD`] : ["HEAD"]),
+      "--",
+    ]).catch(() => "");
+    return output.split("\u001e").flatMap((record) => {
+      const [sha, subject, body, date] = record.replace(/^\n+/, "").split("\u001f");
+      return sha && subject !== undefined && date
+        ? [{ sha, subject, body: body ?? "", date: date.trim() }]
+        : [];
+    });
+  }
+
+  async head(projectId: string): Promise<string | null> {
+    const project = await this.project(projectId);
+    return this.git(project.rootPath, ["rev-parse", "HEAD"]).then(
+      (output) => output.trim(),
+      () => null,
+    );
+  }
+
+  async refInfo(projectId: string, ref: string): Promise<{ sha: string; date: string } | null> {
+    const project = await this.project(projectId);
+    const output = await this.git(project.rootPath, [
+      "log",
+      "-1",
+      "--format=%H%x1f%cI",
+      ref,
+      "--",
+    ]).catch(() => "");
+    const [sha, date] = output.trim().split("\u001f");
+    if (!sha || !date) return null;
+    const contained = await this.git(project.rootPath, [
+      "merge-base",
+      "--is-ancestor",
+      sha,
+      "HEAD",
+    ]).then(
+      () => true,
+      () => false,
+    );
+    return contained ? { sha, date } : null;
+  }
+
+  async latestTag(projectId: string): Promise<string | null> {
+    const project = await this.project(projectId);
+    return this.git(project.rootPath, ["describe", "--tags", "--abbrev=0", "HEAD"]).then(
+      (output) => output.trim() || null,
+      () => null,
+    );
+  }
+
   async switchToDefault(projectId: string, actor: string): Promise<GitStatusDto> {
     const project = await this.project(projectId);
     const before = await this.statusOf(project);
@@ -394,28 +552,37 @@ export class GitService {
   private async git(
     cwd: string,
     args: readonly string[],
-    options: { env?: Record<string, string>; input?: string; secrets?: readonly string[] } = {},
+    options: {
+      env?: Record<string, string>;
+      input?: string;
+      secrets?: readonly string[];
+      timeoutMs?: number;
+    } = {},
   ): Promise<string> {
-    const env = {
-      ...(this.deps.sourceEnv ?? process.env),
+    const env = gitEnvironment(this.deps.sourceEnv ?? process.env, {
       GIT_TERMINAL_PROMPT: "0",
       GCM_INTERACTIVE: "never",
       LC_ALL: "C",
       ...options.env,
-    };
+    });
+    const shared = writesWorkTree(args);
     try {
-      const child = execFileAsync(this.deps.gitBin ?? "git", [...args], {
-        cwd,
-        env,
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: 16 * 1024 * 1024,
-      });
+      const child = withSharedUmask(() =>
+        execFileAsync(this.deps.gitBin ?? "git", safeGitArgs(args), {
+          cwd,
+          env,
+          timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
+          maxBuffer: 16 * 1024 * 1024,
+        }),
+      );
       if (options.input !== undefined) {
         child.child.stdin?.end(options.input);
       }
       const { stdout } = await child;
+      if (shared) await this.lockMetadata(cwd);
       return stdout;
     } catch (error) {
+      if (shared) await this.lockMetadata(cwd);
       const record = error as { stderr?: unknown; message?: unknown };
       const stderr = typeof record.stderr === "string" ? record.stderr.trim() : "";
       const message = stderr.length > 0 ? stderr : String(record.message ?? error);
@@ -424,6 +591,13 @@ export class GitService {
         redact(message.split("\n").slice(-3).join(" "), options.secrets ?? []),
       );
     }
+  }
+
+  private async lockMetadata(cwd: string): Promise<void> {
+    if (!sharesWorkTrees()) return;
+    const output = await this.git(cwd, ["rev-parse", "--absolute-git-dir"]).catch(() => "");
+    const gitDir = output.trim();
+    if (gitDir) await lockGitMetadata([gitDir]);
   }
 
   private async isBusy(projectId: string): Promise<boolean> {

@@ -24,6 +24,9 @@ export interface CanvasLink {
   emphasized: boolean;
 }
 
+type GraphNode = NodeObject<CanvasNode>;
+type GraphLink = LinkObject<CanvasNode, CanvasLink>;
+
 const RING_COLORS: Record<NonNullable<CanvasNode["ring"]>, string> = {
   focus: "oklch(0.72 0.17 293)",
   selected: "oklch(0.97 0.005 286)",
@@ -47,9 +50,7 @@ export default function ForceCanvas({
   onSelect: (id: string | null) => void;
   onFocus: (id: string) => void;
 }) {
-  const graphRef = useRef<
-    ForceGraphMethods<NodeObject<CanvasNode>, LinkObject<CanvasNode, CanvasLink>> | undefined
-  >(undefined);
+  const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined);
   const lastClick = useRef<{ id: string; at: number } | null>(null);
   const fitted = useRef(false);
 

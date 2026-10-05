@@ -51,7 +51,8 @@ export type FeedEntry =
   | { kind: "context"; key: string; item: ContextItem }
   | { kind: "guard"; key: string; item: GuardItem }
   | { kind: "routing"; key: string; item: RoutingItem }
-  | { kind: "session"; key: string; item: SessionItem };
+  | { kind: "session"; key: string; item: SessionItem }
+  | { kind: "rate_limit"; key: string; item: RunItemOf<"rate_limit"> };
 
 export interface FeedState {
   entries: FeedEntry[];
@@ -180,6 +181,9 @@ function appendItem(state: FeedState, entries: FeedEntry[], item: RunItem, key: 
     case "session":
       entries.push({ kind: "session", key, item });
       return { ...state, session: item };
+    case "rate_limit":
+      entries.push({ kind: "rate_limit", key, item });
+      return state;
     case "unknown":
       return state;
   }

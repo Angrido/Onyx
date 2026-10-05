@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   IndexStatusDto,
@@ -87,7 +89,10 @@ beforeAll(async () => {
   context = await createTestContext({
     projectFiles: PROJECT_FILES,
     env: { ONYX_STATUSLINE: STATUSLINE, ONYX_TERMINAL_IDLE_MS: "200" },
-    sourceEnv: { CLAUDE_STUB_TOKENS_PER_MESSAGE: "4000" },
+    sourceEnv: {
+      CLAUDE_STUB_TOKENS_PER_MESSAGE: "4000",
+      CLAUDE_STUB_TRANSCRIPTS: join(tmpdir(), `onyx-transcripts-${process.pid}`),
+    },
   });
   await context.app.listen({ host: "127.0.0.1", port: 0 });
   const address = context.app.server.address();
@@ -259,5 +264,66 @@ describe("interactive terminals", () => {
     expect(refused.status).toBe(409);
     expect((await api.post(`/api/tasks/${task.id}/cancel`)).status).toBe(200);
     await context.container.scheduler.idle();
+  }, 60_000);
+
+  it("starts a new session when the resumed one was never saved (A12)", async () => {
+    const backend = workspaceId("Backend");
+    const first = (
+      await api.post<TerminalDto>(`/api/workspaces/${backend}/terminal`, { fresh: true })
+    ).body;
+    await waitFor(
+      () => terminal(first.id),
+      (dto) => dto.claudeSessionId === first.sessionId,
+    );
+    await api.delete(`/api/terminals/${first.id}`);
+    expect((await sessionsOf("Backend"))[0]).toMatchObject({ id: first.sessionId, status: "IDLE" });
+
+    const resumed = (await api.post<TerminalDto>(`/api/workspaces/${backend}/terminal`, {})).body;
+    expect(resumed.sessionId).toBe(first.sessionId);
+    const lost = await waitFor(
+      () => terminal(resumed.id),
+      (dto) => dto.state === "exited",
+      15_000,
+    );
+    expect(lost.exitCode).toBe(1);
+    expect((await sessionsOf("Backend"))[0]).toMatchObject({
+      id: first.sessionId,
+      status: "CLOSED",
+      endReason: "ERROR",
+    });
+
+    const fresh = (await api.post<TerminalDto>(`/api/workspaces/${backend}/terminal`, {})).body;
+    expect(fresh.sessionId).not.toBe(first.sessionId);
+    const started = await waitFor(
+      () => terminal(fresh.id),
+      (dto) => dto.claudeSessionId === fresh.sessionId,
+    );
+    expect(started.state).toBe("running");
+
+    const task = (
+      await api.post<TaskDto>("/api/tasks", {
+        projectId: project.id,
+        workspaceId: backend,
+        title: "Rate limit",
+        prompt: "Limit login attempts.\nFive per minute.",
+      })
+    ).body;
+    const inbox = await connect();
+    send(inbox, { type: "subscribe", data: { channels: [`pty:${fresh.id}`] } });
+    await expectScreen(inbox, `session ${fresh.sessionId}`);
+    const injected = await api.post<TerminalDto>(`/api/terminals/${fresh.id}/task-context`, {
+      taskId: task.id,
+    });
+    expect(injected.status).toBe(200);
+    expect(
+      (await api.post(`/api/terminals/${fresh.id}/task-context`, { taskId: "missing" })).status,
+    ).toBe(400);
+    send(inbox, { type: "pty.input", data: { terminalId: fresh.id, data: "\r" } });
+    await expectScreen(
+      inbox,
+      "Stub reply: Task: Rate limit  Limit login attempts. Five per minute.",
+    );
+    inbox.socket.terminate();
+    await api.delete(`/api/terminals/${fresh.id}`);
   }, 60_000);
 });

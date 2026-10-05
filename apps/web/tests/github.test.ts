@@ -1,6 +1,12 @@
 import type { GitHubRepoDto } from "@onyx/contracts";
 import { describe, expect, it } from "vitest";
-import { filterRepos, formatRepoSize, projectNameFor } from "@/lib/github";
+import {
+  checksCount,
+  filterRepos,
+  formatRepoSize,
+  projectNameFor,
+  toggleNumber,
+} from "@/lib/github";
 
 function repo(
   fullName: string,
@@ -44,5 +50,18 @@ describe("github helpers", () => {
   it("formats repository sizes", () => {
     expect(formatRepoSize(512)).toBe("512 KB");
     expect(formatRepoSize(2_048)).toBe("2.0 MB");
+  });
+});
+
+describe("pull request helpers", () => {
+  it("counts checks by result, failures first", () => {
+    expect(checksCount({ passed: 2, failed: 1, pending: 0 })).toBe("1 failed · 2 passed");
+    expect(checksCount({ passed: 0, failed: 0, pending: 3 })).toBe("3 running");
+    expect(checksCount({ passed: 0, failed: 0, pending: 0 })).toBe("no checks reported");
+  });
+
+  it("toggles selected issue numbers in order", () => {
+    expect(toggleNumber([4], 2)).toEqual([2, 4]);
+    expect(toggleNumber([2, 4], 4)).toEqual([2]);
   });
 });

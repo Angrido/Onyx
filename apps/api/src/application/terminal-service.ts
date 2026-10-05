@@ -5,6 +5,7 @@ import {
   ClaudeTerminal,
   TextTail,
   type ClaudeBinary,
+  type ProcessTracker,
   type TerminalExit,
 } from "@onyx/agent-runtime";
 import {
@@ -31,6 +32,7 @@ import {
   terminalHooks,
 } from "../domain/permission-rules";
 import { wantsHandoff } from "../domain/session-policy";
+import { bracketedPaste, taskContextText } from "../domain/task-context";
 import { badRequest, conflict, notFound } from "../errors";
 import {
   buildMcpConfig,
@@ -40,10 +42,12 @@ import {
 } from "../infrastructure/mcp-config";
 import type { RunTokenRegistry } from "../infrastructure/run-tokens";
 import { writeRuntimeFiles } from "../infrastructure/runtime-files";
+import type { WorkTreeActivity } from "../infrastructure/work-tree-activity";
 import { ptyOutputMessage, ptyStateMessage, type WsHub } from "../infrastructure/ws-hub";
 import type { CompartmentService } from "./compartment-service";
 import type { CredentialService } from "./credential-service";
 import type { IndexService } from "./index-service";
+import { storedMemory, type MemoryService } from "./memory-service";
 import { toStringArray } from "./mappers";
 import type { SlotReservation } from "./run-scheduler";
 import type { SurgeonService } from "./surgeon-service";
@@ -70,16 +74,25 @@ export interface TerminalServiceDeps {
   binary: ClaudeBinary;
   config: Pick<
     AppConfig,
-    "runtimeDir" | "childEnvPassthrough" | "context" | "terminal" | "internalApiUrl"
+    | "runtimeDir"
+    | "childEnvPassthrough"
+    | "context"
+    | "terminal"
+    | "internalApiUrl"
+    | "agentProtectedPaths"
+    | "agentSandbox"
   >;
   surgeon: SurgeonService;
+  activity?: WorkTreeActivity;
   indexes: IndexService;
   compartments: CompartmentService;
   runTokens: RunTokenRegistry;
   credentials: Pick<CredentialService, "childEnv">;
   reserve: (workspaceId: string) => SlotReservation;
+  memory?: Pick<MemoryService, "compose">;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
+  tracker?: ProcessTracker | null;
 }
 
 interface PendingInjection {
@@ -103,6 +116,7 @@ interface TerminalWorkspace {
 
 interface TerminalRecord {
   id: string;
+  activity: number | null;
   projectId: string;
   projectRoot: string;
   workspace: TerminalWorkspace;
@@ -110,6 +124,9 @@ interface TerminalRecord {
   sessionId: string;
   sessionStartedAt: Date;
   claudeSessionId: string | null;
+  resumed: boolean;
+  confirmed: boolean;
+  stopRequested: boolean;
   startupNote: string | null;
   terminal: ClaudeTerminal;
   state: "running" | "exited";
@@ -133,6 +150,7 @@ interface TerminalRecord {
 }
 
 const OUTPUT_TAIL_CHARS = 256 * 1024;
+const LOST_SESSION_WINDOW_MS = 5_000;
 const PUMP_INTERVAL_MS = 100;
 const SUBMIT_DELAY_MS = 150;
 const MAX_PROMPTS = 10;
@@ -281,6 +299,8 @@ export class TerminalService {
             name: candidate.name,
             globs: toStringArray(candidate.pathGlobs),
           })),
+        undefined,
+        config.agentProtectedPaths,
       );
       const fenceRules = fence.compile(indexed ? [...indexed.index.files.keys()] : []);
       const token = this.deps.runTokens.issue(id, workspace.projectId, {
@@ -294,6 +314,10 @@ export class TerminalService {
         config.context.mcpServerPath !== null &&
         isReadableFile(config.context.mcpServerPath);
       const statusLinePath = config.terminal.statusLinePath;
+      const memory =
+        plan.decision.action === "resume"
+          ? (storedMemory(plan.session.memory)?.text ?? null)
+          : await this.freshMemory(workspace.projectId, plan.session.id);
       const map =
         config.context.enabled && indexed
           ? indexed.projectMap(config.context.mapBudgetTokens, scope.policy)
@@ -303,6 +327,7 @@ export class TerminalService {
         runId: `terminal-${id}`,
         settings: buildRunSettings({
           deny: [...scope.compiled.readDeny, ...scope.compiled.editDeny, ...fenceRules.editDeny],
+          protectedPaths: config.agentProtectedPaths,
           hooks: terminalHooks(config.internalApiUrl),
           ...(statusLinePath !== null && isReadableFile(statusLinePath)
             ? { statusLine: statusLineSetting(process.execPath, statusLinePath) }
@@ -313,6 +338,7 @@ export class TerminalService {
           agentPrompt: agentConfig.appendSystemPrompt,
           projectName: workspace.project.name,
           map,
+          memory,
           mcpEnabled,
         }),
         mcpConfig:
@@ -370,10 +396,14 @@ export class TerminalService {
         {
           ...(this.deps.killGraceMs === undefined ? {} : { killGraceMs: this.deps.killGraceMs }),
           ...(this.deps.sourceEnv ? { sourceEnv: this.deps.sourceEnv } : {}),
+          sandbox: config.agentSandbox,
+          tracker: this.deps.tracker ?? null,
+          label: `terminal:${id}`,
         },
       );
       record = {
         id,
+        activity: null,
         projectId: workspace.projectId,
         projectRoot: workspace.project.rootPath,
         workspace: {
@@ -386,6 +416,9 @@ export class TerminalService {
         sessionId: session.id,
         sessionStartedAt: session.startedAt,
         claudeSessionId: resume ? (session.claudeSessionId ?? session.id) : null,
+        resumed: resume,
+        confirmed: false,
+        stopRequested: false,
         startupNote: plan.item.handoff?.text ?? null,
         terminal,
         state: "running",
@@ -416,6 +449,8 @@ export class TerminalService {
         this.records.delete(id);
         throw error;
       }
+      created.activity =
+        this.deps.activity?.begin(workspace.project.rootPath, workspace.name) ?? null;
       await this.audit(actor, "terminal.opened", id, {
         workspaceId: workspace.id,
         sessionId: session.id,
@@ -439,6 +474,27 @@ export class TerminalService {
     record.inputDirty = inputLeavesDraft(record.inputDirty, data);
     record.lastInputAt = Date.now();
     record.terminal.write(data);
+  }
+
+  async injectTaskContext(terminalId: string, taskId: string, actor: string): Promise<TerminalDto> {
+    const record = this.requireRunning(terminalId);
+    const task = await this.deps.prisma.task.findUnique({ where: { id: taskId } });
+    if (!task || task.projectId !== record.projectId)
+      throw badRequest("Pick a task of the same project as the terminal");
+    record.terminal.write(
+      bracketedPaste(
+        taskContextText({
+          title: task.title,
+          prompt: task.prompt,
+          acceptance: toStringArray(task.acceptance),
+          targetPaths: toStringArray(task.targetPaths),
+        }),
+      ),
+    );
+    record.inputDirty = true;
+    record.lastInputAt = Date.now();
+    await this.audit(actor, "terminal.task-context", terminalId, { taskId: task.id });
+    return this.toDto(record);
   }
 
   resize(terminalId: string, cols: number, rows: number): void {
@@ -465,6 +521,7 @@ export class TerminalService {
   async close(terminalId: string, actor: string): Promise<TerminalDto> {
     const record = this.require(terminalId);
     if (record.state === "running") {
+      record.stopRequested = true;
       await record.terminal.stop();
       await this.audit(actor, "terminal.closed", terminalId, { workspaceId: record.workspace.id });
     }
@@ -475,7 +532,10 @@ export class TerminalService {
     await Promise.allSettled(
       [...this.records.values()]
         .filter((record) => record.state === "running")
-        .map((record) => record.terminal.stop()),
+        .map((record) => {
+          record.stopRequested = true;
+          return record.terminal.stop();
+        }),
     );
   }
 
@@ -497,6 +557,7 @@ export class TerminalService {
   async sessionStart(terminalId: string, input: SessionStartInput): Promise<string | null> {
     const record = this.records.get(terminalId);
     if (!record) return null;
+    record.confirmed = true;
     const { prisma, compartments, logger } = this.deps;
     switch (input.source) {
       case "clear": {
@@ -733,13 +794,27 @@ export class TerminalService {
     const { prisma, runTokens, logger } = this.deps;
     record.state = "exited";
     record.exitCode = exit.exitCode;
+    if (record.activity !== null) this.deps.activity?.end(record.activity);
+    record.activity = null;
     record.pending = null;
     this.stopPump(record);
     runTokens.revoke(record.id);
     record.release();
     const endedAt = new Date();
+    const lost =
+      record.resumed &&
+      (!record.confirmed ||
+        (!record.stopRequested &&
+          exit.exitCode !== 0 &&
+          record.prompts.length === 0 &&
+          endedAt.getTime() - record.startedAt.getTime() < LOST_SESSION_WINDOW_MS));
+    if (lost)
+      logger.warn(
+        { terminalId: record.id, sessionId: record.sessionId },
+        "The resumed Claude Code session no longer exists: the next terminal starts a new one",
+      );
     try {
-      if (record.claudeSessionId !== null) {
+      if (record.claudeSessionId !== null && !lost) {
         await prisma.session.update({
           where: { id: record.sessionId },
           data: { status: "IDLE", lastActivityAt: endedAt, contextTokens: record.contextTokens },
@@ -833,6 +908,16 @@ export class TerminalService {
       if (value !== undefined) env[name] = value;
     }
     return env;
+  }
+
+  private async freshMemory(projectId: string, sessionId: string): Promise<string | null> {
+    const composed = await this.deps.memory?.compose(projectId).catch(() => null);
+    if (!composed) return null;
+    await this.deps.prisma.session.update({
+      where: { id: sessionId },
+      data: { memory: { text: composed.text, tokens: composed.tokens, factIds: composed.factIds } },
+    });
+    return composed.text;
   }
 
   private async audit(
