@@ -177,6 +177,7 @@ Per chiudere la milestone: le voci 1.2 e 1.3 compaiono nel registro come *stimat
 | Fase 0 (audit e bug critici) | Fatta: `docs/audit-2.0.md`, correzioni in `e1168ea` |
 | Via libera | Ordine 1 → 2 → 3; sandbox con un secondo utente; solo GitHub (niente GitLab né Linear); HTTPS non attivato: Web Push resta disponibile solo con HTTPS |
 | 1–11 | **Fatte** (vedi sotto) |
+| Dopo la 11 | Interfaccia più semplice e italiano completo (ADR-091), vedi sotto |
 
 ### Milestone 1 — esito
 
@@ -319,3 +320,16 @@ Resta aperto: il login con `claude setup-token` e il test delle credenziali non 
 
 Da verificare sulla macchina vera: `release.sh` con systemd e un rollback reale, `onyx-update` da root su un checkout di un altro utente (`runuser`).
 
+### Dopo la milestone 11 — interfaccia più semplice
+
+| Voce | Stato | Token |
+|---|---|---|
+| Navigazione in gruppi, barra in basso su telefono, pagine con nomi semplici | Fatta (ADR-091) | Nessuno |
+| Guida con glossario e spiegazioni accanto alle parole tecniche | Fatta | Nessuno |
+| Problemi globali mostrati una volta, schede dei progetti compatte | Fatta | Nessuno |
+| Pagine del progetto con schede e filtri dei task | Fatta | Nessuno |
+| Task, run e piani con stato e passo successivo, opzioni avanzate chiuse | Fatta | Nessuno |
+| Impostazioni a sezioni, Risparmi con riepilogo e legenda | Fatta | Nessuno |
+| Testi salvati tradotti alla lettura, CLI in italiano | Fatta | Nessuno: i prompt per Claude restano in inglese |
+
+Resta in inglese solo quello che scrivono Claude o l'operatore (titoli e prompt dei task, risposte, piani) e gli errori dell'API che il web non riconosce.
