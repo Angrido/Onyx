@@ -205,7 +205,7 @@ export function ProjectWork({
   if (shared.length > 0)
     needs.push(
       <StatusItem key="global" icon={<CircleAlert />}>
-        <Link href="/#global-health" className="text-primary underline-offset-2 hover:underline">
+        <Link href="/#global-health" className="text-primary underline underline-offset-2">
           {shared.length === 1
             ? t("1 problem affects every project")
             : t("{count} problems affect every project", { count: shared.length })}

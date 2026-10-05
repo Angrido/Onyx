@@ -44,15 +44,18 @@ function WorkspaceCard({ workspace }: { workspace: WorkspaceDto }) {
 
   return (
     <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col items-start gap-1.5">
         <Link
           href={`/projects/${workspace.projectId}/workspaces/${workspace.id}`}
-          className="flex min-w-0 items-center gap-2 hover:text-primary"
+          className="flex min-w-0 max-w-full items-center gap-2 hover:text-primary"
         >
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="truncate text-sm font-medium">{workspace.name}</span>
         </Link>
-        <Badge title={t(RESET_STRATEGY_LABELS[workspace.resetStrategy].hint)}>
+        <Badge
+          className="whitespace-nowrap"
+          title={t(RESET_STRATEGY_LABELS[workspace.resetStrategy].hint)}
+        >
           {t(FENCE_LABELS[workspace.resetStrategy])}
         </Badge>
       </div>

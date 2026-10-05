@@ -59,7 +59,7 @@ export function GlobalIssuesNote({ checks }: { checks: readonly HealthCheckDto[]
         <span className="text-muted-foreground">
           {issues.map((issue) => issue.reason).join(" · ")}
         </span>{" "}
-        <Link href="/#global-health" className="text-primary underline-offset-2 hover:underline">
+        <Link href="/#global-health" className="text-primary underline underline-offset-2">
           {t("See it in Mission control")}
         </Link>
       </span>

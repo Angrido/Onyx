@@ -92,8 +92,8 @@ function Metric({
   return (
     <div className={cn("min-w-0", className)} title={title}>
       <p className="flex min-h-6 items-center gap-0.5 text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">
-        {label}
-        {term ? <HelpTip term={term} /> : null}
+        <span className="min-w-0 break-words">{label}</span>
+        {term ? <HelpTip term={term} className="shrink-0" /> : null}
       </p>
       <p className="tabular truncate text-sm font-semibold">{value}</p>
     </div>
@@ -240,7 +240,7 @@ export function RunConsole({
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-4 xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-0/50 px-4 py-3 sm:grid-cols-4">
           <Metric label={t("Tokens sent")} term="token" value={formatTokens(usage.inputTokens)} />
           <Metric label={t("Tokens written")} value={formatTokens(usage.outputTokens)} />
           <Metric
