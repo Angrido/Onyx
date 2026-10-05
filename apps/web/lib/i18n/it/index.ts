@@ -1,6 +1,11 @@
 import { common } from "./common";
 import { context } from "./context";
 import { errors } from "./errors";
+import { help } from "./help";
+import { uxNav } from "./ux-nav";
+import { uxProject } from "./ux-project";
+import { uxSettings } from "./ux-settings";
+import { uxTask } from "./ux-task";
 import { onboarding } from "./onboarding";
 import { palette } from "./palette";
 import { plans } from "./plans";
@@ -22,4 +27,9 @@ export const IT: Readonly<Record<string, string>> = {
   ...tasks,
   ...plans,
   ...system,
+  ...help,
+  ...uxNav,
+  ...uxProject,
+  ...uxTask,
+  ...uxSettings,
 };
