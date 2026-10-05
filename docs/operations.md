@@ -56,7 +56,7 @@ L'API scrive un backup ogni `ONYX_BACKUP_INTERVAL_HOURS` ore (default 24; `0` li
 
 ### Manuali
 
-- Da **Impostazioni → Backup** (**Settings → Backups**): *Fai il backup ora* (*Back up now*), *Verifica* (*Verify*, integrità e checksum), *Scarica* (*Download*, per tenerne una copia altrove), *Comando di ripristino* (*Restore command*, copia il comando di ripristino).
+- Da **Impostazioni → Manutenzione → Backup** (**Settings → Maintenance → Backups**): *Fai il backup ora* (*Back up now*), *Verifica* (*Verify*, integrità e checksum), *Scarica* (*Download*, per tenerne una copia altrove), *Comando di ripristino* (*Restore command*, copia il comando di ripristino). La scheda mostra gli ultimi tre backup; *Mostra tutti* (*Show all*) apre l'elenco completo.
 - Da terminale: `onyx-backup`, `onyx backups`.
 
 ### Ripristino
@@ -144,17 +144,17 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 | *Accedi con Claude* (*Sign in with Claude*) non procede | Link scaduto o codice errato | *Ottieni un nuovo link di accesso* (*Get a new sign-in link*); incolla il codice intero |
 | Token spariti dopo un ripristino | Backup sigillato con un'altra chiave | Rimetti il vecchio `secret.key` o ricollega gli account |
 | Run in coda che non partono | Budget soft superato | Approva il periodo in **Approvazioni** (**Approvals**) |
-| Run rifiutate con *hard budget* | Limite hard raggiunto | Alza il limite o mettilo in pausa in **Impostazioni → Budget** (**Settings → Budgets**) |
+| Run rifiutate con *hard budget* | Limite hard raggiunto | Alza il limite o mettilo in pausa in **Impostazioni → Spesa e coda → Budget** (**Settings → Spending and queue → Budgets**) |
 | Piano fermo su *In attesa di una decisione sul merge in Approvazioni* (*Waiting for a merge decision*) | Conflitto di merge | **Approvazioni**: *Riprova il merge* (*Retry the merge*) dopo averlo risolto sul branch del task, oppure *Abbandona questo task* (*Drop this task*) |
 | Piano *Fermato* (*Stopped*) dopo un riavvio | Onyx riavviato durante l'esecuzione | *Riprendi* (*Resume*) nella pagina del piano |
 | `/api/ready` non pronto per `disk` | Meno del 10% di spazio libero | Libera spazio (backup vecchi, worktree di piani annullati in `worktrees/`) |
 | Run fallita con *error_during_execution*, 0 turni, $0.00 | Claude Code non ha più la sessione che Onyx riprende (creata col simulatore, con un'altra HOME o svuotata con `/clear` nel terminale): *No conversation found with session ID* | Nessuna azione: Onyx chiude la sessione persa e rimette in coda la run in una sessione nuova, con la nota di passaggio |
-| Run *Completato* (*Completed*) ma con *N bloccati · regola dei permessi* (*N blocked · permission rule*), e l'agente chiede il permesso | Durante una run nessuno può approvare comandi: Claude Code rifiuta quelli fuori dalla lista dell'agente (per esempio `python3`, `npx`, `npm install`) | Nella run, **Consenti e continua** (**Allow and continue**): scegli i comandi da consentire nel progetto, rispondi all'agente se ha chiesto qualcosa, e il task riprende nella stessa sessione. L'elenco si modifica nella pagina del progetto, *Comandi che gli agenti possono eseguire* (*Commands agents may run*) |
+| Run *Completato* (*Completed*) ma con *N bloccati · regola dei permessi* (*N blocked · permission rule*), e l'agente chiede il permesso | Durante una run nessuno può approvare comandi: Claude Code rifiuta quelli fuori dalla lista dell'agente (per esempio `python3`, `npx`, `npm install`) | Nella run, **Consenti e continua** (**Allow and continue**): scegli i comandi da consentire nel progetto, rispondi all'agente se ha chiesto qualcosa, e il task riprende nella stessa sessione. L'elenco si modifica nella pagina del progetto, in *Configurazione* (*Configuration*): *Comandi che gli agenti possono eseguire* (*Commands agents may run*) |
 | `onyx-update` dice *The migration failed: the database is back as it was before the update* | Una migrazione nuova non si applica al tuo database | Il database è intatto e Onyx resta sulla versione precedente (in servizio) o fermo (in sviluppo): manda l'errore sopra il messaggio; la copia mezza migrata è in `onyx backups` come `pre-restore` |
 | `onyx-update` si ferma prima delle migrazioni con un errore del backup | Cartella dei backup non scrivibile o disco pieno | Libera spazio o sistema i permessi di `ONYX_BACKUP_DIR`, poi rilancia: nulla è stato migrato |
 | `onyx-update` si ferma su *database is locked* | Versione di `onyx-update` precedente al 4 ottobre 2026, che migrava con Onyx acceso | `onyx-stop`, poi `onyx-update`, poi `onyx-start`: il database non è stato toccato e il backup `pre-update` c'è |
 | Console *Offline* | API ferma o WebSocket bloccato dal proxy | `onyx-status`, `onyx-logs`; con Caddy controlla la rotta `/ws` |
-| **Risparmi** (**Savings**): *Solo N run su M hanno ricevuto un pacchetto di contesto* (*Only N of M runs got a context pack*) | Progetto non indicizzato o task senza file target | Imposta i *File target* (*Target files*) del task o nomina i file nel prompt; controlla l'indice nella pagina del progetto |
+| **Risparmi** (**Savings**): *Solo N run su M hanno ricevuto un pacchetto di contesto* (*Only N of M runs got a context pack*) | Progetto non indicizzato o task senza file target | Imposta i *File target* (*Target files*) del task o nomina i file nel prompt; controlla l'indice in *Configurazione* nella pagina del progetto |
 | **Risparmi**: *L'agente rilegge file che ha già* (*The agent re-reads files it already has*) | L'agente rilegge i file del pacchetto (sempre, prima di modificarli) | Guarda *I più riletti* (*Most read again*); abbassa `ONYX_CONTEXT_BUDGET_TOKENS` o restringi i target |
 | **Risparmi → Prompt cache nelle run riprese** (**Savings → Prompt cache on resumed runs**): *System prompt cambiato* (*System prompt changed*) | Tra due run della stessa sessione sono cambiati il primer del workspace, le istruzioni dell'agente o i sotto-agenti (per esempio un TDD loop usa l'agente `test-fixer`) | Normale se il cambio è voluto; altrimenti evita di modificare il primer mentre un workspace lavora |
 | **Risparmi → Prompt cache nelle run riprese**: *Cache scaduta durante la pausa* (*Cache expired during the pause*) | La sessione è stata ripresa dopo la durata della cache (5 minuti di default per Claude) | Manda i follow-up prima; se il tuo account ha una cache più lunga, alza `ONYX_PROMPT_CACHE_TTL_MINUTES` perché Onyx la classifichi bene |
@@ -164,7 +164,7 @@ In LAN Onyx usa HTTP: Lighthouse segnala per questo *best practices* a 78. Per H
 
 ## 9. Accessibilità e prestazioni
 
-Ogni pagina principale (login, console, progetti, progetto, piano, roadmap, task, approvazioni, impostazioni, telemetria, router, risparmi) è misurata con Lighthouse 13 e axe-core 4 sulla build di produzione:
+Ogni pagina principale (login, console, progetti, progetto, piano, roadmap, task, approvazioni, impostazioni, consumi, modelli, risparmi) è misurata con Lighthouse 13 e axe-core 4 sulla build di produzione:
 
 | | Desktop | Mobile (Moto G Power simulato) |
 |---|---|---|
@@ -176,7 +176,7 @@ Navigazione da tastiera: link *Vai al contenuto* (*Skip to content*), focus visi
 
 ## 10. Il risparmio di token funziona?
 
-La pagina **Risparmi** (**Savings**) risponde in cima con un verdetto. Ogni cifra porta l'etichetta *Misurato* (*Measured*), token reali riportati da Claude, o *Stima* (*Estimate*), calcolo di Onyx.
+La pagina **Risparmi** (**Savings**) si apre con una frase di riepilogo (i token risparmiati negli ultimi 30 giorni, quanti misurati e quanti stimati) e la legenda delle due etichette, poi risponde con un verdetto. Ogni cifra porta l'etichetta *Misurato* (*Measured*), token reali riportati da Claude, o *Stima* (*Estimate*), calcolo di Onyx.
 
 | Verdetto | Significato |
 |---|---|
@@ -215,7 +215,7 @@ Nella console di una run il risparmio diventa netto a fine run (*Net saving*) e 
 
 ## 11. Limiti dell'abbonamento Claude
 
-Con un account Claude Max, Claude Code riporta durante le run lo stato delle finestre dell'abbonamento (`rate_limit_event`): quale finestra (5 ore, settimanale, settimanale Opus o Sonnet), quanto è usata e quando si azzera. Onyx tiene l'ultimo valore di ciascuna, anche dopo un riavvio, e lo mostra in **Telemetria → Limiti dell'abbonamento Claude** (**Telemetry → Claude subscription limits**).
+Con un account Claude Max, Claude Code riporta durante le run lo stato delle finestre dell'abbonamento (`rate_limit_event`): quale finestra (5 ore, settimanale, settimanale Opus o Sonnet), quanto è usata e quando si azzera. Onyx tiene l'ultimo valore di ciascuna, anche dopo un riavvio, e lo mostra in **Consumi → Limiti dell'abbonamento Claude** (**Usage → Claude subscription limits**).
 
 | Stato | Quando | Cosa fa Onyx |
 |---|---|---|
@@ -225,7 +225,7 @@ Con un account Claude Max, Claude Code riporta durante le run lo stato delle fin
 | *Trattiene i task che possono aspettare* (*Holding tasks that can wait*) | Sopra la soglia di attesa (default 90%), o avviso di Claude senza percentuale | I task *Può aspettare* (*Can wait*) restano in coda fino al reset; gli altri partono |
 | *Limite raggiunto* (*Limit reached*) | Claude ha rifiutato per il limite | Tutta la coda aspetta il reset |
 
-- **Può aspettare** si sceglie nella finestra *Nuovo task* (*New task*) o nella pagina del task, anche mentre è in coda: togliendolo il task parte subito.
+- **Può aspettare** si sceglie nella finestra *Nuovo task* (*New task*) o nella pagina del task, in tutti e due i casi sotto *Opzioni avanzate* (*Advanced options*), anche mentre è in coda: togliendolo il task parte subito.
 - Al reset Onyx rilancia la coda da solo. Un limite riportato senza ora di reset scade dopo 30 minuti; **Riprendi ora** (**Resume now**) dimentica subito i limiti noti (utile se il reset è già avvenuto o hai cambiato account). Se il limite c'è ancora, la run successiva lo riporta e la coda torna ad aspettare.
 - Soglie e attesa si cambiano nella stessa card; *Trattieni vicino al limite i task segnati “può aspettare”* (*Hold tasks marked “can wait” near the limit*) spento lascia solo gli avvisi.
 - In Risparmi (Savings) la riga *Task trattenuti vicino ai limiti di Claude* (*Tasks held near the Claude limit*) conta le run che hanno aspettato e quelle fermate dal limite negli ultimi 30 giorni.
@@ -277,8 +277,8 @@ Tutte le run in attesa, di qualunque progetto, stanno in un'unica coda. La home,
 | *workspace occupato* (*workspace busy*) | Nello stesso workspace (o worktree) c'è già una run o un terminale |
 | *trattenuto dai limiti di Claude o da un budget* (*held by the quota or a budget*) | Limiti di Claude vicini e task *Può aspettare* (*Can wait*), oppure un budget raggiunto |
 
-- **Ordine**: priorità del task, poi anzianità. Chi aspetta sale di un livello ogni 30 minuti: si regola in **Impostazioni → Coda delle run → Alza di un livello i task in attesa** (**Settings → Run queue → Raise waiting tasks by one level**), con *Spento* (*Off*) per disattivare. Le frecce spostano un task in cima, su o giù e salvano la nuova priorità sul task. I passi del TDD e dei piani hanno priorità alta di loro.
-- **Limite per progetto**: spento di default. Con *Al massimo 1* (*At most 1*) un progetto con dieci task in coda ne fa girare uno alla volta e lascia gli altri slot agli altri progetti. Si può dare un limite diverso a un singolo progetto nella stessa scheda. Il limite è rigido: uno slot libero non viene prestato a un progetto già al limite.
+- **Ordine**: priorità del task, poi anzianità. Chi aspetta sale di un livello ogni 30 minuti: si regola in **Impostazioni → Spesa e coda → Coda delle run → Alza di un livello i task in attesa** (**Settings → Spending and queue → Run queue → Raise waiting tasks by one level**), con *Spento* (*Off*) per disattivare. Le frecce spostano un task in cima, su o giù e salvano la nuova priorità sul task. I passi del TDD e dei piani hanno priorità alta di loro.
+- **Limite per progetto**: spento di default. Con *Al massimo 1* (*At most 1*) un progetto con dieci task in coda ne fa girare uno alla volta e lascia gli altri slot agli altri progetti. Si può dare un limite diverso a un singolo progetto nella stessa scheda: la scheda elenca solo i progetti che hanno un loro limite, *Mostra tutti i progetti* (*Show all the projects*) li mostra tutti, con una ricerca quando sono più di dieci. Il limite è rigido: uno slot libero non viene prestato a un progetto già al limite.
 - Le schede di Mission control leggono branch e modifiche con `git status` una volta ogni 30 secondi per progetto (subito dopo una run o una pubblicazione). Un progetto *Git non disponibile* (*Git unavailable*) ha un `.git` illeggibile: `git -C <cartella> status` dalla shell dice perché.
 
 ## 14. Notifiche
@@ -308,17 +308,17 @@ Le chiavi VAPID si creano al primo uso; la chiave privata e le sottoscrizioni so
 | *Nessun browser ha accettato la notifica* (*No browser accepted the notification*) | Sottoscrizione scaduta o permesso revocato | Riattiva su quel dispositivo |
 | Nessuna notifica dalle run | L'evento è spento o nessun canale è attivo | Controlla le caselle *Avvisami quando* (*Tell me when*) |
 
-## 15. Griglia degli agenti e ricerca
+## 15. Agenti e ricerca
 
-**Griglia degli agenti** (**Agent grid**, `/agents`) mostra fino a nove pannelli, ciascuno con una run dal vivo o il terminale di un workspace di qualunque progetto; la disposizione resta nel browser. Ogni terminale aperto occupa uno slot come una run. I pannelli fuori vista (o con la scheda del browser nascosta) si staccano e, quando tornano visibili, riprendono dallo stato attuale dello schermo. *Incolla* (*Paste*) incolla nel terminale il task scelto: si controlla e si invia con Invio.
+**Agenti** (**Agents**, `/agents`; prima *Griglia degli agenti*) mostra fino a nove pannelli, ciascuno con una run dal vivo o il terminale di un workspace di qualunque progetto; la disposizione resta nel browser. Ogni terminale aperto occupa uno slot come una run. I pannelli fuori vista (o con la scheda del browser nascosta) si staccano e, quando tornano visibili, riprendono dallo stato attuale dello schermo. *Incolla* (*Paste*) incolla nel terminale il task scelto: si controlla e si invia con Invio.
 
 Se un terminale ripreso si chiude subito (Claude Code non aveva salvato la sessione, per esempio dopo un `/clear` senza messaggi), Onyx chiude quella sessione e il terminale successivo ne apre una nuova.
 
-**Ricerca**: la palette, che si apre con Ctrl K o con **Cerca** (**Search**) nella barra laterale, cerca da due caratteri in titoli, prompt e riassunti dei task, negli errori delle run e nei percorsi dei file di tutti i progetti; gli accenti non contano. L'indice (tabella `SearchEntry`) contiene solo testi brevi e si aggiorna da solo; l'API lo crea al primo avvio della versione 2.0 · 4 e lo ricostruisce solo dopo un aggiornamento che ne cambia il formato.
+**Ricerca**: la palette, che si apre con Ctrl K o con **Cerca** (**Search**) nella barra laterale o nel foglio *Altro* (*More*) sul telefono, cerca da due caratteri in titoli, prompt e riassunti dei task, negli errori delle run e nei percorsi dei file di tutti i progetti, e porta ai termini del glossario della Guida; gli accenti non contano. L'indice (tabella `SearchEntry`) contiene solo testi brevi e si aggiorna da solo; l'API lo crea al primo avvio della versione 2.0 · 4 e lo ricostruisce solo dopo un aggiornamento che ne cambia il formato.
 
 ## 16. Memoria di progetto
 
-Ogni progetto ha una memoria di fatti raccolti dalle sue run: **Memoria** (**Memory**) nella pagina del progetto.
+Ogni progetto ha una memoria di fatti raccolti dalle sue run: la scheda **Memoria** (**Memory**) del progetto.
 
 | Fatto | Quando entra | Esempio |
 |---|---|---|
@@ -331,7 +331,7 @@ Ogni progetto ha una memoria di fatti raccolti dalle sue run: **Memoria** (**Mem
 - Le insidie restano in **Da confermare** (**To confirm**) finché non le confermi: il loro testo viene dall'output dei comandi, che un file del progetto può influenzare.
 - **Dimentica** (**Forget**) toglie un fatto e impedisce che torni; **Ripristina** (**Restore**) in *Dimenticati* (*Forgotten*) lo riporta. La matita cambia il testo che vedono gli agenti; la puntina lo tiene sempre in cima e non lo fa scadere.
 - La memoria entra nel prompt di sistema delle sessioni **nuove** (run e terminali) fino al limite di token. Una sessione ripresa tiene quella con cui è partita: per far vedere una modifica agli agenti serve una sessione nuova: *Ripristina* (*Reset*) del workspace o *Contesto nuovo* (*Fresh context*).
-- **Impostazioni → Memoria del progetto** (**Settings → Project memory**): interruttore, limite (400–2000 token), scadenza dei fatti (14–90 giorni) ed esperimento. Con l'esperimento metà delle sessioni nuove parte senza memoria; **Risparmi → Esperimento sulla memoria del progetto** (**Savings → Project memory experiment**) confronta i due gruppi dopo 10 run ciascuno. Se il risultato è *costs more* o *no difference*, conviene spegnere la memoria.
+- **Impostazioni → Risparmio token → Memoria del progetto** (**Settings → Token saving → Project memory**): interruttore, limite (400–2000 token), scadenza dei fatti (14–90 giorni) ed esperimento. Con l'esperimento metà delle sessioni nuove parte senza memoria; **Risparmi → Esperimento sulla memoria del progetto** (**Savings → Project memory experiment**) confronta i due gruppi dopo 10 run ciascuno. Se il risultato è *costs more* o *no difference*, conviene spegnere la memoria.
 
 | Problema | Causa probabile | Cosa fare |
 |---|---|---|
@@ -347,7 +347,7 @@ Ogni progetto ha una memoria di fatti raccolti dalle sue run: **Memoria** (**Mem
 |---|---|---|
 | *File da modificare come firme* (*Files to edit as signatures*) | I file indicati nel campo *File target* (*Target files*) del task arrivano come firme (L2); quelli dedotti e gli altri restano come prima | Token di input per run e file letti: se l'agente legge di più, il guadagno sparisce |
 
-**Impostazioni → Opzioni di risparmio token** (**Settings → Token saving options**) raccoglie tre opzioni. Valgono per le sessioni nuove: le riprese tengono il prompt con cui sono partite, così la cache non si rompe.
+**Impostazioni → Risparmio token → Opzioni di risparmio token** (**Settings → Token saving → Token saving options**) raccoglie tre opzioni. Valgono per le sessioni nuove: le riprese tengono il prompt con cui sono partite, così la cache non si rompe.
 
 | Opzione | Default | Cosa fa | Riga di Risparmi | Quando diventa misurata |
 |---|---|---|---|---|
@@ -365,7 +365,7 @@ Nel gruppo ogni task chiude con una riga `TASK n: DONE` o `TASK n: FAILED — mo
 
 ## 18. GitHub: issue, pull request e changelog
 
-La pagina **GitHub** di un progetto funziona quando `origin` (o il remote registrato all'import) punta a `github.com`. Il token si collega in **Impostazioni → GitHub** (**Settings → GitHub**); per un repository pubblico l'elenco delle issue funziona anche senza.
+La scheda **GitHub** di un progetto funziona quando `origin` (o il remote registrato all'import) punta a `github.com`. Il token si collega in **Impostazioni → Account → GitHub** (**Settings → Accounts → GitHub**); per un repository pubblico l'elenco delle issue funziona anche senza.
 
 | Permesso del token fine-grained | Serve per |
 |---|---|
@@ -376,7 +376,7 @@ La pagina **GitHub** di un progetto funziona quando `origin` (o il remote regist
 
 **Issue come task.** I task importati partono in bozza: nessun agente parte da solo. Il prompt contiene il testo dell'issue tra `<issue>` e `</issue>` (commenti HTML e marcatori finti tolti, al massimo 8.000 caratteri) e chiede all'agente di non seguire istruzioni che vi compaiano. Le stesse regole valgono per tutti i task: sandbox, guard e comandi consentiti (§12) restano attivi. Un'issue già importata non si importa due volte.
 
-**Pull request.** Il branch deve esistere nel progetto: lo crea *Publish* nella card git o la fine di un piano. *Fai push e apri la pull request* (*Push and open the pull request*) lo pubblica di nuovo (se è già aggiornato non cambia nulla) e apre la PR verso il branch di default; se una PR aperta esiste già, Onyx la riprende. La descrizione si può modificare prima dell'invio e non passa da un modello.
+**Pull request.** Il branch deve esistere nel progetto: lo crea *Commit e push su GitHub* (*Commit and push to GitHub*) nel pannello Git (in *Configurazione* nella pagina del progetto) o la fine di un piano. *Fai push e apri la pull request* (*Push and open the pull request*) lo pubblica di nuovo (se è già aggiornato non cambia nulla) e apre la PR verso il branch di default; se una PR aperta esiste già, Onyx la riprende. La descrizione si può modificare prima dell'invio e non passa da un modello.
 
 **Controlli.** Onyx legge check run e commit status della testa della PR: ogni minuto finché qualcosa gira o cambia, poi raddoppiando l'intervallo fino a 15 minuti; dopo un errore (rete, limite di GitHub) aspetta almeno 5 minuti, fino a 30. Le richieste usano gli ETag, quindi quelle senza novità non consumano il limite orario. Smette quando la PR viene unita o chiusa. *Verifica ora* (*Check now*) rilegge subito.
 
@@ -391,7 +391,7 @@ La pagina **GitHub** di un progetto funziona quando `origin` (o il remote regist
 
 ## 19. QA e conflitti nei piani
 
-Le due opzioni si scelgono quando si crea il piano e valgono per tutto il piano.
+Le due opzioni si scelgono quando si crea il piano, in *Opzioni avanzate* (*Advanced options*) di *Pianifica una funzionalità*, e valgono per tutto il piano.
 
 **QA prima del merge.** Per ogni task, dopo l'agente e (se attiva) la verifica con i test, Onyx fa il commit nel worktree del task e avvia un revisore:
 
@@ -437,13 +437,13 @@ Claude interviene solo quando lo chiedi, sui risultati statici ancora aperti (al
 
 | Problema | Causa probabile | Cosa fare |
 |---|---|---|
-| Ogni domanda va a Claude | Il progetto non è indicizzato | Aspetta la fine dell'indicizzazione (pagina del progetto) |
+| Ogni domanda va a Claude | Il progetto non è indicizzato | Aspetta la fine dell'indicizzazione (*Configurazione* nella pagina del progetto) |
 | *Impossibile eseguire pnpm audit* (*pnpm audit could not run*) | Niente accesso al registry o comando mancante | Normale in una LAN chiusa: il resto dell'analisi è valido |
 | Un falso positivo torna a ogni analisi | Non è stato scartato | *Scarta* (*Dismiss*): lo scarto si applica alle analisi successive finché il codice non cambia |
 
 ## 21. Lingua, primo progetto e controllo dell'interfaccia
 
-**Lingua.** La console parte in italiano. *Lingua dell'interfaccia* in Impostazioni, o *Passa all'inglese* nella palette, salva la scelta nel cookie `onyx_locale` di quel browser e ricarica i dati. L'API legge lo stesso cookie a ogni richiesta, quindi anche i testi del server arrivano nella lingua scelta. Le notifiche e gli eventi prodotti in background usano l'ultima lingua vista dall'API (dopo un riavvio, l'inglese fino alla prima pagina aperta).
+**Lingua.** La console parte in italiano. *Lingua dell'interfaccia* in **Impostazioni → Interfaccia** (**Settings → Interface**), o *Passa all'inglese* nella palette, salva la scelta nel cookie `onyx_locale` di quel browser e ricarica i dati. L'API legge lo stesso cookie a ogni richiesta, quindi anche i testi del server arrivano nella lingua scelta. Le notifiche e gli eventi prodotti in background usano l'ultima lingua vista dall'API (dopo un riavvio, l'inglese fino alla prima pagina aperta).
 
 Cosa resta in inglese, di proposito:
 
@@ -490,19 +490,54 @@ Al primo avvio installa playwright-core, axe-core e Lighthouse in `~/.cache/onyx
 
 Il riepilogo dell'ultimo avvio è nella diagnostica (*recovery*).
 
-**Controlli di salute.** Ogni scheda di Mission control ha un semaforo e la pagina del progetto ha *Controlli di salute*: indice del codice, git, runner dei test (solo se il comando esiste, i test non vengono eseguiti), spazio su disco (errore sotto 1 GiB o 3% libero, attenzione sotto 5 GiB o 5%) e credenziali. I controlli si ripetono al massimo ogni 30 secondi; *Aggiorna i controlli* li rifà subito.
+**Controlli di salute.** Ogni scheda di Mission control ha un semaforo e la pagina del progetto ha *Controlli di salute* in *Configurazione*: indice del codice, git, runner dei test (solo se il comando esiste, i test non vengono eseguiti), token GitHub (solo se il progetto ha un remote GitHub) e spazio su disco della cartella del progetto, se sta su un disco diverso da quello dei dati (errore sotto 1 GiB o 3% libero, attenzione sotto 5 GiB o 5%). Account Claude e disco dei dati valgono per tutti i progetti: un problema lì compare una volta sola in Mission control, nel riquadro *Riguarda tutti i progetti* (*Affects every project*) con la soluzione, e la pagina del progetto lo ricorda con un rimando. I controlli si ripetono al massimo ogni 30 secondi; *Aggiorna i controlli* li rifà subito.
 
-**Log** (`/logs`, nella barra laterale o dalla palette; su mobile dalla palette o da Impostazioni → Diagnostica). Mostra le ultime 2.000 righe tenute in memoria dall'API, con filtri per livello minimo, run e testo e aggiornamento ogni 5 secondi. Le richieste andate a buon fine non vengono tenute. Prima di essere tenuta o scritta su stdout, ogni riga è ripulita da token (`sk-ant-…`, `ghp_…`, `github_pat_…`, bot Telegram, JWT, `Bearer`), password e segreti in URL, parametri e campi JSON, cookie e chiavi private. Dopo un riavvio l'elenco riparte vuoto: lo storico completo resta in `onyx-logs`.
+**Log** (`/logs`, nella barra laterale sotto *Sistema* o dalla palette; sul telefono dal foglio *Altro*, dalla palette o da Impostazioni → Manutenzione → Diagnostica). Mostra le ultime 2.000 righe tenute in memoria dall'API, con filtri per livello minimo, run e testo e aggiornamento ogni 5 secondi. Le richieste andate a buon fine non vengono tenute. Prima di essere tenuta o scritta su stdout, ogni riga è ripulita da token (`sk-ant-…`, `ghp_…`, `github_pat_…`, bot Telegram, JWT, `Bearer`), password e segreti in URL, parametri e campi JSON, cookie e chiavi private. Dopo un riavvio l'elenco riparte vuoto: lo storico completo resta in `onyx-logs`.
 
-**Diagnostica** (Impostazioni → *Diagnostica*). *Mostra l'anteprima della diagnostica* prepara un file JSON con versione e commit di Onyx, Node, sistema, versione e compatibilità di Claude Code, configurazione senza segreti (per ogni segreto solo *impostato* o *non impostato*), readiness, riepilogo del recupero, ultimi 200 avvisi ed errori, dimensione e righe del database, migrazioni, coda e spazio su disco. *Scarica il file* salva esattamente quello che vedi. È il file da mandare quando chiedi aiuto.
+**Diagnostica** (Impostazioni → Manutenzione → *Diagnostica*). *Mostra l'anteprima della diagnostica* prepara un file JSON con versione e commit di Onyx, Node, sistema, versione e compatibilità di Claude Code, configurazione senza segreti (per ogni segreto solo *impostato* o *non impostato*), readiness, riepilogo del recupero, ultimi 200 avvisi ed errori, dimensione e righe del database, migrazioni, coda e spazio su disco. *Scarica il file* salva esattamente quello che vedi. È il file da mandare quando chiedi aiuto.
 
 **Aggiornamenti.** `onyx-update` esegue git come proprietario del checkout anche quando lo lanci da root e si ferma con un messaggio chiaro su ogni errore di git (checkout illeggibile, HEAD staccato, nessun upstream, pull fallito) senza dire *Onyx aggiornato* (*Onyx updated*). In servizio, `release.sh` aspetta che la release nuova risponda su `/api/ready`; se non succede rimette la precedente e, se c'erano migrazioni, il backup `pre-update`, poi esce con errore. Chi sviluppa crea le migrazioni con `pnpm --filter @onyx/db migrate:new <nome>`, che le nomina dopo l'ultima; `pnpm --filter @onyx/db migrate:check` fallisce se schema e migrazioni non coincidono.
 
 | Problema | Causa probabile | Cosa fare |
 |---|---|---|
 | Semaforo rosso su *Spazio su disco* | Meno di 1 GiB libero | Libera spazio o cancella backup vecchi (`onyx backups`) |
+| Riquadro *Riguarda tutti i progetti* in Mission control | Claude non collegato o poco spazio nella cartella dei dati | Segui la soluzione del riquadro: *Collega Claude* (*Connect Claude*) porta all'account in Impostazioni; per il disco libera spazio |
 | *Runner dei test* in attenzione | Dipendenze non installate nel progetto | Installa le dipendenze del progetto (`npm install` o simile) |
 | Una run è *Interrotta da un riavvio di Onyx* (*Interrupted by Onyx restart*) | Onyx si è fermato mentre girava | Rilancia il task: riparte nella stessa sessione se esiste ancora |
 | `onyx-update` dice *git non riesce a leggere il checkout* (*git cannot read the checkout*) | Il checkout appartiene a un altro utente e git non è eseguibile come quell'utente | Esegui `onyx-update` come proprietario del checkout |
 | `release.sh` esce con *l'aggiornamento non è riuscito ed è stato annullato* (*the update failed and was undone*) | La release nuova non diventava pronta | Guarda `onyx-logs` e la diagnostica: Onyx gira ancora sulla release precedente |
 
+
+## 23. Navigazione e guida
+
+**Dove stanno le pagine.** La barra laterale ha tre gruppi; ogni voce ha una riga che dice a cosa serve e Approvazioni mostra quante decisioni aspettano.
+
+| Gruppo | Pagine |
+|---|---|
+| *Lavoro* (*Work*) | Mission control (`/`), Progetti (`/projects`), Agenti (`/agents`), Approvazioni (`/approvals`) |
+| *Analisi* (*Analysis*) | Risparmi (`/savings`), Consumi (`/telemetry`), Modelli (`/router`) |
+| *Sistema* (*System*) | Log (`/logs`), Impostazioni (`/settings`), Guida (`/help`) |
+
+**Pagine rinominate.** Gli indirizzi non sono cambiati, quindi link e segnalibri funzionano ancora.
+
+| Prima | Ora |
+|---|---|
+| *Griglia degli agenti* (*Agent grid*) | **Agenti** (**Agents**) |
+| *Router* | **Modelli** (**Models**) |
+| *Telemetria* (*Telemetry*) | **Consumi** (**Usage**); *Parte letta dalla cache* al posto della percentuale di hit |
+| Pulsanti *Grafo* e *Context Surgeon* nella scheda dell'indice | Schede **Grafo** e **Context Surgeon** del progetto |
+| Impostazioni in un'unica colonna | Sezioni con indice: Account, Interfaccia, Spesa e coda, Notifiche, Risparmio token, Manutenzione; gli indirizzi delle schede (per esempio `/settings#queue`) restano gli stessi |
+
+**Progetto.** Ogni pagina del progetto ha in cima il percorso e le schede Panoramica, Insights, Roadmap, GitHub, Memoria, Grafo e Context Surgeon. La Panoramica parte da *In corso* (*Running now*) e *Ti aspetta* (*Needs you*), poi i task con i filtri Tutti, Attivi, Da rivedere, Errori, Completati e la ricerca per titolo, i piani, i workspace e in fondo *Configurazione* (*Configuration*): comandi consentiti, indice, pannello Git e salute.
+
+**Task, run e approvazioni.** In cima un riquadro dice in che stato sono e cosa fare dopo. Le opzioni meno usate stanno chiuse in *Opzioni avanzate* (*Advanced options*): nel task modello, profilo agente, sessione nuova, *Può aspettare*, routing e TDD loop; in *Nuovo task* workspace, tipo, modello, file target e *Può aspettare*; in *Pianifica una funzionalità* agenti in parallelo, modello del planner, test, QA e conflitti. Ogni approvazione dice cosa succede con *Se approvi…* e *Se rifiuti…*.
+
+**Sul telefono.** In basso c'è una barra con Panoramica, Progetti, Approvazioni, Agenti e *Altro* (*More*); *Altro* apre un foglio con le altre pagine, la ricerca e l'uscita.
+
+**Guida e aiuti.** **Guida** (**Help**, `/help`) spiega come funziona Onyx in sei passi, le cose che si fanno più spesso (avviare un task, pianificare una funzionalità, capire una run fallita, leggere Risparmi, trovare log e diagnostica) e un glossario con filtro. Il **?** accanto a una parola tecnica nella console ne apre la definizione; la palette (**Ctrl+K**) trova anche i termini del glossario.
+
+| Problema | Causa probabile | Cosa fare |
+|---|---|---|
+| Non trovo la griglia degli agenti, il router o la telemetria | Pagine rinominate | **Agenti**, **Modelli** e **Consumi** nella barra laterale (sul telefono in *Altro*) |
+| Sul telefono mancano Log, Impostazioni o Guida | Non sono nella barra in basso | Tocca *Altro* |
+| Un progetto non mostra più il problema di Claude o del disco | Riguarda tutti i progetti | È nel riquadro *Riguarda tutti i progetti* in Mission control |
