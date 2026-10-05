@@ -63,6 +63,14 @@ export const GitHubRepoListResponseSchema = z.object({
 });
 export type GitHubRepoListResponse = z.infer<typeof GitHubRepoListResponseSchema>;
 
+export const GitHubBranchListResponseSchema = z.object({
+  fullName: z.string(),
+  defaultBranch: z.string(),
+  branches: z.array(z.string()),
+  truncated: z.boolean(),
+});
+export type GitHubBranchListResponse = z.infer<typeof GitHubBranchListResponseSchema>;
+
 export const ImportRepoRequestSchema = z.object({
   fullName: z
     .string()

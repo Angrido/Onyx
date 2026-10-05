@@ -14,6 +14,18 @@ interface ErrorRule {
 
 const RULES: readonly ErrorRule[] = [
   {
+    pattern: /^The branch (\S+) does not exist on (\S+): leave the field empty to clone ([^\s,]+)/,
+    names: ["branch", "repo", "fallback"],
+    message: msg("The branch {branch} does not exist on {repo}."),
+    fix: msg("Keep the default branch ({fallback}) or pick one from the list."),
+  },
+  {
+    pattern: /Remote branch (\S+) not found in upstream/,
+    names: ["branch"],
+    message: msg("The branch {branch} does not exist on GitHub."),
+    fix: msg("Keep the default branch or pick one from the list."),
+  },
+  {
     pattern: /^An agent is working on this project/,
     message: msg("An agent is working on this project."),
     fix: msg("Wait until it finishes, or stop it from its task."),
@@ -142,7 +154,7 @@ export function explainError(
     const params = Object.fromEntries(
       (rule.names ?? []).map((name, index) => [name, match[index + 1] ?? ""]),
     );
-    return { message: t(rule.message, params), fix: rule.fix ? t(rule.fix) : null };
+    return { message: t(rule.message, params), fix: rule.fix ? t(rule.fix, params) : null };
   }
   if (NETWORK.test(text))
     return {

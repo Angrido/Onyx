@@ -12,6 +12,7 @@ import {
   type CloneJobListResponse,
   type GitHubAccountDto,
   type GitHubIssueListResponse,
+  type GitHubBranchListResponse,
   type GitHubRepoListResponse,
   type ImportIssuesResponse,
   type PullRequestDraftDto,
@@ -23,6 +24,8 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Container } from "../../container";
 import { idParam } from "../params";
+
+const RepoParamsSchema = z.object({ owner: z.string().min(1), repo: z.string().min(1) });
 
 function actorOf(request: FastifyRequest): string {
   return request.user ? `user:${request.user.username}` : "user:unknown";
@@ -45,6 +48,15 @@ export function registerGitHubRoutes(app: FastifyInstance, container: Container)
     const query = GitHubRepoListQuerySchema.parse(request.query);
     return github.repos(query.owner, query.refresh);
   });
+
+  app.get(
+    "/api/github/repos/:owner/:repo/branches",
+    async (request): Promise<GitHubBranchListResponse> => {
+      const { owner, repo } = RepoParamsSchema.parse(request.params);
+      const fullName = ImportRepoRequestSchema.shape.fullName.parse(`${owner}/${repo}`);
+      return github.branches(fullName);
+    },
+  );
 
   app.post("/api/github/imports", async (request, reply): Promise<CloneJobDto> => {
     const job = await github.startImport(

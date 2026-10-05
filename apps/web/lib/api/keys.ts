@@ -28,6 +28,7 @@ export const queryKeys = {
   board: (projectId: string) => ["board", projectId] as const,
   gitIdentity: ["settings", "git"] as const,
   githubRepos: (owner: string) => ["github", "repos", owner] as const,
+  githubBranches: (fullName: string) => ["github", "branches", fullName] as const,
   githubImport: (jobId: string) => ["github", "import", jobId] as const,
   githubIssues: (projectId: string, page: number) => ["github", "issues", projectId, page] as const,
   githubPulls: (projectId: string) => ["github", "pulls", projectId] as const,

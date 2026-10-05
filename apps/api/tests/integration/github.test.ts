@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import type {
   CloneJobDto,
   GitHubAccountDto,
+  GitHubBranchListResponse,
   GitHubRepoListResponse,
   ProjectDetailDto,
 } from "@onyx/contracts";
@@ -85,6 +86,8 @@ function handle(request: IncomingMessage, response: ServerResponse): void {
   }
   if (url.pathname === "/users/octo/repos") return send(response, 200, [repoJson("shop")]);
   if (url.pathname === "/repos/octo/shop") return send(response, 200, repoJson("shop"));
+  if (url.pathname === "/repos/octo/shop/branches")
+    return send(response, 200, [{ name: "release/9.9" }, { name: "main" }, { name: "dev" }]);
   return send(response, 404, { message: "Not Found" });
 }
 
@@ -207,6 +210,28 @@ describe("GitHub import", () => {
     ).toEqual([]);
     const jobs = await api.get<{ items: CloneJobDto[] }>("/api/github/imports");
     expect(jobs.body.items.map((item) => item.state)).toEqual(["failed", "done"]);
+  });
+
+  it("lists the branches of a repository and refuses one that does not exist", async () => {
+    const listed = await api.get<GitHubBranchListResponse>("/api/github/repos/octo/shop/branches");
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual({
+      fullName: "octo/shop",
+      defaultBranch: "main",
+      branches: ["main", "dev", "release/9.9"],
+      truncated: false,
+    });
+
+    const refused = await api.post<{ error: { message: string } }>("/api/github/imports", {
+      fullName: "octo/shop",
+      name: "shop-automated",
+      branch: "onyx/automated",
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toBe(
+      "The branch onyx/automated does not exist on octo/shop: leave the field empty to clone main, or pick one of main, release/9.9, dev",
+    );
+    expect(existsSync(join(context.projectsDir, "shop-automated"))).toBe(false);
   });
 
   it("browses public repositories of a user and disconnects", async () => {

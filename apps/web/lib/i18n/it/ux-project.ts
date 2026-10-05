@@ -69,4 +69,14 @@ export const uxProject: Record<string, string> = {
     "Onyx copia uno dei tuoi repository su questo server e lo tiene collegato a GitHub.",
   "Use a folder that is already on this server, for example one you cloned yourself.":
     "Usa una cartella già presente su questo server, per esempio una che hai clonato tu.",
+  "Branch to clone": "Branch da clonare",
+  "Onyx creates the branches agents work on by itself.":
+    "I branch su cui lavorano gli agenti li crea Onyx da solo.",
+  "{branch} (default)": "{branch} (predefinito)",
+  "The branch {branch} does not exist on {repo}.": "Il branch {branch} non esiste su {repo}.",
+  "Keep the default branch ({fallback}) or pick one from the list.":
+    "Lascia il branch predefinito ({fallback}) o scegline uno dall'elenco.",
+  "The branch {branch} does not exist on GitHub.": "Il branch {branch} non esiste su GitHub.",
+  "Keep the default branch or pick one from the list.":
+    "Lascia il branch predefinito o scegline uno dall'elenco.",
 };

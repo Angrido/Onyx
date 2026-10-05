@@ -123,6 +123,8 @@ export interface GitHubClientOptions {
 }
 
 const PAGE_SIZE = 100;
+const BRANCH_PAGES = 5;
+const BranchSchema = z.object({ name: z.string() });
 
 const FAILURE = {
   token: msg("GitHub rejected the token: it is wrong, expired or revoked"),
@@ -174,6 +176,11 @@ function validationDetails(body: string): string | null {
   }
 }
 
+export interface RepoBranches {
+  names: string[];
+  truncated: boolean;
+}
+
 function repoPath(fullName: string): string {
   const [owner, name] = fullName.split("/");
   return `/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}`;
@@ -208,6 +215,24 @@ export class GitHubClient {
   async repo(fullName: string, token: string | null): Promise<GitHubRepo> {
     const { body } = await this.request(repoPath(fullName), token);
     return RepoSchema.parse(body);
+  }
+
+  async branches(fullName: string, token: string | null): Promise<RepoBranches> {
+    const names: string[] = [];
+    for (let page = 1; page <= BRANCH_PAGES; page += 1) {
+      const { body, headers } = await this.request(
+        `${repoPath(fullName)}/branches?per_page=${PAGE_SIZE}&page=${page}`,
+        token,
+      );
+      names.push(
+        ...z
+          .array(BranchSchema)
+          .parse(body)
+          .map((branch) => branch.name),
+      );
+      if (!/rel="next"/.test(headers.get("link") ?? "")) return { names, truncated: false };
+    }
+    return { names, truncated: true };
   }
 
   async issues(
